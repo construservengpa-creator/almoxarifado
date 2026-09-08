@@ -222,6 +222,17 @@ async function load(){ const d=await Store.get(KEY); if(d&&d.products){state=d;}
 async function loadPhotos(){ const d=await Store.get(KEY+':fotos'); if(d&&typeof d==='object'){ photos=d; Object.keys(photos).forEach(k=>{ if(typeof photos[k]==='string')photos[k]=[photos[k]]; if(!Array.isArray(photos[k]))delete photos[k]; }); } }
 async function savePhotos(){ await Store.set(KEY+':fotos', photos, 'Fotos atualizadas'); }
 async function save(label){ await Store.set(KEY, state, label); refreshBadge(); }
+const SAFE_REFRESH_TABS=['painel','obras','aplic','produtos','consulta','relatorios'];
+function subscribeRealtime(){
+  sb.channel('app_kv_sync').on('postgres_changes',{event:'UPDATE',schema:'public',table:'app_kv',filter:'key=eq.'+KEY},payload=>{
+    if(!payload.new||!payload.new.value)return;
+    state=payload.new.value;
+    if(!state.obras)state.obras=[]; if(!state.aplicacoes)state.aplicacoes=[]; if(!state.estoque)state.estoque={}; if(!state.movements)state.movements=[]; if(!state.notas)state.notas=[]; if(!state.seq)state.seq={baixa:0,transfer:0};
+    if(!state.currentObra||!state.obras.some(o=>o.id===state.currentObra))state.currentObra=state.obras[0]?state.obras[0].id:null;
+    refreshBadge(); refreshAprovBadge();
+    if(SAFE_REFRESH_TABS.includes(activeTab))go(activeTab);
+  }).subscribe();
+}
 
 /* ===== Utils ===== */
 const $=s=>document.querySelector(s);
@@ -867,14 +878,15 @@ function aplicarAjuste(code){ const p=findProduct(code); if(!p)return; const obr
   const novo=parseFloat($('#ajNovoSaldo').value); if(isNaN(novo)||novo<0){toast('Informe um saldo válido.','err');return;}
   const delta=novo-atual; if(delta===0){toast('Nenhuma mudança — o saldo já é esse.','err');return;}
   const motivo=$('#ajMotivo').value.trim()||'Ajuste manual';
-  requireSupervisor(`Ajustar saldo de "${p.desc}" em ${obraName(obra)} de ${numf(atual)} para ${numf(novo)}`,()=>{
+  requireSupervisor(`Ajustar saldo de "${p.desc}" em ${obraName(obra)} de ${numf(atual)} para ${numf(novo)}`,async()=>{
     addSaldo(obra,code,delta);
     state.movements.unshift({id:uid(),ts:Date.now(),tipo:'ajuste',obra,code:p.code,desc:p.desc,qty:delta,valorUnit:p.custo||0,valorTotal:delta*(p.custo||0),doc:'Ajuste: '+motivo,saldo:saldoOf(obra,code)});
-    save('Ajuste de saldo: '+p.desc+' em '+obraName(obra)+' ('+(delta>0?'+':'')+numf(delta)+') · '+motivo);
-    toast('Saldo ajustado.','ok'); renderAjuste(); }); }
+    toast('Salvando...','warn');
+    await save('Ajuste de saldo: '+p.desc+' em '+obraName(obra)+' ('+(delta>0?'+':'')+numf(delta)+') · '+motivo);
+    toast('Saldo ajustado e salvo.','ok'); renderAjuste(); }); }
 
 /* ===== REQUISIÇÃO ELETRÔNICA (com aprovação do encarregado) ===== */
-let reqTab='novo', reqCart=[];
+let reqTab='novo', reqCart=[], reqMode='scanner', reqProduct=null;
 function renderRequisicoes(){
   if(needObra())return;
   $('#view').innerHTML=`<div class="panel" style="margin-bottom:14px;padding-bottom:6px"><div class="tabs" style="margin-bottom:0">
@@ -885,25 +897,82 @@ function renderRequisicoes(){
 }
 function setReqTab(t){ reqTab=t; $('#rqNovo').classList.toggle('on',t==='novo'); $('#rqMeus').classList.toggle('on',t==='meus');
   if(t==='novo')drawReqNovo(); else drawReqMeus(); }
-function drawReqNovo(){ reqCart=[]; const pane=$('#reqPane');
-  pane.innerHTML=`<div class="panel"><h3>Nova requisição</h3><p class="desc">Escolha a obra, adicione os itens necessários e envie para aprovação do encarregado. O estoque só é baixado quando o pedido for <b>aprovado</b>.</p>
+function reqObra(){ const el=$('#rqObra'); return el?el.value:curObra(); }
+function drawReqNovo(){ reqCart=[]; reqProduct=null; const pane=$('#reqPane');
+  pane.innerHTML=`<div class="panel"><h3>Nova requisição</h3><p class="desc">Escolha a obra, adicione os itens necessários e envie para aprovação do encarregado. O estoque só é baixado quando o pedido for <b>aprovado</b> — não é possível pedir mais do que o saldo disponível.</p>
     <div class="field" style="max-width:320px"><label>Obra</label><select id="rqObra">${obraOptions(curObra()==='__all'?(state.obras[0]&&state.obras[0].id):curObra(),false)}</select></div>
-    <div class="search" style="max-width:none"><span class="si">⌕</span><input id="rqSearch" placeholder="Nome, código ou auxiliar..." autocomplete="off"></div>
-    <div id="rqResults"></div>
-    <div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Produto</th><th class="num">Qtd</th><th></th></tr></thead><tbody id="rqCartBody"></tbody></table></div>
+    <div class="tabs" style="margin:4px 0 12px">
+      <button id="rmScan" onclick="setReqMode('scanner')">Scanner (rápido)</button>
+      <button id="rmMan" onclick="setReqMode('manual')">Buscar</button></div>
+    <div id="rqModePane"></div>
+    <div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Produto</th><th class="num">Disponível</th><th class="num">Qtd pedida</th><th></th></tr></thead><tbody id="rqCartBody"></tbody></table></div>
     <div class="field" style="margin-top:12px"><label>Observação (opcional)</label><textarea id="rqObs" rows="2" placeholder="Enter = nova linha"></textarea></div>
     <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn primary" onclick="enviarRequisicao()">📋 Enviar para aprovação</button></div></div>`;
-  const si=$('#rqSearch'); si.focus(); si.oninput=e=>drawReqResults(e.target.value); drawReqCart(); }
-function drawReqResults(q){ const box=$('#rqResults'); if(!box)return; const list=searchProducts(q).slice(0,8); if(!q||!list.length){box.innerHTML='';return;}
-  box.innerHTML=`<div class="tbl-wrap" style="margin:6px 0 10px"><table><tbody>`+list.map(p=>`<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''}</span></td><td class="num" style="width:150px"><input type="number" step="any" min="0" placeholder="qtd" id="rqq_${esc(p.code)}" style="width:80px;display:inline-block"> <button class="btn ghost sm" onclick="addReqItem('${esc(p.code)}')">+</button></td></tr>`).join('')+`</tbody></table></div>`; }
-function addReqItem(code){ const p=findProduct(code); if(!p)return; const inp=$('#rqq_'+code); const qty=parseFloat(inp&&inp.value); if(!(qty>0)){toast('Informe a quantidade.','err');return;}
-  const ex=reqCart.find(i=>i.code===code); if(ex)ex.qty+=qty; else reqCart.push({code:p.code,desc:p.desc,unit:p.unit||'',qty});
+  $('#rqObra').onchange=()=>{ reqCart=[]; reqProduct=null; drawReqCart(); setReqMode(reqMode); };
+  setReqMode(reqMode); drawReqCart(); }
+function setReqMode(m){ reqMode=m; if($('#rmScan'))$('#rmScan').classList.toggle('on',m==='scanner'); if($('#rmMan'))$('#rmMan').classList.toggle('on',m==='manual');
+  const pane=$('#rqModePane'); if(!pane)return;
+  if(m==='scanner'){
+    pane.innerHTML=`<div class="scan-box"><label>📷 Escaneie o código de barras — obra: ${esc(obraName(reqObra()))}</label>
+      <input id="rqScanInput" placeholder="Leia o código de barras ou digite nome / código (parcial)" autocomplete="off">
+      <div class="scan-hint">⚡ Escaneie ou pesquise, informe a quantidade e adicione à lista.</div></div>
+      <div id="rqScanResults"></div>
+      <div class="found-card" id="reqFoundCard"></div>`;
+    const inp=$('#rqScanInput'); inp.focus();
+    inp.oninput=e=>drawReqScanResults(e.target.value);
+    inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();lookupReqScan(inp.value);}});
+  } else {
+    pane.innerHTML=`<div class="search" style="max-width:none"><span class="si">⌕</span><input id="rqSearch" placeholder="Nome, código ou auxiliar..." autocomplete="off"></div>
+      <div id="rqResults"></div>`;
+    const si=$('#rqSearch'); si.focus(); si.oninput=e=>drawReqResults(e.target.value);
+  }
+}
+/* --- scanner --- */
+function drawReqScanResults(q){ const box=$('#rqScanResults'); if(!box)return; const o=reqObra(); const list=searchProducts(q).slice(0,8); if(!q||!list.length){box.innerHTML='';return;}
+  box.innerHTML=`<div class="tbl-wrap" style="margin:6px 0 10px"><table><tbody>`+list.map(p=>`<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · disponível ${numf(saldoOf(o,p.code))} ${esc(p.unit||'')}</span></td><td class="num" style="width:80px"><button class="btn ghost sm" onclick="lookupReqScanPick('${esc(p.code)}')">Selecionar</button></td></tr>`).join('')+`</tbody></table></div>`; }
+function lookupReqScanPick(code){ if($('#rqScanResults'))$('#rqScanResults').innerHTML=''; lookupReqScan(code,true); }
+function lookupReqScan(code,exactCode){ code=String(code).trim(); if(!code)return; const o=reqObra();
+  let p=findByCodeOrAux(code) || (exactCode?findProduct(code):null); const fc=$('#reqFoundCard');
+  if(!p){ const list=searchProducts(code); if(list.length===1){p=list[0];} else if(list.length>1){ drawReqScanResults(code); toast('Vários itens encontrados — escolha na lista.','warn'); return; } }
+  if(!p){ fc.className='found-card show'; fc.style.borderColor='var(--red)'; fc.innerHTML=`<div style="text-align:center;color:#c0392b">Nada encontrado para: <span class="mono">${esc(code)}</span></div>`; $('#rqScanInput').value=''; $('#rqScanInput').focus(); toast('Produto não encontrado.','err'); return; }
+  if($('#rqScanResults'))$('#rqScanResults').innerHTML='';
+  const s=saldoOf(o,p.code);
+  if(s<=0){ reqProduct=null; fc.className='found-card show'; fc.style.borderColor='var(--red)';
+    fc.innerHTML=`<div class="fc-head"><div><div class="code">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · ${esc(obraName(o))}</div><div class="name">${esc(p.desc)}</div></div></div>
+      <div style="background:#fdeaea;border:1px solid #e0a0a0;border-radius:8px;padding:10px 12px;margin-top:8px;font-size:12.5px;color:#a02525">⛔ Sem saldo em <b>${esc(obraName(o))}</b> — não é possível requisitar.${obrasComSaldo(p.code)?`<br>Há saldo em: ${obrasComSaldo(p.code)}.`:''}</div>
+      <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn ghost" onclick="cancelReqScan()">Fechar</button></div>`;
+    $('#rqScanInput').value=''; $('#rqScanInput').focus(); toast('Item zerado nesta obra.','warn'); return; }
+  reqProduct=p;
+  fc.style.borderColor='var(--amber)'; fc.className='found-card show';
+  fc.innerHTML=`<div class="fc-head"><div><div class="code">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · ${esc(obraName(o))}</div><div class="name">${esc(p.desc)}</div></div></div>
+    <div class="fc-stats"><div class="fc-stat"><div class="l">Disponível</div><div class="v">${numf(s)} <span style="font-size:11px">${esc(p.unit||'')}</span></div></div></div>
+    <div class="field" style="margin:8px 0 0"><label>Quantidade a requisitar (máx. ${numf(s)})</label><input id="reqQty" type="number" step="any" min="0" max="${s}" autofocus></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="cancelReqScan()">Cancelar</button><button class="btn primary" onclick="addReqScanToCart()">+ Adicionar à lista</button></div>`;
+  $('#rqScanInput').value=''; const rq=$('#reqQty'); rq.focus(); rq.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();addReqScanToCart();}});
+}
+function cancelReqScan(){ reqProduct=null; const fc=$('#reqFoundCard'); if(fc)fc.className='found-card'; if($('#rqScanInput'))$('#rqScanInput').focus(); }
+function addReqScanToCart(){ const p=reqProduct; if(!p)return; const o=reqObra();
+  const qty=parseFloat($('#reqQty').value); if(!(qty>0)){toast('Informe a quantidade.','err');return;}
+  const s=saldoOf(o,p.code); const ex=reqCart.find(i=>i.code===p.code); const have=ex?(ex.qty||0):0;
+  if(have+qty>s){toast(`Disponível apenas ${numf(s)} ${p.unit||''} de ${p.desc}.`,'err');return;}
+  if(ex)ex.qty=have+qty; else reqCart.push({code:p.code,desc:p.desc,unit:p.unit||'',qty});
+  reqProduct=null; const fc=$('#reqFoundCard'); if(fc)fc.className='found-card'; drawReqCart();
+  if($('#rqScanInput')){$('#rqScanInput').value='';$('#rqScanInput').focus();} }
+/* --- buscar --- */
+function drawReqResults(q){ const box=$('#rqResults'); if(!box)return; const o=reqObra(); const list=searchProducts(q).slice(0,8); if(!q||!list.length){box.innerHTML='';return;}
+  box.innerHTML=`<div class="tbl-wrap" style="margin:6px 0 10px"><table><tbody>`+list.map(p=>{const s=saldoOf(o,p.code); return `<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · disponível ${numf(s)} ${esc(p.unit||'')}</span></td><td class="num" style="width:150px"><input type="number" step="any" min="0" max="${s}" placeholder="qtd" id="rqq_${esc(p.code)}" style="width:80px;display:inline-block"> <button class="btn ghost sm" onclick="addReqItem('${esc(p.code)}')">+</button></td></tr>`;}).join('')+`</tbody></table></div>`; }
+function addReqItem(code){ const p=findProduct(code); if(!p)return; const o=reqObra(); const s=saldoOf(o,code); const inp=$('#rqq_'+code); const qty=parseFloat(inp&&inp.value); if(!(qty>0)){toast('Informe a quantidade.','err');return;}
+  const ex=reqCart.find(i=>i.code===code); const have=ex?(ex.qty||0):0;
+  if(have+qty>s){toast(`Disponível apenas ${numf(s)} ${p.unit||''} de ${p.desc}.`,'err');return;}
+  if(ex)ex.qty=have+qty; else reqCart.push({code:p.code,desc:p.desc,unit:p.unit||'',qty});
   $('#rqSearch').value=''; $('#rqResults').innerHTML=''; $('#rqSearch').focus(); drawReqCart(); }
 function rmReqItem(i){ reqCart.splice(i,1); drawReqCart(); }
-function drawReqCart(){ const b=$('#rqCartBody'); if(!b)return;
-  b.innerHTML=reqCart.length?reqCart.map((i,idx)=>`<tr><td>${esc(i.desc)}<br><span class="muted" style="font-size:11px">${esc(i.code)}</span></td><td class="num">${numf(i.qty)} ${esc(i.unit||'')}</td><td class="num"><button class="btn danger sm" onclick="rmReqItem(${idx})">✕</button></td></tr>`).join(''):`<tr><td colspan="3" class="empty" style="padding:16px">Nenhum item adicionado.</td></tr>`; }
+function drawReqCart(){ const b=$('#rqCartBody'); if(!b)return; const o=reqObra();
+  b.innerHTML=reqCart.length?reqCart.map((i,idx)=>{const s=saldoOf(o,i.code); return `<tr><td>${esc(i.desc)}<br><span class="muted" style="font-size:11px">${esc(i.code)}</span></td><td class="num ${s<i.qty?'neg':''}">${numf(s)} ${esc(i.unit||'')}</td><td class="num">${numf(i.qty)} ${esc(i.unit||'')}</td><td class="num"><button class="btn danger sm" onclick="rmReqItem(${idx})">✕</button></td></tr>`;}).join(''):`<tr><td colspan="4" class="empty" style="padding:16px">Nenhum item adicionado.</td></tr>`; }
 async function enviarRequisicao(){ if(!reqCart.length){toast('Adicione ao menos 1 item.','err');return;}
-  const obraId=$('#rqObra').value; const ob=state.obras.find(o=>o.id===obraId); if(!ob){toast('Selecione a obra.','err');return;}
+  const obraId=reqObra(); const ob=state.obras.find(o=>o.id===obraId); if(!ob){toast('Selecione a obra.','err');return;}
+  const excedido=reqCart.filter(i=>i.qty>saldoOf(obraId,i.code));
+  if(excedido.length){ toast('Saldo insuficiente para: '+excedido.map(i=>i.desc).join(', ')+'. Ajuste a quantidade.','err'); drawReqCart(); return; }
   const obs=($('#rqObs')?$('#rqObs').value.trim():'');
   const {error}=await sb.from('requisicoes').insert({obra_id:ob.id,obra_nome:ob.nome,solicitante_id:session.user.id,solicitante_nome:profile.nome||profile.email,itens:reqCart,observacao:obs||null});
   if(error){toast('Erro ao enviar: '+error.message,'err');return;}
@@ -1171,12 +1240,13 @@ function hideGate(){ $('#gate').style.display='none'; }
 function showPending(){ const el=$('#authView'); el.innerHTML=`<div class="pendbox"><div class="ico">⏳</div><h3 style="margin-bottom:8px">Conta aguardando aprovação</h3><p style="color:var(--muted);font-size:13px">Um administrador precisa ativar seu usuário antes do primeiro acesso.</p><button class="btn ghost sm" style="margin-top:16px" onclick="doLogout()">Sair</button></div>`; showGate(); }
 async function loadProfile(){ const {data,error}=await sb.from('profiles').select('*').eq('id',session.user.id).maybeSingle();
   if(error||!data)return null; return data; }
+let realtimeSubscribed=false;
 async function onAuthReady(){
   if(!session){ profile=null; drawAuthView(); showGate(); return; }
   profile=await loadProfile();
   if(!profile||!profile.ativo){ showPending(); return; }
   hideGate(); applyRoleNav(); await load(); await loadPhotos(); refreshBadge(); refreshAprovBadge(); go('painel');
-  await sb.rpc('log_event',{p_acao:'login'});
+  if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); await sb.rpc('log_event',{p_acao:'login'}); }
 }
 sb.auth.onAuthStateChange((event,s)=>{ session=s; onAuthReady(); });
 
