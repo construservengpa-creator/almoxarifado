@@ -870,17 +870,25 @@ function criarProdutoAjuste(){ const desc=$('#ajNewDesc').value.trim(); if(!desc
 function selecionarAjuste(code){ const p=findProduct(code); if(!p)return; const obra=$('#ajObra').value; const atual=saldoOf(obra,code);
   $('#ajSearch').value=p.desc; $('#ajResults').innerHTML='';
   $('#ajForm').innerHTML=`<div class="panel" style="background:var(--panel2);margin-top:12px"><h3 style="margin-bottom:4px">${esc(p.desc)} <span class="muted" style="font-size:12px">(${esc(p.code)})</span></h3>
-    <p class="desc">Saldo atual em <b>${esc(obraName(obra))}</b>: <b>${numf(atual)} ${esc(p.unit||'')}</b></p>
-    <div class="field" style="max-width:220px"><label>Novo saldo</label><input id="ajNovoSaldo" type="number" step="any" value="${atual}"></div>
+    <p class="desc">Saldo atual em <b>${esc(obraName(obra))}</b>: <b>${numf(atual)} ${esc(p.unit||'')}</b> · custo médio atual: <b>${money(p.custo||0)}</b></p>
+    <div class="row c2">
+      <div class="field" style="margin:0"><label>Novo saldo</label><input id="ajNovoSaldo" type="number" step="any" value="${atual}"></div>
+      <div class="field" style="margin:0"><label>Valor de compra (custo unitário)</label><input id="ajCusto" type="number" step="any" min="0" value="${p.custo||0}"></div>
+    </div>
     <div class="field"><label>Motivo / observação</label><input id="ajMotivo" placeholder="ex.: saldo inicial, contagem física..."></div>
     <button class="btn primary" onclick="aplicarAjuste('${esc(code)}')">Aplicar ajuste</button></div>`; }
 function aplicarAjuste(code){ const p=findProduct(code); if(!p)return; const obra=$('#ajObra').value; const atual=saldoOf(obra,code);
   const novo=parseFloat($('#ajNovoSaldo').value); if(isNaN(novo)||novo<0){toast('Informe um saldo válido.','err');return;}
   const delta=novo-atual; if(delta===0){toast('Nenhuma mudança — o saldo já é esse.','err');return;}
-  const motivo=$('#ajMotivo').value.trim()||'Ajuste manual';
+  const custoInformado=parseFloat($('#ajCusto').value); const motivo=$('#ajMotivo').value.trim()||'Ajuste manual';
+  let custoFinal=p.custo||0;
+  if(!isNaN(custoInformado)&&custoInformado>=0){
+    if(delta>0){ custoFinal = novo>0 ? (((atual*(p.custo||0))+(delta*custoInformado))/novo) : custoInformado; }
+    else { custoFinal = custoInformado; }
+  }
   requireSupervisor(`Ajustar saldo de "${p.desc}" em ${obraName(obra)} de ${numf(atual)} para ${numf(novo)}`,async()=>{
-    addSaldo(obra,code,delta);
-    state.movements.unshift({id:uid(),ts:Date.now(),tipo:'ajuste',obra,code:p.code,desc:p.desc,qty:delta,valorUnit:p.custo||0,valorTotal:delta*(p.custo||0),doc:'Ajuste: '+motivo,saldo:saldoOf(obra,code)});
+    addSaldo(obra,code,delta); p.custo=custoFinal;
+    state.movements.unshift({id:uid(),ts:Date.now(),tipo:'ajuste',obra,code:p.code,desc:p.desc,qty:delta,valorUnit:custoFinal,valorTotal:delta*custoFinal,doc:'Ajuste: '+motivo,saldo:saldoOf(obra,code)});
     toast('Salvando...','warn');
     await save('Ajuste de saldo: '+p.desc+' em '+obraName(obra)+' ('+(delta>0?'+':'')+numf(delta)+') · '+motivo);
     toast('Saldo ajustado e salvo.','ok'); renderAjuste(); }); }
