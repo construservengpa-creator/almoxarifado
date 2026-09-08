@@ -150,6 +150,9 @@
   .pendbox .ico{font-size:36px;margin-bottom:10px}
   #camReaderBox{width:100%;min-height:260px}
   #camReaderBox video{width:100%!important;border-radius:10px}
+  .offbadge{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;font-size:12px;font-weight:600;margin-right:12px}
+  .offbadge.off{background:#fde8e8;color:#b03030}
+  .offbadge.sync{background:#fff3da;color:#a8731a}
 </style>
 </head>
 <body>
@@ -192,6 +195,7 @@
 <main>
   <div class="topbar">
     <h2 id="pageTitle">Painel <small id="pageSub"></small></h2>
+    <div id="offlineBadge" class="offbadge noprint" style="display:none"></div>
     <div class="noprint" id="topActions"></div>
   </div>
   <div class="wrap" id="view"></div>
@@ -212,19 +216,58 @@ function isAtivo(){ return !!profile && profile.ativo; }
 /* ===== Persistência (Supabase: tabela app_kv + auditoria via RPC) ===== */
 const KEY='controle-estoque-obras-v1';
 const Store={
-  async get(k){ const {data,error}=await sb.from('app_kv').select('value').eq('key',k).maybeSingle(); if(error){console.error(error);return null;} return data?data.value:null; },
+  async get(k){ try{ const {data,error}=await sb.from('app_kv').select('value').eq('key',k).maybeSingle(); if(error)throw error; return data?data.value:null; }catch(e){ console.warn('Store.get sem rede, usando cache:',e); return undefined; } },
   async set(k,v,label){ const {error}=await sb.rpc('save_estado',{p_key:k,p_value:v,p_label:label||null}); if(error){console.error(error); toast('Erro ao salvar: '+error.message,'err');} }
 };
 let state={ obras:[], aplicacoes:[], products:[], estoque:{}, movements:[], notas:[], seq:{baixa:0,transfer:0}, config:{supHash:null}, currentObra:null };
 let photos={};
-async function load(){ const d=await Store.get(KEY); if(d&&d.products){state=d;}
+async function load(){ const d=await Store.get(KEY);
+  if(d===undefined){ if(loadCache())toast('Sem conexão — carregando última cópia salva neste aparelho.','warn'); }
+  else if(d&&d.products){state=d;}
   if(!state.obras)state.obras=[]; if(!state.aplicacoes)state.aplicacoes=[]; if(!state.estoque)state.estoque={}; if(!state.movements)state.movements=[]; if(!state.notas)state.notas=[]; if(!state.seq)state.seq={baixa:0,transfer:0}; if(!state.config)state.config={supHash:null};
   state.movements.forEach(m=>{ if(!m.id)m.id=uid(); });
   if(!state.currentObra || !state.obras.some(o=>o.id===state.currentObra)) state.currentObra=state.obras[0]?state.obras[0].id:null;
+  cacheState();
 }
 async function loadPhotos(){ const d=await Store.get(KEY+':fotos'); if(d&&typeof d==='object'){ photos=d; Object.keys(photos).forEach(k=>{ if(typeof photos[k]==='string')photos[k]=[photos[k]]; if(!Array.isArray(photos[k]))delete photos[k]; }); } }
 async function savePhotos(){ await Store.set(KEY+':fotos', photos, 'Fotos atualizadas'); }
-async function save(label){ await Store.set(KEY, state, label); refreshBadge(); }
+async function save(label){ await Store.set(KEY, state, label); cacheState(); refreshBadge(); }
+
+/* ===== Modo offline: cache local + fila de sincronização ===== */
+let isOnline=navigator.onLine;
+const OFFLINE_KEY='estoque_offline_queue_v1', CACHE_KEY='estoque_cache_v1';
+function cacheState(){ try{ localStorage.setItem(CACHE_KEY, JSON.stringify({state,photos})); }catch(e){} }
+function loadCache(){ try{ const d=JSON.parse(localStorage.getItem(CACHE_KEY)); if(d&&d.state&&d.state.products){ state=d.state; photos=d.photos||{}; return true; } }catch(e){} return false; }
+function getQueue(){ try{return JSON.parse(localStorage.getItem(OFFLINE_KEY)||'[]');}catch(e){return [];} }
+function setQueue(q){ try{localStorage.setItem(OFFLINE_KEY, JSON.stringify(q));}catch(e){} updateOfflineBadge(); }
+function queueAction(type,payload,label){ const q=getQueue(); q.push({id:uid(),type,payload,label,ts:Date.now()}); setQueue(q); }
+function updateOfflineBadge(){ const el=$('#offlineBadge'); if(!el)return; const n=getQueue().length;
+  if(!isOnline){ el.style.display='flex'; el.className='offbadge off noprint'; el.textContent='📴 Offline'+(n?' · '+n+' pendente(s)':''); }
+  else if(n>0){ el.style.display='flex'; el.className='offbadge sync noprint'; el.textContent='🔄 Sincronizando '+n+' pendente(s)...'; }
+  else { el.style.display='none'; }
+}
+let syncingQueue=false;
+async function processOfflineQueue(){
+  if(syncingQueue||!isOnline)return; const q0=getQueue(); if(!q0.length)return; syncingQueue=true;
+  let q=q0;
+  while(q.length && isOnline){
+    const act=q[0];
+    try{
+      if(act.type==='requisicao'){ const {error}=await sb.from('requisicoes').insert(act.payload); if(error)throw error; }
+      else if(act.type==='baixa'){ const d=await Store.get(KEY); if(d===undefined)throw new Error('offline');
+        if(d&&d.products)state=d; if(!state.movements)state.movements=[]; if(!state.seq)state.seq={baixa:0,transfer:0};
+        applyBaixaPayload(act.payload); const {error}=await sb.rpc('save_estado',{p_key:KEY,p_value:state,p_label:act.label||null}); if(error)throw error; }
+      q=q.slice(1); setQueue(q);
+    }catch(e){ console.error('Falha ao sincronizar pendência offline',e); break; }
+  }
+  syncingQueue=false; updateOfflineBadge();
+  if(getQueue().length===0 && q0.length>0){ toast('Tudo sincronizado.','ok'); cacheState(); refreshBadge(); if(SAFE_REFRESH_TABS.includes(activeTab))go(activeTab); }
+}
+function applyBaixaPayload(p){ const seq=++state.seq.baixa;
+  p.itens.forEach(it=>{ addSaldo(p.obra,it.code,-it.qty);
+    state.movements.unshift({id:uid(),ts:p.ts||Date.now(),seq,baixaId:p.baixaId,tipo:'baixa',obra:p.obra,aplic:p.aplic||'',obs:p.obs||'',code:it.code,desc:it.desc,qty:it.qty,valorUnit:it.valorUnit||0,valorTotal:it.qty*(it.valorUnit||0),doc:p.doc,saldo:saldoOf(p.obra,it.code)}); }); }
+window.addEventListener('online',()=>{ isOnline=true; updateOfflineBadge(); if(getQueue().length){toast('Conexão de volta — sincronizando pendências...','ok'); processOfflineQueue();} });
+window.addEventListener('offline',()=>{ isOnline=false; updateOfflineBadge(); toast('Sem conexão — as próximas ações ficam guardadas neste aparelho.','warn'); });
 const SAFE_REFRESH_TABS=['painel','obras','aplic','produtos','consulta','relatorios'];
 function subscribeRealtime(){
   sb.channel('app_kv_sync').on('postgres_changes',{event:'UPDATE',schema:'public',table:'app_kv',filter:'key=eq.'+KEY},payload=>{
@@ -852,11 +895,17 @@ function confirmSaida(){ const o=curObra()==='__all'?state.obras[0].id:curObra()
   if(!state.aplicacoes.length){toast('Cadastre uma aplicação antes da saída.','err');return;}
   const aplic=($('#saidaAplic')?$('#saidaAplic').value:''); if(!aplic){toast('Informe a aplicação (obrigatório).','err'); if($('#saidaAplic'))$('#saidaAplic').focus(); return;}
   const resp=($('#saidaResp')?$('#saidaResp').value.trim():''); const obs=($('#saidaObs')?$('#saidaObs').value.trim():''); const wantReport=$('#saidaReport')&&$('#saidaReport').checked;
-  const seq=++state.seq.baixa; const baixaId=uid(); const doc=`Baixa Nº ${seqf(seq)}`+(resp?' · '+resp:''); const repItens=[];
+  const baixaId=uid(); const repItens=itens.map(i=>{const p=findProduct(i.code); return {code:p.code,aux:p.aux,desc:p.desc,qty:i.qty,unit:p.unit,valor:p.custo||0};});
+  const seq=++state.seq.baixa; const doc=`Baixa Nº ${seqf(seq)}`+(resp?' · '+resp:'')+(isOnline?'':' (offline)');
   itens.forEach(i=>{const p=findProduct(i.code); const vu=p.custo||0; addSaldo(o,p.code,-i.qty);
-    state.movements.unshift({id:uid(),ts:Date.now(),seq,baixaId,tipo:'baixa',obra:o,aplic,obs,code:p.code,desc:p.desc,qty:i.qty,valorUnit:vu,valorTotal:i.qty*vu,doc,saldo:saldoOf(o,p.code)});
-    repItens.push({code:p.code,aux:p.aux,desc:p.desc,qty:i.qty,unit:p.unit,valor:vu}); });
-  save('Baixa Nº '+seqf(seq)+' · '+itens.length+' item(ns) em '+obraName(o)); toast(`Saída Nº ${seqf(seq)} · ${itens.length} item(ns) em ${esc(obraName(o))}.`,'ok');
+    state.movements.unshift({id:uid(),ts:Date.now(),seq,baixaId,tipo:'baixa',obra:o,aplic,obs,code:p.code,desc:p.desc,qty:i.qty,valorUnit:vu,valorTotal:i.qty*vu,doc,saldo:saldoOf(o,p.code)}); });
+  if(!isOnline){
+    cacheState();
+    queueAction('baixa',{obra:o,aplic,obs,doc:`Baixa Nº ${seqf(seq)}`+(resp?' · '+resp:''),baixaId,ts:Date.now(),itens:itens.map(i=>{const p=findProduct(i.code); return {code:p.code,desc:p.desc,unit:p.unit,qty:i.qty,valorUnit:p.custo||0};})},'Baixa Nº '+seqf(seq)+' · '+itens.length+' item(ns) em '+obraName(o));
+    toast(`Saída Nº ${seqf(seq)} guardada offline · ${itens.length} item(ns). Envia sozinha quando a conexão voltar.`,'warn');
+  } else {
+    save('Baixa Nº '+seqf(seq)+' · '+itens.length+' item(ns) em '+obraName(o)); toast(`Saída Nº ${seqf(seq)} · ${itens.length} item(ns) em ${esc(obraName(o))}.`,'ok');
+  }
   itens.forEach(i=>{const p=findProduct(i.code); if(saldoOf(o,p.code)<=p.min)toast(`⚠ ${p.desc} no mínimo (${numf(saldoOf(o,p.code))}).`,'warn');});
   if(wantReport)printSignReport({titulo:'Comprovante de Saída de Material',numero:seqf(seq),subtitulo:'Baixa de estoque',data:fmtDate(Date.now()),obra:obraName(o),aplicacao:aplicName(aplic),doc,responsavel:resp,obs,itens:repItens,assinaturas:['Solicitante','Responsável pelo almoxarifado','Recebedor']});
   saidaCart=[]; drawBaixaHist(); setBaixaMode(baixaMode); }
@@ -1003,14 +1052,19 @@ async function enviarRequisicao(){ if(!reqCart.length){toast('Adicione ao menos 
   const excedido=reqCart.filter(i=>i.qty>saldoOf(obraId,i.code));
   if(excedido.length){ toast('Saldo insuficiente para: '+excedido.map(i=>i.desc).join(', ')+'. Ajuste a quantidade.','err'); drawReqCart(); return; }
   const obs=($('#rqObs')?$('#rqObs').value.trim():'');
-  const {error}=await sb.from('requisicoes').insert({obra_id:ob.id,obra_nome:ob.nome,solicitante_id:session.user.id,solicitante_nome:profile.nome||profile.email,itens:reqCart,observacao:obs||null});
+  const payload={obra_id:ob.id,obra_nome:ob.nome,solicitante_id:session.user.id,solicitante_nome:profile.nome||profile.email,itens:reqCart,observacao:obs||null};
+  if(!isOnline){ queueAction('requisicao',payload); toast('Sem conexão — pedido guardado neste aparelho e será enviado assim que a conexão voltar.','warn'); setReqTab('meus'); return; }
+  const {error}=await sb.from('requisicoes').insert(payload);
   if(error){toast('Erro ao enviar: '+error.message,'err');return;}
   toast('Requisição enviada para aprovação.','ok'); setReqTab('meus'); refreshAprovBadge(); }
 async function drawReqMeus(){ const pane=$('#reqPane'); pane.innerHTML='<div class="tbl-wrap"><div class="empty">Carregando...</div></div>';
-  const {data,error}=await sb.from('requisicoes').select('*').eq('solicitante_id',session.user.id).order('criado_em',{ascending:false}).limit(100);
+  const pendQueue=getQueue().filter(a=>a.type==='requisicao');
+  let data=[],error=null;
+  if(isOnline){ const r=await sb.from('requisicoes').select('*').eq('solicitante_id',session.user.id).order('criado_em',{ascending:false}).limit(100); data=r.data||[]; error=r.error; }
   if(error){pane.innerHTML='<div class="tbl-wrap"><div class="empty">Erro: '+esc(error.message)+'</div></div>';return;}
-  pane.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>Nº</th><th>Data</th><th>Obra</th><th>Itens</th><th>Situação</th><th></th></tr></thead><tbody>${
-    (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(r.criado_em).getTime())}</td><td>${esc(r.obra_nome)}</td><td>${r.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${r.motivo_rejeicao?`<br><span class="muted" style="font-size:11px">motivo: ${esc(r.motivo_rejeicao)}</span>`:''}</td><td class="num">${r.status==='pendente'?`<button class="btn ghost sm" onclick="cancelarRequisicao(${r.id})">Cancelar</button>`:''}</td></tr>`).join('')||`<tr><td colspan="6" class="empty" style="padding:24px">Nenhum pedido ainda.</td></tr>`}</tbody></table></div>`; }
+  const queuedRows=pendQueue.map(a=>`<tr><td class="mono">—</td><td class="muted" style="font-size:12px">${fmtDate(a.ts)}</td><td>${esc(a.payload.obra_nome)}</td><td>${a.payload.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td><span class="pill pendente">📴 Aguardando envio</span></td><td></td></tr>`).join('');
+  pane.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>Nº</th><th>Data</th><th>Obra</th><th>Itens</th><th>Situação</th><th></th></tr></thead><tbody>${queuedRows+
+    data.map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(r.criado_em).getTime())}</td><td>${esc(r.obra_nome)}</td><td>${r.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${r.motivo_rejeicao?`<br><span class="muted" style="font-size:11px">motivo: ${esc(r.motivo_rejeicao)}</span>`:''}</td><td class="num">${r.status==='pendente'?`<button class="btn ghost sm" onclick="cancelarRequisicao(${r.id})">Cancelar</button>`:''}</td></tr>`).join('')||(queuedRows?'':`<tr><td colspan="6" class="empty" style="padding:24px">Nenhum pedido ainda.</td></tr>`)}</tbody></table></div>`; }
 function reqStatusLabel(s){ return {pendente:'Pendente',aprovada:'Aprovada',rejeitada:'Rejeitada',cancelada:'Cancelada'}[s]||s; }
 async function cancelarRequisicao(id){ const {error}=await sb.from('requisicoes').update({status:'cancelada'}).eq('id',id); if(error){toast('Erro: '+error.message,'err');return;} toast('Requisição cancelada.','warn'); drawReqMeus(); refreshAprovBadge(); }
 
@@ -1267,15 +1321,18 @@ async function doLogout(){ await sb.rpc('log_event',{p_acao:'logout'}); await sb
 function showGate(){ $('#gate').style.display='flex'; }
 function hideGate(){ $('#gate').style.display='none'; }
 function showPending(){ const el=$('#authView'); el.innerHTML=`<div class="pendbox"><div class="ico">⏳</div><h3 style="margin-bottom:8px">Conta aguardando aprovação</h3><p style="color:var(--muted);font-size:13px">Um administrador precisa ativar seu usuário antes do primeiro acesso.</p><button class="btn ghost sm" style="margin-top:16px" onclick="doLogout()">Sair</button></div>`; showGate(); }
-async function loadProfile(){ const {data,error}=await sb.from('profiles').select('*').eq('id',session.user.id).maybeSingle();
-  if(error||!data)return null; return data; }
+async function loadProfile(){ try{ const {data,error}=await sb.from('profiles').select('*').eq('id',session.user.id).maybeSingle(); if(error)throw error;
+    if(data){ try{localStorage.setItem('estoque_profile_cache_v1',JSON.stringify(data));}catch(e){} } return data; }
+  catch(e){ console.warn('loadProfile sem rede, tentando cache:',e);
+    try{ const c=JSON.parse(localStorage.getItem('estoque_profile_cache_v1')); if(c&&c.id===session.user.id)return c; }catch(e2){}
+    return null; } }
 let realtimeSubscribed=false;
 async function onAuthReady(){
   if(!session){ profile=null; drawAuthView(); showGate(); return; }
   profile=await loadProfile();
   if(!profile||!profile.ativo){ showPending(); return; }
-  hideGate(); applyRoleNav(); await load(); await loadPhotos(); refreshBadge(); refreshAprovBadge(); go('painel');
-  if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); await sb.rpc('log_event',{p_acao:'login'}); }
+  hideGate(); applyRoleNav(); await load(); await loadPhotos(); refreshBadge(); refreshAprovBadge(); updateOfflineBadge(); go('painel');
+  if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); }
 }
 sb.auth.onAuthStateChange((event,s)=>{ session=s; onAuthReady(); });
 
