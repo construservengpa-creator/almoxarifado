@@ -8,6 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root{
@@ -147,6 +148,8 @@
   #authView input{background:var(--panel2);border-color:var(--line);color:var(--ink)}
   .pendbox{text-align:center;padding:10px 0}
   .pendbox .ico{font-size:36px;margin-bottom:10px}
+  #camReaderBox{width:100%;min-height:260px}
+  #camReaderBox video{width:100%!important;border-radius:10px}
 </style>
 </head>
 <body>
@@ -313,6 +316,22 @@ function requireSupervisor(title,onOk){
   $('#rsOk').onclick=()=>{ closeModal(); onOk&&onOk(); };
 }
 function papelLabel(p){ return p==='admin'?'Administrador':p==='encarregado'?'Encarregado':'Operador'; }
+
+/* ===== Scanner de câmera (celular / tablet) ===== */
+let camScanner=null;
+function openCameraScanner(onResult){
+  if(typeof Html5Qrcode==='undefined'){ toast('Leitor de câmera não carregou (verifique a conexão) — use a digitação manual.','err'); return; }
+  $('#modalRoot').innerHTML=`<div class="ovl"><div class="modal"><h3>📷 Aponte para o código de barras</h3>
+    <div id="camReaderBox"></div>
+    <p class="mp" style="text-align:center;margin-top:10px;color:var(--muted);font-size:12.5px">Segure firme e aproxime até focar. Funciona com códigos de barras e QR.</p>
+    <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn ghost" onclick="closeCameraScanner()">Cancelar</button></div></div></div>`;
+  camScanner=new Html5Qrcode('camReaderBox');
+  camScanner.start({facingMode:'environment'},{fps:10,qrbox:{width:260,height:160}},
+    (decodedText)=>{ const cb=onResult; closeCameraScanner(); cb&&cb(decodedText); },
+    ()=>{}
+  ).catch(err=>{ toast('Não foi possível abrir a câmera: '+(err&&err.message?err.message:err)+'. Verifique a permissão do navegador.','err'); camScanner=null; closeModal(); });
+}
+function closeCameraScanner(){ if(camScanner){ const c=camScanner; camScanner=null; c.stop().then(()=>c.clear()).catch(()=>{}); } closeModal(); }
 
 /* ===== Roteamento ===== */
 const titles={ painel:['Painel','Visão por obra'],entrada:['Entrada / Nota Fiscal','XML, colado ou manual'],baixa:['Consumo de Estoque','Saída de material por leitura ou manual'],
@@ -748,6 +767,7 @@ function setBaixaMode(m){ baixaMode=m; if($('#bmScan'))$('#bmScan').classList.to
       ${state.aplicacoes.length?`<div class="panel" style="padding:14px 18px;margin-bottom:12px"><div class="row c2"><div class="field" style="margin:0"><label>Aplicação (obrigatório)</label><select id="saidaAplic">${aplicOptionsSel('')}</select></div><div class="field" style="margin:0"><label>Observação (opcional)</label><textarea id="saidaObs" rows="2" placeholder="Ex.: manutenção... (Enter = nova linha)"></textarea></div></div></div>`:`<div class="panel" style="padding:14px 18px;margin-bottom:12px;border-color:#f0c060;background:#fff7e8"><b style="color:#8a5a00">⚠ Cadastre uma aplicação primeiro</b><p class="desc" style="margin:6px 0 8px">O consumo exige informar o equipamento/veículo de destino.</p><button class="btn dark sm" onclick="go('aplic')">Cadastrar aplicação</button></div>`}
       <div class="scan-box"><label>📷 Consumo na obra: ${esc(obraName(o))}</label>
       <input id="scanInput" placeholder="Leia o código de barras ou digite nome / código (parcial)" autocomplete="off">
+      <button class="btn dark sm" style="margin-top:8px" onclick="openCameraScanner(c=>{$('#scanInput').value=c; lookupScan(c,true);})">📷 Usar câmera do celular</button>
       <div class="scan-hint">⚡ Escaneie ou pesquise, informe a quantidade e <b>adicione à lista</b>. Vários itens entram no mesmo comprovante.</div></div>
       <div id="scanResults"></div>
       <div class="found-card" id="foundCard"></div>
@@ -923,6 +943,7 @@ function setReqMode(m){ reqMode=m; if($('#rmScan'))$('#rmScan').classList.toggle
   if(m==='scanner'){
     pane.innerHTML=`<div class="scan-box"><label>📷 Escaneie o código de barras — obra: ${esc(obraName(reqObra()))}</label>
       <input id="rqScanInput" placeholder="Leia o código de barras ou digite nome / código (parcial)" autocomplete="off">
+      <button class="btn dark sm" style="margin-top:8px" onclick="openCameraScanner(c=>{$('#rqScanInput').value=c; lookupReqScan(c,true);})">📷 Usar câmera do celular</button>
       <div class="scan-hint">⚡ Escaneie ou pesquise, informe a quantidade e adicione à lista.</div></div>
       <div id="rqScanResults"></div>
       <div class="found-card" id="reqFoundCard"></div>`;
