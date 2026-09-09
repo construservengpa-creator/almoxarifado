@@ -977,7 +977,12 @@ function setReqTab(t){ reqTab=t; $('#rqNovo').classList.toggle('on',t==='novo');
 function reqObra(){ const el=$('#rqObra'); return el?el.value:curObra(); }
 function drawReqNovo(){ reqCart=[]; reqProduct=null; const pane=$('#reqPane');
   pane.innerHTML=`<div class="panel"><h3>Nova requisição</h3><p class="desc">Escolha a obra, adicione os itens necessários e envie para aprovação do encarregado. O estoque só é baixado quando o pedido for <b>aprovado</b> — não é possível pedir mais do que o saldo disponível.</p>
-    <div class="field" style="max-width:320px"><label>Obra</label><select id="rqObra">${obraOptions(curObra()==='__all'?(state.obras[0]&&state.obras[0].id):curObra(),false)}</select></div>
+    <div class="row c3">
+      <div class="field" style="margin:0"><label>Obra</label><select id="rqObra">${obraOptions(curObra()==='__all'?(state.obras[0]&&state.obras[0].id):curObra(),false)}</select></div>
+      <div class="field" style="margin:0"><label>Ordem de Serviço</label><input id="rqOS" placeholder="Nº da OS (opcional)"></div>
+      <div class="field" style="margin:0"><label>Aplicação / Equipamento${state.aplicacoes.length?' (obrigatório)':''}</label>${state.aplicacoes.length?`<select id="rqAplic">${aplicOptionsSel('')}</select>`:`<input disabled placeholder="cadastre em Aplicações">`}</div>
+    </div>
+    ${!state.aplicacoes.length?`<div class="panel" style="padding:10px 14px;margin:10px 0;border-color:#f0c060;background:#fff7e8"><b style="color:#8a5a00">⚠ Nenhuma aplicação cadastrada</b> — <a href="#" onclick="go('aplic');return false;">cadastre um equipamento</a> para vincular à requisição.</div>`:''}
     <div class="tabs" style="margin:4px 0 12px">
       <button id="rmScan" onclick="setReqMode('scanner')">Scanner (rápido)</button>
       <button id="rmMan" onclick="setReqMode('manual')">Buscar</button></div>
@@ -1051,8 +1056,11 @@ async function enviarRequisicao(){ if(!reqCart.length){toast('Adicione ao menos 
   const obraId=reqObra(); const ob=state.obras.find(o=>o.id===obraId); if(!ob){toast('Selecione a obra.','err');return;}
   const excedido=reqCart.filter(i=>i.qty>saldoOf(obraId,i.code));
   if(excedido.length){ toast('Saldo insuficiente para: '+excedido.map(i=>i.desc).join(', ')+'. Ajuste a quantidade.','err'); drawReqCart(); return; }
+  const aplic=(state.aplicacoes.length && $('#rqAplic'))?$('#rqAplic').value:'';
+  if(state.aplicacoes.length && !aplic){ toast('Informe a aplicação/equipamento onde o material será usado.','err'); if($('#rqAplic'))$('#rqAplic').focus(); return; }
+  const os=($('#rqOS')?$('#rqOS').value.trim():'');
   const obs=($('#rqObs')?$('#rqObs').value.trim():'');
-  const payload={obra_id:ob.id,obra_nome:ob.nome,solicitante_id:session.user.id,solicitante_nome:profile.nome||profile.email,itens:reqCart,observacao:obs||null};
+  const payload={obra_id:ob.id,obra_nome:ob.nome,solicitante_id:session.user.id,solicitante_nome:profile.nome||profile.email,itens:reqCart,observacao:obs||null,ordem_servico:os||null,aplicacao_id:aplic||null,aplicacao_nome:aplic?aplicName(aplic):null};
   if(!isOnline){ queueAction('requisicao',payload); toast('Sem conexão — pedido guardado neste aparelho e será enviado assim que a conexão voltar.','warn'); setReqTab('meus'); return; }
   const {error}=await sb.from('requisicoes').insert(payload);
   if(error){toast('Erro ao enviar: '+error.message,'err');return;}
@@ -1062,9 +1070,9 @@ async function drawReqMeus(){ const pane=$('#reqPane'); pane.innerHTML='<div cla
   let data=[],error=null;
   if(isOnline){ const r=await sb.from('requisicoes').select('*').eq('solicitante_id',session.user.id).order('criado_em',{ascending:false}).limit(100); data=r.data||[]; error=r.error; }
   if(error){pane.innerHTML='<div class="tbl-wrap"><div class="empty">Erro: '+esc(error.message)+'</div></div>';return;}
-  const queuedRows=pendQueue.map(a=>`<tr><td class="mono">—</td><td class="muted" style="font-size:12px">${fmtDate(a.ts)}</td><td>${esc(a.payload.obra_nome)}</td><td>${a.payload.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td><span class="pill pendente">📴 Aguardando envio</span></td><td></td></tr>`).join('');
-  pane.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>Nº</th><th>Data</th><th>Obra</th><th>Itens</th><th>Situação</th><th></th></tr></thead><tbody>${queuedRows+
-    data.map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(r.criado_em).getTime())}</td><td>${esc(r.obra_nome)}</td><td>${r.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${r.motivo_rejeicao?`<br><span class="muted" style="font-size:11px">motivo: ${esc(r.motivo_rejeicao)}</span>`:''}</td><td class="num">${r.status==='pendente'?`<button class="btn ghost sm" onclick="cancelarRequisicao(${r.id})">Cancelar</button>`:''}</td></tr>`).join('')||(queuedRows?'':`<tr><td colspan="6" class="empty" style="padding:24px">Nenhum pedido ainda.</td></tr>`)}</tbody></table></div>`; }
+  const queuedRows=pendQueue.map(a=>`<tr><td class="mono">—</td><td class="muted" style="font-size:12px">${fmtDate(a.ts)}</td><td>${esc(a.payload.obra_nome)}${a.payload.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(a.payload.ordem_servico)+'</span>':''}</td><td>${esc(a.payload.aplicacao_nome||'—')}</td><td>${a.payload.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td><span class="pill pendente">📴 Aguardando envio</span></td><td></td></tr>`).join('');
+  pane.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>Nº</th><th>Data</th><th>Obra / OS</th><th>Aplicação</th><th>Itens</th><th>Situação</th><th></th></tr></thead><tbody>${queuedRows+
+    data.map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(r.criado_em).getTime())}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${esc(r.aplicacao_nome||'—')}</td><td>${r.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${r.motivo_rejeicao?`<br><span class="muted" style="font-size:11px">motivo: ${esc(r.motivo_rejeicao)}</span>`:''}</td><td class="num">${r.status==='pendente'?`<button class="btn ghost sm" onclick="cancelarRequisicao(${r.id})">Cancelar</button>`:''}</td></tr>`).join('')||(queuedRows?'':`<tr><td colspan="7" class="empty" style="padding:24px">Nenhum pedido ainda.</td></tr>`)}</tbody></table></div>`; }
 function reqStatusLabel(s){ return {pendente:'Pendente',aprovada:'Aprovada',rejeitada:'Rejeitada',cancelada:'Cancelada'}[s]||s; }
 async function cancelarRequisicao(id){ const {error}=await sb.from('requisicoes').update({status:'cancelada'}).eq('id',id); if(error){toast('Erro: '+error.message,'err');return;} toast('Requisição cancelada.','warn'); drawReqMeus(); refreshAprovBadge(); }
 
@@ -1078,21 +1086,22 @@ async function renderAprovacoes(){
 async function drawAprovPend(){ const box=$('#aprovPend'); if(!box)return;
   const {data,error}=await sb.from('requisicoes').select('*').eq('status','pendente').order('criado_em',{ascending:true});
   if(error){box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>';return;}
-  box.innerHTML=`<table><thead><tr><th>Nº</th><th>Data</th><th>Obra</th><th>Solicitante</th><th>Itens</th><th>Observação</th><th></th></tr></thead><tbody>${
-    (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(r.criado_em).getTime())}</td><td>${esc(r.obra_nome)}</td><td>${esc(r.solicitante_nome)}</td><td>${r.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td class="muted" style="font-size:12px">${esc(r.observacao||'—')}</td><td class="num" style="white-space:nowrap"><button class="btn primary sm" onclick="aprovarRequisicao(${r.id})">✔ Aprovar</button> <button class="btn danger sm" onclick="rejeitarRequisicao(${r.id})">✕ Rejeitar</button></td></tr>`).join('')||`<tr><td colspan="7" class="empty" style="padding:24px">Nenhum pedido pendente.</td></tr>`}</tbody></table>`; }
+  box.innerHTML=`<table><thead><tr><th>Nº</th><th>Data</th><th>Obra / OS</th><th>Aplicação</th><th>Solicitante</th><th>Itens</th><th>Observação</th><th></th></tr></thead><tbody>${
+    (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(r.criado_em).getTime())}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${esc(r.aplicacao_nome||'—')}</td><td>${esc(r.solicitante_nome)}</td><td>${r.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td class="muted" style="font-size:12px">${esc(r.observacao||'—')}</td><td class="num" style="white-space:nowrap"><button class="btn primary sm" onclick="aprovarRequisicao(${r.id})">✔ Aprovar</button> <button class="btn danger sm" onclick="rejeitarRequisicao(${r.id})">✕ Rejeitar</button></td></tr>`).join('')||`<tr><td colspan="8" class="empty" style="padding:24px">Nenhum pedido pendente.</td></tr>`}</tbody></table>`; }
 async function drawAprovHist(){ const box=$('#aprovHist'); if(!box)return;
   const {data,error}=await sb.from('requisicoes').select('*').neq('status','pendente').order('decidido_em',{ascending:false}).limit(40);
   if(error){box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>';return;}
-  box.innerHTML=`<table><thead><tr><th>Nº</th><th>Obra</th><th>Solicitante</th><th>Situação</th><th>Decidido por</th><th>Quando</th></tr></thead><tbody>${
-    (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td>${esc(r.obra_nome)}</td><td>${esc(r.solicitante_nome)}</td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${r.motivo_rejeicao?`<br><span class="muted" style="font-size:11px">${esc(r.motivo_rejeicao)}</span>`:''}</td><td>${esc(r.decidido_por_nome||'—')}</td><td class="muted" style="font-size:12px">${r.decidido_em?fmtDate(new Date(r.decidido_em).getTime()):'—'}</td></tr>`).join('')||`<tr><td colspan="6" class="empty" style="padding:24px">Nenhuma decisão ainda.</td></tr>`}</tbody></table>`; }
+  box.innerHTML=`<table><thead><tr><th>Nº</th><th>Obra / OS</th><th>Aplicação</th><th>Solicitante</th><th>Situação</th><th>Decidido por</th><th>Quando</th></tr></thead><tbody>${
+    (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${esc(r.aplicacao_nome||'—')}</td><td>${esc(r.solicitante_nome)}</td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${r.motivo_rejeicao?`<br><span class="muted" style="font-size:11px">${esc(r.motivo_rejeicao)}</span>`:''}</td><td>${esc(r.decidido_por_nome||'—')}</td><td class="muted" style="font-size:12px">${r.decidido_em?fmtDate(new Date(r.decidido_em).getTime()):'—'}</td></tr>`).join('')||`<tr><td colspan="7" class="empty" style="padding:24px">Nenhuma decisão ainda.</td></tr>`}</tbody></table>`; }
 async function aprovarRequisicao(id){
   const {data:r,error:e1}=await sb.from('requisicoes').select('*').eq('id',id).maybeSingle();
   if(e1||!r){toast('Erro ao carregar pedido.','err');return;}
   const faltando=r.itens.filter(i=>{const p=findProduct(i.code); return !p||saldoOf(r.obra_id,i.code)<i.qty;});
   if(faltando.length){ toast('Saldo insuficiente para: '+faltando.map(i=>i.desc).join(', ')+'. Faça uma entrada antes de aprovar.','err'); return; }
-  const seq=++state.seq.baixa; const baixaId=uid(); const doc=`Requisição REQ-${String(r.id).padStart(5,'0')} aprovada · ${r.solicitante_nome}`;
+  const seq=++state.seq.baixa; const baixaId=uid(); const doc=`Requisição REQ-${String(r.id).padStart(5,'0')} aprovada · ${r.solicitante_nome}`+(r.ordem_servico?' · OS '+r.ordem_servico:'');
+  const obsMov='Requisição REQ-'+String(r.id).padStart(5,'0')+(r.ordem_servico?' · OS '+r.ordem_servico:'');
   r.itens.forEach(i=>{ const p=findProduct(i.code); const vu=p.custo||0; addSaldo(r.obra_id,p.code,-i.qty);
-    state.movements.unshift({id:uid(),ts:Date.now(),seq,baixaId,tipo:'baixa',obra:r.obra_id,aplic:'',obs:'Requisição REQ-'+String(r.id).padStart(5,'0'),code:p.code,desc:p.desc,qty:i.qty,valorUnit:vu,valorTotal:i.qty*vu,doc,saldo:saldoOf(r.obra_id,p.code)}); });
+    state.movements.unshift({id:uid(),ts:Date.now(),seq,baixaId,tipo:'baixa',obra:r.obra_id,aplic:r.aplicacao_id||'',obs:obsMov,code:p.code,desc:p.desc,qty:i.qty,valorUnit:vu,valorTotal:i.qty*vu,doc,saldo:saldoOf(r.obra_id,p.code)}); });
   await save('Requisição REQ-'+String(r.id).padStart(5,'0')+' aprovada ('+r.obra_nome+')');
   const {error:e2}=await sb.from('requisicoes').update({status:'aprovada',decidido_por:session.user.id,decidido_por_nome:profile.nome||profile.email,decidido_em:new Date().toISOString()}).eq('id',id);
   if(e2){toast('Baixa feita, mas houve erro ao marcar a requisição: '+e2.message,'err');return;}
