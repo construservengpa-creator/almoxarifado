@@ -173,7 +173,6 @@
     <button data-tab="entrada"><span class="ic">⊕</span><span>Entrada / Nota Fiscal</span></button>
     <button data-tab="baixa"><span class="ic">⊖</span><span>Consumo de Estoque</span></button>
     <button data-tab="ajuste" data-role="encarregado"><span class="ic">✎</span><span>Ajuste de Saldo</span></button>
-    <button data-tab="requisicoes"><span class="ic">📋</span><span>Requisições</span></button>
     <button data-tab="aprovacoes" data-role="encarregado"><span class="ic">✔</span><span>Aprovações</span><span class="badge" id="navBadgeAprov" style="display:none"></span></button>
     <button data-tab="transfer"><span class="ic">⇄</span><span>Transferência entre Obras</span></button>
     <button data-tab="consulta"><span class="ic">⌕</span><span>Consulta</span></button>
@@ -265,7 +264,7 @@ async function processOfflineQueue(){
 }
 function applyBaixaPayload(p){ const seq=++state.seq.baixa;
   p.itens.forEach(it=>{ addSaldo(p.obra,it.code,-it.qty);
-    state.movements.unshift({id:uid(),ts:p.ts||Date.now(),seq,baixaId:p.baixaId,tipo:'baixa',obra:p.obra,aplic:p.aplic||'',obs:p.obs||'',code:it.code,desc:it.desc,qty:it.qty,valorUnit:it.valorUnit||0,valorTotal:it.qty*(it.valorUnit||0),doc:p.doc,saldo:saldoOf(p.obra,it.code)}); }); }
+    state.movements.unshift({id:uid(),ts:p.ts||Date.now(),seq,baixaId:p.baixaId,tipo:'baixa',obra:p.obra,aplic:p.aplic||'',obs:p.obs||'',os:p.os||'',code:it.code,desc:it.desc,qty:it.qty,valorUnit:it.valorUnit||0,valorTotal:it.qty*(it.valorUnit||0),doc:p.doc,saldo:saldoOf(p.obra,it.code)}); }); }
 window.addEventListener('online',()=>{ isOnline=true; updateOfflineBadge(); if(getQueue().length){toast('Conexão de volta — sincronizando pendências...','ok'); processOfflineQueue();} });
 window.addEventListener('offline',()=>{ isOnline=false; updateOfflineBadge(); toast('Sem conexão — as próximas ações ficam guardadas neste aparelho.','warn'); });
 const SAFE_REFRESH_TABS=['painel','obras','aplic','produtos','consulta','relatorios'];
@@ -291,7 +290,7 @@ function seqf(n){ return String(n||0).padStart(4,'0'); }
 function genCode(){ let b='789'+Date.now().toString().slice(-9); while(state.products.some(p=>p.code===b))b=(Number(b)+1).toString(); return b; }
 function findProduct(code){ return state.products.find(p=>String(p.code)===String(code).trim()); }
 function findByCodeOrAux(term){ term=String(term).trim(); if(!term)return null; return state.products.find(p=>String(p.code)===term||(p.aux&&String(p.aux)===term)); }
-function searchProducts(q){ q=String(q).toLowerCase().trim(); if(!q)return []; return state.products.filter(p=>p.desc.toLowerCase().includes(q)||String(p.code).includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.ref&&p.ref.toLowerCase().includes(q))); }
+function searchProducts(q){ q=String(q).toLowerCase().trim(); if(!q)return []; return state.products.filter(p=>p.desc.toLowerCase().includes(q)||String(p.code).includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.ref&&p.ref.toLowerCase().includes(q))||(p.grupo&&p.grupo.toLowerCase().includes(q))||(p.localizacao&&p.localizacao.toLowerCase().includes(q))||(p.endereco&&p.endereco.toLowerCase().includes(q))); }
 function aplicName(id){ if(!id)return''; const a=state.aplicacoes.find(a=>a.id===id); return a?(a.nome+(a.tag?' ('+a.tag+')':'')):''; }
 function aplicOptions(sel){ let h=`<option value="">— sem aplicação —</option>`; state.aplicacoes.forEach(a=>h+=`<option value="${a.id}"${a.id===sel?' selected':''}>${esc(a.nome)}${a.tag?' · '+esc(a.tag):''}</option>`); return h; }
 function aplicOptionsSel(sel){ let h=`<option value="">— selecione a aplicação —</option>`; state.aplicacoes.forEach(a=>h+=`<option value="${a.id}"${a.id===sel?' selected':''}>${esc(a.nome)}${a.tag?' · '+esc(a.tag):''}</option>`); return h; }
@@ -377,16 +376,16 @@ function openCameraScanner(onResult){
 function closeCameraScanner(){ if(camScanner){ const c=camScanner; camScanner=null; c.stop().then(()=>c.clear()).catch(()=>{}); } closeModal(); }
 
 /* ===== Roteamento ===== */
-const titles={ painel:['Painel','Visão por obra'],entrada:['Entrada / Nota Fiscal','XML, colado ou manual'],baixa:['Consumo de Estoque','Saída de material por leitura ou manual'],
+const titles={ painel:['Painel','Visão por obra'],entrada:['Entrada / Nota Fiscal','XML, colado ou manual'],baixa:['Consumo de Estoque','Solicitação com aprovação do encarregado'],
   ajuste:['Ajuste de Saldo','Lançar ou corrigir saldo sem nota fiscal'],
-  requisicoes:['Requisições','Solicitar materiais para aprovação do encarregado'],aprovacoes:['Aprovações','Requisições pendentes de aprovação'],
+  aprovacoes:['Aprovações','Requisições pendentes de aprovação'],
   transfer:['Transferência entre Obras','Mover saldo de uma obra para outra'],consulta:['Consulta','Buscar por nome, código ou equipamento'],
   obras:['Obras','Cadastro de obras'],aplic:['Aplicações','Equipamentos e veículos (placa/tag)'],produtos:['Produtos & Etiquetas','Catálogo e códigos de barras'],importar:['Importar Planilha','Carga inicial por obra'],admin:['Administração','Usuários e exclusões protegidas'],relatorios:['Relatórios','Consumo por aplicação, tipo, obra e produto'],auditoria:['Auditoria','Histórico de ações no sistema'] };
 let activeTab='painel';
 function go(tab){ activeTab=tab;
   document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
   $('#pageTitle').firstChild.textContent=titles[tab][0]+' '; $('#pageSub').textContent=titles[tab][1]; $('#topActions').innerHTML='';
-  ({painel:renderPainel,entrada:renderEntrada,baixa:renderBaixa,ajuste:renderAjuste,requisicoes:renderRequisicoes,aprovacoes:renderAprovacoes,transfer:renderTransfer,consulta:renderConsulta,obras:renderObras,aplic:renderAplic,produtos:renderProdutos,importar:renderImportar,admin:renderAdmin,relatorios:renderRelatorios,auditoria:renderAuditoria}[tab])();
+  ({painel:renderPainel,entrada:renderEntrada,baixa:renderBaixa,ajuste:renderAjuste,aprovacoes:renderAprovacoes,transfer:renderTransfer,consulta:renderConsulta,obras:renderObras,aplic:renderAplic,produtos:renderProdutos,importar:renderImportar,admin:renderAdmin,relatorios:renderRelatorios,auditoria:renderAuditoria}[tab])();
 }
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>go(b.dataset.tab));
 function applyRoleNav(){
@@ -443,7 +442,7 @@ function renderPainel(){
   const draw=()=>{ const q=($('#dashSearch').value||'').toLowerCase(); const fst=$('#dashStatus').value; const qr=$('#dashQty').value; const qmax=qr===''?null:parseFloat(qr); const zero=$('#dashZero').checked;
     const list=ps.filter(p=>{ const s=sal(p.code); const st=statusOf(p,s);
       if(!zero && !(s>0))return false;
-      if(q && !(p.desc.toLowerCase().includes(q)||String(p.code).includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.ref&&p.ref.toLowerCase().includes(q))))return false;
+      if(q && !(p.desc.toLowerCase().includes(q)||String(p.code).includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.ref&&p.ref.toLowerCase().includes(q))||(p.grupo&&p.grupo.toLowerCase().includes(q))||(p.localizacao&&p.localizacao.toLowerCase().includes(q))||(p.endereco&&p.endereco.toLowerCase().includes(q))))return false;
       if(fst && st!==fst)return false; if(qmax!=null && !(s<=qmax))return false; return true; });
     $('#dashCount').textContent=list.length+' item(ns)';
     $('#dashRows').innerHTML=list.map(p=>{const s=sal(p.code);const st=statusOf(p,s);
@@ -729,13 +728,13 @@ function renderProdutos(){
   const draw=()=>{ const q=($('#prodSearch').value||'').toLowerCase(); const zero=$('#prodZero').checked;
     const list=state.products.filter(p=>{ const s=sal(p.code);
       if(!zero && !(s>0))return false;
-      if(q && !(p.desc.toLowerCase().includes(q)||String(p.code).includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.ref&&p.ref.toLowerCase().includes(q))))return false;
+      if(q && !(p.desc.toLowerCase().includes(q)||String(p.code).includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.ref&&p.ref.toLowerCase().includes(q))||(p.grupo&&p.grupo.toLowerCase().includes(q))||(p.localizacao&&p.localizacao.toLowerCase().includes(q))||(p.endereco&&p.endereco.toLowerCase().includes(q))))return false;
       return true; });
     $('#prodRows').innerHTML=list.map(p=>{const s=sal(p.code);const st=statusOf(p,s);
       return `<tr><td>${thumb(p.code)}</td>
       <td><svg class="bc" id="bc_${esc(p.code)}"></svg><div class="mono" style="font-size:11px;color:#8a8377;text-align:center">${esc(p.code)}</div></td>
       <td class="mono">${esc(p.aux||'—')}</td>
-      <td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.unit||'UN')}</span>${p.ref?`<div class="refline">↳ ${esc(p.ref)}</div>`:''}</td>
+      <td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.unit||'UN')}</span>${p.grupo?` · <span class="muted" style="font-size:11px">${esc(p.grupo)}</span>`:''}${(p.localizacao||p.endereco)?`<div class="refline">📍 ${esc([p.localizacao,p.endereco].filter(Boolean).join(' · '))}</div>`:''}${p.ref?`<div class="refline">↳ ${esc(p.ref)}</div>`:''}</td>
       <td class="num"><b class="${st==='low'?'neg':''}">${numf(s)}</b></td>
       <td class="num"><input class="inline-edit" type="number" step="any" value="${p.min}" onchange="setField('${esc(p.code)}','min',this.value)"></td>
       <td class="num"><input class="inline-edit" type="number" step="any" value="${p.max}" onchange="setField('${esc(p.code)}','max',this.value)"></td>
@@ -752,6 +751,7 @@ function delProduct(code){ const p=findProduct(code); if(!p)return;
     state.obras.forEach(o=>{ if(state.estoque[o.id])delete state.estoque[o.id][code]; }); delete photos[code]; savePhotos(); save('Produto excluído: '+p.desc+' ('+code+')'); renderProdutos(); toast('Produto excluído.','ok'); }); }
 function editProductModal(code){ const p=findProduct(code); if(!p)return;
   let saldos=state.obras.map(o=>`${esc(o.nome)}: <b>${numf(saldoOf(o.id,code))}</b>`).join(' · ')||'sem obras';
+  const grupos=[...new Set(state.products.map(x=>x.grupo).filter(Boolean))]; const locais=[...new Set(state.products.map(x=>x.localizacao).filter(Boolean))];
   modal(`<h3>Editar produto</h3><p class="mp mono">${esc(p.code)}</p>
     <div style="display:flex;gap:18px;align-items:flex-start;margin-bottom:14px;flex-wrap:wrap">
       <div style="text-align:center;min-width:180px"><div id="epPhoto" style="display:flex;flex-wrap:wrap;justify-content:center;gap:6px"></div>
@@ -760,26 +760,44 @@ function editProductModal(code){ const p=findProduct(code); if(!p)return;
       <div style="flex:1;min-width:200px"><div class="field"><label>Descrição</label><input id="epDesc" value="${esc(p.desc)}"></div><div class="field"><label>Unidade</label><input id="epUnit" value="${esc(p.unit||'UN')}"></div></div></div>
     <div class="field"><label>Código auxiliar (outro sistema)</label><input id="epAux" class="mono" value="${esc(p.aux||'')}" placeholder="Código usado em outro sistema"></div>
     <div class="row c2"><div class="field"><label>Custo médio (R$)</label><input id="epCusto" type="number" step="any" value="${p.custo||0}"></div><div class="field"><label>Preço venda (R$)</label><input id="epPreco" type="number" step="any" value="${p.preco||0}"></div></div>
+    <div class="row c3">
+      <div class="field" style="margin:0"><label>Grupo do insumo</label><input id="epGrupo" list="grupoListE" value="${esc(p.grupo||'')}" placeholder="Ex.: Elétrica, EPI..."></div>
+      <div class="field" style="margin:0"><label>Estoque (Localização)</label><input id="epLocal" list="localListE" value="${esc(p.localizacao||'')}" placeholder="Ex.: Almoxarifado Central"></div>
+      <div class="field" style="margin:0"><label>Endereço</label><input id="epEndereco" value="${esc(p.endereco||'')}" placeholder="Ex.: Corredor B, Prateleira 3"></div>
+    </div>
+    <datalist id="grupoListE">${grupos.map(g=>`<option value="${esc(g)}">`).join('')}</datalist>
+    <datalist id="localListE">${locais.map(l=>`<option value="${esc(l)}">`).join('')}</datalist>
     <div class="field"><label>Referências / Aplicação</label><textarea id="epRef" rows="3" placeholder="Ex.: usado na escavadeira CAT 320 · filtro hidráulico">${esc(p.ref||'')}</textarea></div>
     <div style="font-size:11.5px;color:#8a8377;margin-bottom:14px">Saldo por obra — ${saldos}</div>
     <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Fechar</button><button class="btn primary" onclick="saveEditProduct('${esc(code)}')">Salvar</button></div>`);
   renderEpGallery(code);
 }
 function saveEditProduct(code){ const p=findProduct(code); if(!p)return; const d=$('#epDesc').value.trim(); if(!d){toast('Descrição obrigatória.','err');return;}
-  p.desc=d; p.unit=$('#epUnit').value.trim()||'UN'; p.aux=($('#epAux')?$('#epAux').value.trim():(p.aux||'')); if($('#epCusto'))p.custo=parseFloat($('#epCusto').value)||0; if($('#epPreco'))p.preco=parseFloat($('#epPreco').value)||0; p.ref=$('#epRef').value.trim(); save(); closeModal(); renderProdutos(); toast('Produto atualizado.','ok'); }
-function newProductModal(){ modal(`<h3>Novo produto</h3><p class="mp">O código de barras é gerado se ficar em branco. Saldo entra na obra <b>${esc(obraName(curObra()==='__all'?state.obras[0].id:curObra()))}</b>.</p>
+  p.desc=d; p.unit=$('#epUnit').value.trim()||'UN'; p.aux=($('#epAux')?$('#epAux').value.trim():(p.aux||'')); if($('#epCusto'))p.custo=parseFloat($('#epCusto').value)||0; if($('#epPreco'))p.preco=parseFloat($('#epPreco').value)||0; p.ref=$('#epRef').value.trim();
+  p.grupo=($('#epGrupo')?$('#epGrupo').value.trim():''); p.localizacao=($('#epLocal')?$('#epLocal').value.trim():''); p.endereco=($('#epEndereco')?$('#epEndereco').value.trim():'');
+  save(); closeModal(); renderProdutos(); toast('Produto atualizado.','ok'); }
+function newProductModal(){ const grupos=[...new Set(state.products.map(p=>p.grupo).filter(Boolean))]; const locais=[...new Set(state.products.map(p=>p.localizacao).filter(Boolean))];
+  modal(`<h3>Novo produto</h3><p class="mp">O código de barras é gerado se ficar em branco. Saldo entra na obra <b>${esc(obraName(curObra()==='__all'?state.obras[0].id:curObra()))}</b>.</p>
     <div class="field"><label>Código (opcional)</label><input id="npCode" class="mono" placeholder="auto"></div>
     <div class="field"><label>Descrição</label><input id="npDesc"></div>
     <div class="field"><label>Código auxiliar (outro sistema)</label><input id="npAux" class="mono" placeholder="Código usado em outro sistema"></div>
     <div class="row c3"><div class="field"><label>Unid.</label><input id="npUnit" value="UN"></div><div class="field"><label>Saldo inicial</label><input id="npQty" type="number" step="any" value="0"></div><div class="field"><label>Custo</label><input id="npCusto" type="number" step="any" value="0"></div></div>
     <div class="row c3"><div class="field"><label>Estoque mín.</label><input id="npMin" type="number" step="any" value="0"></div><div class="field"><label>Estoque máx.</label><input id="npMax" type="number" step="any" value="0"></div><div class="field"><label>Preço venda</label><input id="npPreco" type="number" step="any" value="0"></div></div>
+    <div class="row c3">
+      <div class="field" style="margin:0"><label>Grupo do insumo</label><input id="npGrupo" list="grupoList" placeholder="Ex.: Elétrica, EPI, Hidráulica..."></div>
+      <div class="field" style="margin:0"><label>Estoque (Localização)</label><input id="npLocal" list="localList" placeholder="Ex.: Almoxarifado Central"></div>
+      <div class="field" style="margin:0"><label>Endereço</label><input id="npEndereco" placeholder="Ex.: Corredor B, Prateleira 3"></div>
+    </div>
+    <datalist id="grupoList">${grupos.map(g=>`<option value="${esc(g)}">`).join('')}</datalist>
+    <datalist id="localList">${locais.map(l=>`<option value="${esc(l)}">`).join('')}</datalist>
     <div class="field"><label>Referências / Aplicação (opcional)</label><textarea id="npRef" rows="2"></textarea></div>
     <p class="mp">A foto pode ser adicionada depois, no botão ✎.</p>
     <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="saveNewProduct()">Cadastrar</button></div>`); }
 function saveNewProduct(){ const desc=$('#npDesc').value.trim(); if(!desc){toast('Informe a descrição.','err');return;}
   let code=$('#npCode').value.trim(); if(code&&findProduct(code)){toast('Código já existe.','err');return;} if(!code)code=genCode();
   const qty=parseFloat($('#npQty').value)||0; const obra=curObra()==='__all'?state.obras[0].id:curObra();
-  const p={code,desc,unit:$('#npUnit').value.trim()||'UN',aux:($('#npAux')?$('#npAux').value.trim():''),min:parseFloat($('#npMin').value)||0,max:parseFloat($('#npMax').value)||0,custo:parseFloat($('#npCusto').value)||0,preco:parseFloat($('#npPreco').value)||0,ref:$('#npRef').value.trim()};
+  const p={code,desc,unit:$('#npUnit').value.trim()||'UN',aux:($('#npAux')?$('#npAux').value.trim():''),min:parseFloat($('#npMin').value)||0,max:parseFloat($('#npMax').value)||0,custo:parseFloat($('#npCusto').value)||0,preco:parseFloat($('#npPreco').value)||0,ref:$('#npRef').value.trim(),
+    grupo:($('#npGrupo')?$('#npGrupo').value.trim():''),localizacao:($('#npLocal')?$('#npLocal').value.trim():''),endereco:($('#npEndereco')?$('#npEndereco').value.trim():'')};
   state.products.push(p);
   if(qty>0){ addSaldo(obra,code,qty); state.movements.unshift({ts:Date.now(),tipo:'entrada',obra,code,desc,qty,valorUnit:p.custo,valorTotal:qty*p.custo,doc:'Saldo inicial',saldo:qty}); }
   save(); closeModal(); renderProdutos(); toast('Produto cadastrado.','ok'); }
@@ -789,7 +807,7 @@ function printLabels(){ if(!state.products.length){toast('Nada para imprimir.','
   state.products.forEach(p=>w.document.write(`<div class="lab"><div class="d">${esc(p.desc)}</div><svg class="b" data-c="${esc(p.code)}"></svg></div>`));
   w.document.write(`<script>document.querySelectorAll('.b').forEach(s=>JsBarcode(s,s.dataset.c,{format:'CODE128',height:50,fontSize:13,margin:4}));setTimeout(()=>window.print(),400);<\/script></body></html>`); w.document.close(); }
 
-/* ===== BAIXA ===== */
+/* ===== BAIXA (sempre via requisição, aprovada pelo encarregado) ===== */
 let baixaProduct=null, baixaMode='scanner', saidaCart=[];
 function renderBaixa(){
   if(needObra())return;
@@ -800,48 +818,65 @@ function renderBaixa(){
     <button id="bmMan" onclick="setBaixaMode('manual')">Manual / Saída de material</button></div></div>
   <div id="baixaPane"></div>
   <div class="sechead" style="margin-top:24px"><h3>Últimas baixas</h3></div>
-  <div class="tbl-wrap"><table><thead><tr><th>Data</th><th>Nº</th><th>Obra</th><th>Produto</th><th class="num">Qtd</th><th class="num">Total</th><th></th></tr></thead><tbody id="baixaHist"></tbody></table></div>`;
-  setBaixaMode(baixaMode); drawBaixaHist();
+  <div class="tbl-wrap"><table><thead><tr><th>Data</th><th>Nº</th><th>Obra</th><th>Produto</th><th class="num">Qtd</th><th class="num">Total</th><th></th></tr></thead><tbody id="baixaHist"></tbody></table></div>
+  <div class="sechead" style="margin-top:24px"><h3>Minhas solicitações pendentes de aprovação</h3></div>
+  <div class="tbl-wrap" id="minhasFrotas"><div class="empty">Carregando...</div></div>`;
+  setBaixaMode(baixaMode); drawBaixaHist(); drawMinhasFrotasPendentes();
 }
+async function drawMinhasFrotasPendentes(){ const box=$('#minhasFrotas'); if(!box)return;
+  if(!isOnline){ box.innerHTML='<div class="empty">Sem conexão — indisponível no momento.</div>'; return; }
+  const {data,error}=await sb.from('requisicoes').select('*').eq('solicitante_id',session.user.id).eq('status','pendente').order('criado_em',{ascending:false}).limit(30);
+  if(error){ box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>'; return; }
+  box.innerHTML=`<table><thead><tr><th>Nº</th><th>Data</th><th>Obra / OS</th><th>Aplicação</th><th>Itens</th><th></th></tr></thead><tbody>${
+    (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(r.criado_em).getTime())}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${esc(r.aplicacao_nome||'—')}</td><td>${r.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td class="num"><button class="btn ghost sm" onclick="cancelarRequisicao(${r.id})">Cancelar</button></td></tr>`).join('')||`<tr><td colspan="6" class="empty" style="padding:20px">Nenhuma pendência.</td></tr>`}</tbody></table>`; }
+function aplicRequerOS(id){ const a=state.aplicacoes.find(x=>x.id===id); return !!(a&&(a.tipo==='equipamento'||a.tipo==='veiculo')); }
+function precisaAprovacao(id){ const a=state.aplicacoes.find(x=>x.id===id); if(!a)return false;
+  if(a.tipo==='equipamento'||a.tipo==='veiculo')return true;
+  return /frotas?|oficina/i.test(a.nome||''); }
+function updateOsReq(){ const sel=$('#saidaAplic'); const wrap=$('#osFieldWrap'); const inp=$('#saidaOS'); if(!sel||!wrap)return;
+  const need=aplicRequerOS(sel.value);
+  wrap.style.display=need?'':'none'; if(!need&&inp)inp.value=''; }
+function updateSubmitBtn(){ const sel=$('#saidaAplic'); const btn=$('#submitSaidaBtn'); if(!sel||!btn)return;
+  btn.textContent=precisaAprovacao(sel.value)?'📋 Enviar para aprovação':'⊖ Confirmar baixa'; }
+function onAplicChange(){ updateOsReq(); updateSubmitBtn(); }
 function setBaixaMode(m){ baixaMode=m; if($('#bmScan'))$('#bmScan').classList.toggle('on',m==='scanner'); if($('#bmMan'))$('#bmMan').classList.toggle('on',m==='manual');
   const o=curObra()==='__all'?state.obras[0].id:curObra(); const pane=$('#baixaPane');
+  const aplicOsRow=`<div class="field" style="margin:0"><label>Aplicação (obrigatório)</label>${state.aplicacoes.length?`<select id="saidaAplic" onchange="onAplicChange()">${aplicOptionsSel('')}</select>`:`<input disabled placeholder="cadastre em Aplicações">`}</div><div class="field" id="osFieldWrap" style="margin:0;display:none"><label>Ordem de Serviço <span style="color:#c0392b">(obrigatório)</span></label><input id="saidaOS" placeholder="Nº da OS"></div>`;
   if(m==='scanner'){
     pane.innerHTML=`
-      ${state.aplicacoes.length?`<div class="panel" style="padding:14px 18px;margin-bottom:12px"><div class="row c2"><div class="field" style="margin:0"><label>Aplicação (obrigatório)</label><select id="saidaAplic">${aplicOptionsSel('')}</select></div><div class="field" style="margin:0"><label>Observação (opcional)</label><textarea id="saidaObs" rows="2" placeholder="Ex.: manutenção... (Enter = nova linha)"></textarea></div></div></div>`:`<div class="panel" style="padding:14px 18px;margin-bottom:12px;border-color:#f0c060;background:#fff7e8"><b style="color:#8a5a00">⚠ Cadastre uma aplicação primeiro</b><p class="desc" style="margin:6px 0 8px">O consumo exige informar o equipamento/veículo de destino.</p><button class="btn dark sm" onclick="go('aplic')">Cadastrar aplicação</button></div>`}
-      <div class="scan-box"><label>📷 Consumo na obra: ${esc(obraName(o))}</label>
+      ${state.aplicacoes.length?`<div class="panel" style="padding:14px 18px;margin-bottom:12px"><div class="row c3">${aplicOsRow}<div class="field" style="margin:0"><label>Observação (opcional)</label><textarea id="saidaObs" rows="2" placeholder="Ex.: manutenção... (Enter = nova linha)"></textarea></div></div></div>`:`<div class="panel" style="padding:14px 18px;margin-bottom:12px;border-color:#f0c060;background:#fff7e8"><b style="color:#8a5a00">⚠ Cadastre uma aplicação primeiro</b><p class="desc" style="margin:6px 0 8px">O consumo exige informar o equipamento/veículo de destino.</p><button class="btn dark sm" onclick="go('aplic')">Cadastrar aplicação</button></div>`}
+      <div class="scan-box"><label>📷 Solicitação de material — obra: ${esc(obraName(o))}</label>
       <input id="scanInput" placeholder="Leia o código de barras ou digite nome / código (parcial)" autocomplete="off">
       <button class="btn dark sm" style="margin-top:8px" onclick="openCameraScanner(c=>{$('#scanInput').value=c; lookupScan(c,true);})">📷 Usar câmera do celular</button>
-      <div class="scan-hint">⚡ Escaneie ou pesquise, informe a quantidade e <b>adicione à lista</b>. Vários itens entram no mesmo comprovante.</div></div>
+      <div class="scan-hint">⚡ Escaneie ou pesquise, informe a quantidade e <b>adicione à lista</b>. Equipamento/veículo ou aplicações de frota/oficina passam por aprovação do encarregado antes da baixa.</div></div>
       <div id="scanResults"></div>
       <div class="found-card" id="foundCard"></div>
       <div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Produto</th><th class="num">Saldo</th><th class="num">Qtd</th><th class="num">Valor</th><th></th></tr></thead><tbody id="saidaCartBody"></tbody></table></div>
       <div style="text-align:right;margin-top:6px;font-size:13px;color:#5a544a">Valor total estimado: <b id="saidaTotal" class="mono">R$ 0,00</b></div>
       <div class="row c2" style="margin-top:12px"><div class="field" style="margin:0"><label>Responsável / Solicitante</label><input id="saidaResp"></div>
         <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-weight:500;font-size:13px;margin:0;color:#1c1c1c;align-self:flex-end"><input type="checkbox" id="saidaReport" checked style="width:auto"> Gerar comprovante</label></div>
-      <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn primary" onclick="confirmSaida()">⊖ Confirmar baixa da lista</button></div>`;
+      <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn primary" id="submitSaidaBtn" onclick="confirmSaida()">📋 Enviar para aprovação</button></div>`;
     const inp=$('#scanInput'); inp.focus();
     inp.oninput=e=>drawScanResults(e.target.value);
     inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();lookupScan(inp.value);}});
-    drawSaidaCart(o);
+    drawSaidaCart(o); onAplicChange();
   } else {
-    pane.innerHTML=`<div class="panel"><h3>Saída de material — ${esc(obraName(o))}</h3><p class="desc">Pesquise por nome, código de barras, código auxiliar ou equipamento, adicione os itens e confirme a saída.</p>
+    pane.innerHTML=`<div class="panel"><h3>Solicitação de material — ${esc(obraName(o))}</h3><p class="desc">Pesquise por nome, código de barras, código auxiliar ou equipamento, adicione os itens e envie para aprovação.</p>
       <div class="search" style="max-width:none"><span class="si">⌕</span><input id="saidaSearch" placeholder="Nome, código, auxiliar ou equipamento..." autocomplete="off"></div>
       <div id="saidaResults"></div>
       <div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Produto</th><th class="num">Saldo</th><th class="num">Qtd saída</th><th class="num">Valor</th><th></th></tr></thead><tbody id="saidaCartBody"></tbody></table></div>
       <div style="text-align:right;margin-top:6px;font-size:13px;color:#5a544a">Valor total estimado: <b id="saidaTotal" class="mono">R$ 0,00</b></div>
-      <div class="row c3" style="margin-top:14px">
-        <div class="field" style="margin:0"><label>Aplicação (obrigatório)</label>${state.aplicacoes.length?`<select id="saidaAplic">${aplicOptionsSel('')}</select>`:`<input disabled placeholder="cadastre em Aplicações"><button class="btn dark sm" style="margin-top:6px" onclick="go('aplic')">Cadastrar aplicação</button>`}</div>
-        <div class="field" style="margin:0"><label>Responsável / Solicitante</label><input id="saidaResp"></div>
-        <div class="field" style="margin:0"><label>Observação (opcional)</label><textarea id="saidaObs" rows="2" placeholder="Enter = nova linha"></textarea></div></div>
+      <div class="row c3" style="margin-top:14px">${aplicOsRow}<div class="field" style="margin:0"><label>Responsável / Solicitante</label><input id="saidaResp"></div></div>
+      <div class="field"><label>Observação (opcional)</label><textarea id="saidaObs" rows="2" placeholder="Enter = nova linha"></textarea></div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;flex-wrap:wrap;gap:10px">
         <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-weight:500;font-size:13px;margin:0;color:#1c1c1c"><input type="checkbox" id="saidaReport" checked style="width:auto"> Gerar comprovante para assinatura</label>
-        <button class="btn primary" onclick="confirmSaida()">⊖ Confirmar saída</button></div></div>`;
-    const si=$('#saidaSearch'); si.focus(); si.oninput=e=>drawSaidaResults(e.target.value,o); drawSaidaCart(o);
+        <button class="btn primary" id="submitSaidaBtn" onclick="confirmSaida()">📋 Enviar para aprovação</button></div></div>`;
+    const si=$('#saidaSearch'); si.focus(); si.oninput=e=>drawSaidaResults(e.target.value,o); drawSaidaCart(o); onAplicChange();
   }
 }
 function updateSaidaTotal(){ const el=$('#saidaTotal'); if(!el)return; let t=0; saidaCart.forEach(i=>{const p=findProduct(i.code); t+=(i.qty||0)*((p&&p.custo)||0);}); el.textContent=money(t); }
 function drawBaixaHist(){ const list=state.movements.filter(m=>m.tipo==='baixa').slice(0,40);
-  $('#baixaHist').innerHTML=list.length?list.map(m=>`<tr><td class="muted" style="font-size:12px">${fmtDate(m.ts)}</td><td class="mono">${m.seq?seqf(m.seq):'—'}</td><td>${esc(obraName(m.obra))}</td><td>${esc(m.desc)}${m.aplic?`<br><span class="muted" style="font-size:11px">→ ${esc(aplicName(m.aplic))}</span>`:''}${m.obs?`<br><span class="muted" style="font-size:11px">obs: ${esc(m.obs)}</span>`:''}</td><td class="num neg">−${numf(m.qty)}</td><td class="num">${money(m.valorTotal)}</td><td class="num"><button class="btn ghost sm" title="Comprovante (agrupado)" onclick="reportBaixaGroup('${m.baixaId||m.id}')">🖨</button> <button class="btn danger sm" title="Excluir e estornar (supervisor)" onclick="delBaixaMov('${m.id}')">🗑</button></td></tr>`).join(''):`<tr><td colspan="7" class="empty" style="padding:24px">Nenhuma baixa.</td></tr>`; }
+  $('#baixaHist').innerHTML=list.length?list.map(m=>`<tr><td class="muted" style="font-size:12px">${fmtDate(m.ts)}</td><td class="mono">${m.seq?seqf(m.seq):'—'}</td><td>${esc(obraName(m.obra))}</td><td>${esc(m.desc)}${m.aplic?`<br><span class="muted" style="font-size:11px">→ ${esc(aplicName(m.aplic))}</span>`:''}${m.os?`<br><span class="muted" style="font-size:11px">OS ${esc(m.os)}</span>`:''}${m.obs?`<br><span class="muted" style="font-size:11px">obs: ${esc(m.obs)}</span>`:''}</td><td class="num neg">−${numf(m.qty)}</td><td class="num">${money(m.valorTotal)}</td><td class="num"><button class="btn ghost sm" title="Comprovante (agrupado)" onclick="reportBaixaGroup('${m.baixaId||m.id}')">🖨</button> <button class="btn danger sm" title="Excluir e estornar (supervisor)" onclick="delBaixaMov('${m.id}')">🗑</button></td></tr>`).join(''):`<tr><td colspan="7" class="empty" style="padding:24px">Nenhuma baixa.</td></tr>`; }
 function reportBaixaGroup(gid){ const ms=state.movements.filter(m=>m.tipo==='baixa'&&(m.baixaId||m.id)===gid); if(!ms.length)return; const m0=ms[0];
   const itens=ms.map(m=>{const p=findProduct(m.code); return {code:m.code,aux:p?p.aux:'',desc:m.desc,qty:m.qty,unit:p?p.unit:'',valor:m.valorUnit};});
   printSignReport({titulo:'Comprovante de Saída de Material',numero:seqf(m0.seq),subtitulo:'Baixa de estoque',data:fmtDate(m0.ts),obra:obraName(m0.obra),aplicacao:aplicName(m0.aplic),doc:m0.doc,obs:m0.obs,itens,assinaturas:['Solicitante','Responsável pelo almoxarifado','Recebedor']}); }
@@ -890,25 +925,41 @@ function setSaidaQty(code,v){ const it=saidaCart.find(i=>i.code===code); if(it)i
 function drawSaidaCart(o){ const b=$('#saidaCartBody'); if(!b)return;
   if(!saidaCart.length){ b.innerHTML=`<tr><td colspan="5" class="empty" style="padding:20px">Nenhum item. Pesquise acima e adicione.</td></tr>`; updateSaidaTotal(); return; }
   b.innerHTML=saidaCart.map(i=>{const p=findProduct(i.code);const s=saldoOf(o,i.code);const tot=(i.qty||0)*((p.custo)||0);return `<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''}</span></td><td class="num ${s<=0?'neg':''}">${numf(s)} ${esc(p.unit||'')}</td><td class="num"><input class="inline-edit" type="number" step="any" min="0" value="${i.qty}" oninput="setSaidaQty('${esc(i.code)}',this.value)"></td><td class="num" id="sv_${esc(i.code)}">${money(tot)}</td><td class="num"><button class="btn danger sm" onclick="rmSaida('${esc(i.code)}')">✕</button></td></tr>`;}).join(''); updateSaidaTotal(); }
-function confirmSaida(){ const o=curObra()==='__all'?state.obras[0].id:curObra(); if(!saidaCart.length){toast('Adicione itens à saída.','err');return;}
+function confirmSaida(){ const o=curObra()==='__all'?state.obras[0].id:curObra(); if(!saidaCart.length){toast('Adicione itens à solicitação.','err');return;}
   const itens=saidaCart.filter(i=>i.qty>0); if(!itens.length){toast('Informe as quantidades.','err');return;}
-  if(!state.aplicacoes.length){toast('Cadastre uma aplicação antes da saída.','err');return;}
+  if(!state.aplicacoes.length){toast('Cadastre uma aplicação antes de solicitar.','err');return;}
   const aplic=($('#saidaAplic')?$('#saidaAplic').value:''); if(!aplic){toast('Informe a aplicação (obrigatório).','err'); if($('#saidaAplic'))$('#saidaAplic').focus(); return;}
+  const os=($('#saidaOS')?$('#saidaOS').value.trim():''); if(aplicRequerOS(aplic)&&!os){ toast('Ordem de Serviço é obrigatória para Equipamento/Veículo.','err'); if($('#saidaOS'))$('#saidaOS').focus(); return; }
   const resp=($('#saidaResp')?$('#saidaResp').value.trim():''); const obs=($('#saidaObs')?$('#saidaObs').value.trim():''); const wantReport=$('#saidaReport')&&$('#saidaReport').checked;
-  const baixaId=uid(); const repItens=itens.map(i=>{const p=findProduct(i.code); return {code:p.code,aux:p.aux,desc:p.desc,qty:i.qty,unit:p.unit,valor:p.custo||0};});
-  const seq=++state.seq.baixa; const doc=`Baixa Nº ${seqf(seq)}`+(resp?' · '+resp:'')+(isOnline?'':' (offline)');
+  const excedido=itens.filter(i=>i.qty>saldoOf(o,i.code));
+  if(excedido.length){ toast('Saldo insuficiente para: '+excedido.map(i=>findProduct(i.code).desc).join(', ')+'.','err'); return; }
+
+  if(precisaAprovacao(aplic)){
+    const payload={obra_id:o,obra_nome:obraName(o),solicitante_id:session.user.id,solicitante_nome:profile.nome||profile.email,
+      itens:itens.map(i=>{const p=findProduct(i.code); return {code:p.code,desc:p.desc,unit:p.unit,qty:i.qty};}),
+      observacao:(obs||resp?[obs,resp?('Solicitante: '+resp):''].filter(Boolean).join(' · '):null),ordem_servico:os||null,aplicacao_id:aplic,aplicacao_nome:aplicName(aplic)};
+    const finish=()=>{ saidaCart=[]; drawBaixaHist(); drawMinhasFrotasPendentes(); setBaixaMode(baixaMode); };
+    if(!isOnline){ queueAction('requisicao',payload); toast('Sem conexão — solicitação guardada neste aparelho, será enviada quando a conexão voltar.','warn'); finish(); return; }
+    sb.from('requisicoes').insert(payload).then(({error})=>{ if(error){toast('Erro ao enviar: '+error.message,'err');return;} toast('Solicitação enviada para aprovação.','ok'); refreshAprovBadge(); finish(); });
+    return;
+  }
+
+  const baixaId=uid();
+  const seq=++state.seq.baixa; const doc=`Baixa Nº ${seqf(seq)}`+(resp?' · '+resp:'')+(os?' · OS '+os:'')+(isOnline?'':' (offline)');
   itens.forEach(i=>{const p=findProduct(i.code); const vu=p.custo||0; addSaldo(o,p.code,-i.qty);
-    state.movements.unshift({id:uid(),ts:Date.now(),seq,baixaId,tipo:'baixa',obra:o,aplic,obs,code:p.code,desc:p.desc,qty:i.qty,valorUnit:vu,valorTotal:i.qty*vu,doc,saldo:saldoOf(o,p.code)}); });
+    state.movements.unshift({id:uid(),ts:Date.now(),seq,baixaId,tipo:'baixa',obra:o,aplic,obs,os,code:p.code,desc:p.desc,qty:i.qty,valorUnit:vu,valorTotal:i.qty*vu,doc,saldo:saldoOf(o,p.code)}); });
   if(!isOnline){
     cacheState();
-    queueAction('baixa',{obra:o,aplic,obs,doc:`Baixa Nº ${seqf(seq)}`+(resp?' · '+resp:''),baixaId,ts:Date.now(),itens:itens.map(i=>{const p=findProduct(i.code); return {code:p.code,desc:p.desc,unit:p.unit,qty:i.qty,valorUnit:p.custo||0};})},'Baixa Nº '+seqf(seq)+' · '+itens.length+' item(ns) em '+obraName(o));
+    queueAction('baixa',{obra:o,aplic,obs,os,doc:`Baixa Nº ${seqf(seq)}`+(resp?' · '+resp:''),baixaId,ts:Date.now(),itens:itens.map(i=>{const p=findProduct(i.code); return {code:p.code,desc:p.desc,unit:p.unit,qty:i.qty,valorUnit:p.custo||0};})},'Baixa Nº '+seqf(seq)+' · '+itens.length+' item(ns) em '+obraName(o));
     toast(`Saída Nº ${seqf(seq)} guardada offline · ${itens.length} item(ns). Envia sozinha quando a conexão voltar.`,'warn');
   } else {
     save('Baixa Nº '+seqf(seq)+' · '+itens.length+' item(ns) em '+obraName(o)); toast(`Saída Nº ${seqf(seq)} · ${itens.length} item(ns) em ${esc(obraName(o))}.`,'ok');
   }
   itens.forEach(i=>{const p=findProduct(i.code); if(saldoOf(o,p.code)<=p.min)toast(`⚠ ${p.desc} no mínimo (${numf(saldoOf(o,p.code))}).`,'warn');});
-  if(wantReport)printSignReport({titulo:'Comprovante de Saída de Material',numero:seqf(seq),subtitulo:'Baixa de estoque',data:fmtDate(Date.now()),obra:obraName(o),aplicacao:aplicName(aplic),doc,responsavel:resp,obs,itens:repItens,assinaturas:['Solicitante','Responsável pelo almoxarifado','Recebedor']});
-  saidaCart=[]; drawBaixaHist(); setBaixaMode(baixaMode); }
+  if(wantReport){ const repItens=itens.map(i=>{const p=findProduct(i.code); return {code:p.code,aux:p.aux,desc:p.desc,qty:i.qty,unit:p.unit,valor:p.custo||0};});
+    printSignReport({titulo:'Comprovante de Saída de Material',numero:seqf(seq),subtitulo:'Baixa de estoque',data:fmtDate(Date.now()),obra:obraName(o),aplicacao:aplicName(aplic),doc,responsavel:resp,obs,itens:repItens,assinaturas:['Solicitante','Responsável pelo almoxarifado','Recebedor']}); }
+  saidaCart=[]; drawBaixaHist(); setBaixaMode(baixaMode);
+}
 
 /* ===== AJUSTE DE SALDO (lançamento direto, sem nota fiscal) ===== */
 function renderAjuste(){
@@ -962,119 +1013,8 @@ function aplicarAjuste(code){ const p=findProduct(code); if(!p)return; const obr
     await save('Ajuste de saldo: '+p.desc+' em '+obraName(obra)+' ('+(delta>0?'+':'')+numf(delta)+') · '+motivo);
     toast('Saldo ajustado e salvo.','ok'); renderAjuste(); }); }
 
-/* ===== REQUISIÇÃO ELETRÔNICA (com aprovação do encarregado) ===== */
-let reqTab='novo', reqCart=[], reqMode='scanner', reqProduct=null;
-function renderRequisicoes(){
-  if(needObra())return;
-  $('#view').innerHTML=`<div class="panel" style="margin-bottom:14px;padding-bottom:6px"><div class="tabs" style="margin-bottom:0">
-    <button id="rqNovo" onclick="setReqTab('novo')">Novo pedido</button>
-    <button id="rqMeus" onclick="setReqTab('meus')">Meus pedidos</button></div></div>
-  <div id="reqPane"></div>`;
-  setReqTab(reqTab);
-}
-function setReqTab(t){ reqTab=t; $('#rqNovo').classList.toggle('on',t==='novo'); $('#rqMeus').classList.toggle('on',t==='meus');
-  if(t==='novo')drawReqNovo(); else drawReqMeus(); }
-function reqObra(){ const el=$('#rqObra'); return el?el.value:curObra(); }
-function drawReqNovo(){ reqCart=[]; reqProduct=null; const pane=$('#reqPane');
-  pane.innerHTML=`<div class="panel"><h3>Nova requisição</h3><p class="desc">Escolha a obra, adicione os itens necessários e envie para aprovação do encarregado. O estoque só é baixado quando o pedido for <b>aprovado</b> — não é possível pedir mais do que o saldo disponível.</p>
-    <div class="row c3">
-      <div class="field" style="margin:0"><label>Obra</label><select id="rqObra">${obraOptions(curObra()==='__all'?(state.obras[0]&&state.obras[0].id):curObra(),false)}</select></div>
-      <div class="field" style="margin:0"><label>Ordem de Serviço</label><input id="rqOS" placeholder="Nº da OS (opcional)"></div>
-      <div class="field" style="margin:0"><label>Aplicação / Equipamento${state.aplicacoes.length?' (obrigatório)':''}</label>${state.aplicacoes.length?`<select id="rqAplic">${aplicOptionsSel('')}</select>`:`<input disabled placeholder="cadastre em Aplicações">`}</div>
-    </div>
-    ${!state.aplicacoes.length?`<div class="panel" style="padding:10px 14px;margin:10px 0;border-color:#f0c060;background:#fff7e8"><b style="color:#8a5a00">⚠ Nenhuma aplicação cadastrada</b> — <a href="#" onclick="go('aplic');return false;">cadastre um equipamento</a> para vincular à requisição.</div>`:''}
-    <div class="tabs" style="margin:4px 0 12px">
-      <button id="rmScan" onclick="setReqMode('scanner')">Scanner (rápido)</button>
-      <button id="rmMan" onclick="setReqMode('manual')">Buscar</button></div>
-    <div id="rqModePane"></div>
-    <div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Produto</th><th class="num">Disponível</th><th class="num">Qtd pedida</th><th></th></tr></thead><tbody id="rqCartBody"></tbody></table></div>
-    <div class="field" style="margin-top:12px"><label>Observação (opcional)</label><textarea id="rqObs" rows="2" placeholder="Enter = nova linha"></textarea></div>
-    <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn primary" onclick="enviarRequisicao()">📋 Enviar para aprovação</button></div></div>`;
-  $('#rqObra').onchange=()=>{ reqCart=[]; reqProduct=null; drawReqCart(); setReqMode(reqMode); };
-  setReqMode(reqMode); drawReqCart(); }
-function setReqMode(m){ reqMode=m; if($('#rmScan'))$('#rmScan').classList.toggle('on',m==='scanner'); if($('#rmMan'))$('#rmMan').classList.toggle('on',m==='manual');
-  const pane=$('#rqModePane'); if(!pane)return;
-  if(m==='scanner'){
-    pane.innerHTML=`<div class="scan-box"><label>📷 Escaneie o código de barras — obra: ${esc(obraName(reqObra()))}</label>
-      <input id="rqScanInput" placeholder="Leia o código de barras ou digite nome / código (parcial)" autocomplete="off">
-      <button class="btn dark sm" style="margin-top:8px" onclick="openCameraScanner(c=>{$('#rqScanInput').value=c; lookupReqScan(c,true);})">📷 Usar câmera do celular</button>
-      <div class="scan-hint">⚡ Escaneie ou pesquise, informe a quantidade e adicione à lista.</div></div>
-      <div id="rqScanResults"></div>
-      <div class="found-card" id="reqFoundCard"></div>`;
-    const inp=$('#rqScanInput'); inp.focus();
-    inp.oninput=e=>drawReqScanResults(e.target.value);
-    inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();lookupReqScan(inp.value);}});
-  } else {
-    pane.innerHTML=`<div class="search" style="max-width:none"><span class="si">⌕</span><input id="rqSearch" placeholder="Nome, código ou auxiliar..." autocomplete="off"></div>
-      <div id="rqResults"></div>`;
-    const si=$('#rqSearch'); si.focus(); si.oninput=e=>drawReqResults(e.target.value);
-  }
-}
-/* --- scanner --- */
-function drawReqScanResults(q){ const box=$('#rqScanResults'); if(!box)return; const o=reqObra(); const list=searchProducts(q).slice(0,8); if(!q||!list.length){box.innerHTML='';return;}
-  box.innerHTML=`<div class="tbl-wrap" style="margin:6px 0 10px"><table><tbody>`+list.map(p=>`<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · disponível ${numf(saldoOf(o,p.code))} ${esc(p.unit||'')}</span></td><td class="num" style="width:80px"><button class="btn ghost sm" onclick="lookupReqScanPick('${esc(p.code)}')">Selecionar</button></td></tr>`).join('')+`</tbody></table></div>`; }
-function lookupReqScanPick(code){ if($('#rqScanResults'))$('#rqScanResults').innerHTML=''; lookupReqScan(code,true); }
-function lookupReqScan(code,exactCode){ code=String(code).trim(); if(!code)return; const o=reqObra();
-  let p=findByCodeOrAux(code) || (exactCode?findProduct(code):null); const fc=$('#reqFoundCard');
-  if(!p){ const list=searchProducts(code); if(list.length===1){p=list[0];} else if(list.length>1){ drawReqScanResults(code); toast('Vários itens encontrados — escolha na lista.','warn'); return; } }
-  if(!p){ fc.className='found-card show'; fc.style.borderColor='var(--red)'; fc.innerHTML=`<div style="text-align:center;color:#c0392b">Nada encontrado para: <span class="mono">${esc(code)}</span></div>`; $('#rqScanInput').value=''; $('#rqScanInput').focus(); toast('Produto não encontrado.','err'); return; }
-  if($('#rqScanResults'))$('#rqScanResults').innerHTML='';
-  const s=saldoOf(o,p.code);
-  if(s<=0){ reqProduct=null; fc.className='found-card show'; fc.style.borderColor='var(--red)';
-    fc.innerHTML=`<div class="fc-head"><div><div class="code">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · ${esc(obraName(o))}</div><div class="name">${esc(p.desc)}</div></div></div>
-      <div style="background:#fdeaea;border:1px solid #e0a0a0;border-radius:8px;padding:10px 12px;margin-top:8px;font-size:12.5px;color:#a02525">⛔ Sem saldo em <b>${esc(obraName(o))}</b> — não é possível requisitar.${obrasComSaldo(p.code)?`<br>Há saldo em: ${obrasComSaldo(p.code)}.`:''}</div>
-      <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn ghost" onclick="cancelReqScan()">Fechar</button></div>`;
-    $('#rqScanInput').value=''; $('#rqScanInput').focus(); toast('Item zerado nesta obra.','warn'); return; }
-  reqProduct=p;
-  fc.style.borderColor='var(--amber)'; fc.className='found-card show';
-  fc.innerHTML=`<div class="fc-head"><div><div class="code">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · ${esc(obraName(o))}</div><div class="name">${esc(p.desc)}</div></div></div>
-    <div class="fc-stats"><div class="fc-stat"><div class="l">Disponível</div><div class="v">${numf(s)} <span style="font-size:11px">${esc(p.unit||'')}</span></div></div></div>
-    <div class="field" style="margin:8px 0 0"><label>Quantidade a requisitar (máx. ${numf(s)})</label><input id="reqQty" type="number" step="any" min="0" max="${s}" autofocus></div>
-    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="cancelReqScan()">Cancelar</button><button class="btn primary" onclick="addReqScanToCart()">+ Adicionar à lista</button></div>`;
-  $('#rqScanInput').value=''; const rq=$('#reqQty'); rq.focus(); rq.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();addReqScanToCart();}});
-}
-function cancelReqScan(){ reqProduct=null; const fc=$('#reqFoundCard'); if(fc)fc.className='found-card'; if($('#rqScanInput'))$('#rqScanInput').focus(); }
-function addReqScanToCart(){ const p=reqProduct; if(!p)return; const o=reqObra();
-  const qty=parseFloat($('#reqQty').value); if(!(qty>0)){toast('Informe a quantidade.','err');return;}
-  const s=saldoOf(o,p.code); const ex=reqCart.find(i=>i.code===p.code); const have=ex?(ex.qty||0):0;
-  if(have+qty>s){toast(`Disponível apenas ${numf(s)} ${p.unit||''} de ${p.desc}.`,'err');return;}
-  if(ex)ex.qty=have+qty; else reqCart.push({code:p.code,desc:p.desc,unit:p.unit||'',qty});
-  reqProduct=null; const fc=$('#reqFoundCard'); if(fc)fc.className='found-card'; drawReqCart();
-  if($('#rqScanInput')){$('#rqScanInput').value='';$('#rqScanInput').focus();} }
-/* --- buscar --- */
-function drawReqResults(q){ const box=$('#rqResults'); if(!box)return; const o=reqObra(); const list=searchProducts(q).slice(0,8); if(!q||!list.length){box.innerHTML='';return;}
-  box.innerHTML=`<div class="tbl-wrap" style="margin:6px 0 10px"><table><tbody>`+list.map(p=>{const s=saldoOf(o,p.code); return `<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · disponível ${numf(s)} ${esc(p.unit||'')}</span></td><td class="num" style="width:150px"><input type="number" step="any" min="0" max="${s}" placeholder="qtd" id="rqq_${esc(p.code)}" style="width:80px;display:inline-block"> <button class="btn ghost sm" onclick="addReqItem('${esc(p.code)}')">+</button></td></tr>`;}).join('')+`</tbody></table></div>`; }
-function addReqItem(code){ const p=findProduct(code); if(!p)return; const o=reqObra(); const s=saldoOf(o,code); const inp=$('#rqq_'+code); const qty=parseFloat(inp&&inp.value); if(!(qty>0)){toast('Informe a quantidade.','err');return;}
-  const ex=reqCart.find(i=>i.code===code); const have=ex?(ex.qty||0):0;
-  if(have+qty>s){toast(`Disponível apenas ${numf(s)} ${p.unit||''} de ${p.desc}.`,'err');return;}
-  if(ex)ex.qty=have+qty; else reqCart.push({code:p.code,desc:p.desc,unit:p.unit||'',qty});
-  $('#rqSearch').value=''; $('#rqResults').innerHTML=''; $('#rqSearch').focus(); drawReqCart(); }
-function rmReqItem(i){ reqCart.splice(i,1); drawReqCart(); }
-function drawReqCart(){ const b=$('#rqCartBody'); if(!b)return; const o=reqObra();
-  b.innerHTML=reqCart.length?reqCart.map((i,idx)=>{const s=saldoOf(o,i.code); return `<tr><td>${esc(i.desc)}<br><span class="muted" style="font-size:11px">${esc(i.code)}</span></td><td class="num ${s<i.qty?'neg':''}">${numf(s)} ${esc(i.unit||'')}</td><td class="num">${numf(i.qty)} ${esc(i.unit||'')}</td><td class="num"><button class="btn danger sm" onclick="rmReqItem(${idx})">✕</button></td></tr>`;}).join(''):`<tr><td colspan="4" class="empty" style="padding:16px">Nenhum item adicionado.</td></tr>`; }
-async function enviarRequisicao(){ if(!reqCart.length){toast('Adicione ao menos 1 item.','err');return;}
-  const obraId=reqObra(); const ob=state.obras.find(o=>o.id===obraId); if(!ob){toast('Selecione a obra.','err');return;}
-  const excedido=reqCart.filter(i=>i.qty>saldoOf(obraId,i.code));
-  if(excedido.length){ toast('Saldo insuficiente para: '+excedido.map(i=>i.desc).join(', ')+'. Ajuste a quantidade.','err'); drawReqCart(); return; }
-  const aplic=(state.aplicacoes.length && $('#rqAplic'))?$('#rqAplic').value:'';
-  if(state.aplicacoes.length && !aplic){ toast('Informe a aplicação/equipamento onde o material será usado.','err'); if($('#rqAplic'))$('#rqAplic').focus(); return; }
-  const os=($('#rqOS')?$('#rqOS').value.trim():'');
-  const obs=($('#rqObs')?$('#rqObs').value.trim():'');
-  const payload={obra_id:ob.id,obra_nome:ob.nome,solicitante_id:session.user.id,solicitante_nome:profile.nome||profile.email,itens:reqCart,observacao:obs||null,ordem_servico:os||null,aplicacao_id:aplic||null,aplicacao_nome:aplic?aplicName(aplic):null};
-  if(!isOnline){ queueAction('requisicao',payload); toast('Sem conexão — pedido guardado neste aparelho e será enviado assim que a conexão voltar.','warn'); setReqTab('meus'); return; }
-  const {error}=await sb.from('requisicoes').insert(payload);
-  if(error){toast('Erro ao enviar: '+error.message,'err');return;}
-  toast('Requisição enviada para aprovação.','ok'); setReqTab('meus'); refreshAprovBadge(); }
-async function drawReqMeus(){ const pane=$('#reqPane'); pane.innerHTML='<div class="tbl-wrap"><div class="empty">Carregando...</div></div>';
-  const pendQueue=getQueue().filter(a=>a.type==='requisicao');
-  let data=[],error=null;
-  if(isOnline){ const r=await sb.from('requisicoes').select('*').eq('solicitante_id',session.user.id).order('criado_em',{ascending:false}).limit(100); data=r.data||[]; error=r.error; }
-  if(error){pane.innerHTML='<div class="tbl-wrap"><div class="empty">Erro: '+esc(error.message)+'</div></div>';return;}
-  const queuedRows=pendQueue.map(a=>`<tr><td class="mono">—</td><td class="muted" style="font-size:12px">${fmtDate(a.ts)}</td><td>${esc(a.payload.obra_nome)}${a.payload.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(a.payload.ordem_servico)+'</span>':''}</td><td>${esc(a.payload.aplicacao_nome||'—')}</td><td>${a.payload.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td><span class="pill pendente">📴 Aguardando envio</span></td><td></td></tr>`).join('');
-  pane.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>Nº</th><th>Data</th><th>Obra / OS</th><th>Aplicação</th><th>Itens</th><th>Situação</th><th></th></tr></thead><tbody>${queuedRows+
-    data.map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(r.criado_em).getTime())}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${esc(r.aplicacao_nome||'—')}</td><td>${r.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${r.motivo_rejeicao?`<br><span class="muted" style="font-size:11px">motivo: ${esc(r.motivo_rejeicao)}</span>`:''}</td><td class="num">${r.status==='pendente'?`<button class="btn ghost sm" onclick="cancelarRequisicao(${r.id})">Cancelar</button>`:''}</td></tr>`).join('')||(queuedRows?'':`<tr><td colspan="7" class="empty" style="padding:24px">Nenhum pedido ainda.</td></tr>`)}</tbody></table></div>`; }
 function reqStatusLabel(s){ return {pendente:'Pendente',aprovada:'Aprovada',rejeitada:'Rejeitada',cancelada:'Cancelada'}[s]||s; }
-async function cancelarRequisicao(id){ const {error}=await sb.from('requisicoes').update({status:'cancelada'}).eq('id',id); if(error){toast('Erro: '+error.message,'err');return;} toast('Requisição cancelada.','warn'); drawReqMeus(); refreshAprovBadge(); }
+async function cancelarRequisicao(id){ const {error}=await sb.from('requisicoes').update({status:'cancelada'}).eq('id',id); if(error){toast('Erro: '+error.message,'err');return;} toast('Requisição cancelada.','warn'); if(activeTab==='baixa')drawMinhasFrotasPendentes(); refreshAprovBadge(); }
 
 /* ===== APROVAÇÕES (encarregado / admin) ===== */
 async function renderAprovacoes(){
@@ -1101,7 +1041,7 @@ async function aprovarRequisicao(id){
   const seq=++state.seq.baixa; const baixaId=uid(); const doc=`Requisição REQ-${String(r.id).padStart(5,'0')} aprovada · ${r.solicitante_nome}`+(r.ordem_servico?' · OS '+r.ordem_servico:'');
   const obsMov='Requisição REQ-'+String(r.id).padStart(5,'0')+(r.ordem_servico?' · OS '+r.ordem_servico:'');
   r.itens.forEach(i=>{ const p=findProduct(i.code); const vu=p.custo||0; addSaldo(r.obra_id,p.code,-i.qty);
-    state.movements.unshift({id:uid(),ts:Date.now(),seq,baixaId,tipo:'baixa',obra:r.obra_id,aplic:r.aplicacao_id||'',obs:obsMov,code:p.code,desc:p.desc,qty:i.qty,valorUnit:vu,valorTotal:i.qty*vu,doc,saldo:saldoOf(r.obra_id,p.code)}); });
+    state.movements.unshift({id:uid(),ts:Date.now(),seq,baixaId,tipo:'baixa',obra:r.obra_id,aplic:r.aplicacao_id||'',obs:obsMov,os:r.ordem_servico||'',code:p.code,desc:p.desc,qty:i.qty,valorUnit:vu,valorTotal:i.qty*vu,doc,saldo:saldoOf(r.obra_id,p.code)}); });
   await save('Requisição REQ-'+String(r.id).padStart(5,'0')+' aprovada ('+r.obra_nome+')');
   const {error:e2}=await sb.from('requisicoes').update({status:'aprovada',decidido_por:session.user.id,decidido_por_nome:profile.nome||profile.email,decidido_em:new Date().toISOString()}).eq('id',id);
   if(e2){toast('Baixa feita, mas houve erro ao marcar a requisição: '+e2.message,'err');return;}
@@ -1196,7 +1136,7 @@ function reportRomaneio(id){ const ms=state.movements.filter(m=>m.tipo==='transf
 function renderConsulta(){ $('#view').innerHTML=`<div class="panel"><h3>Consultar produto</h3><p class="desc">Busque por <b>nome</b> ou <b>código de barras</b>. Veja saldo por obra e valores de entrada e saída.</p><div class="search" style="max-width:none"><span class="si">⌕</span><input id="consInput" placeholder="Nome ou código..." autocomplete="off"></div></div><div id="consResult"></div>`;
   const inp=$('#consInput'); inp.focus(); inp.addEventListener('keydown',e=>{if(e.key==='Enter'){const p=findProduct(inp.value.trim());if(p){showConsulta(p);return;}}}); inp.oninput=()=>drawConsList(inp.value); drawConsList(''); }
 function drawConsList(q){ q=q.toLowerCase().trim(); const box=$('#consResult');
-  const list=q?state.products.filter(p=>p.desc.toLowerCase().includes(q)||String(p.code).includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.ref&&p.ref.toLowerCase().includes(q))):state.products.slice();
+  const list=q?state.products.filter(p=>p.desc.toLowerCase().includes(q)||String(p.code).includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.ref&&p.ref.toLowerCase().includes(q))||(p.grupo&&p.grupo.toLowerCase().includes(q))||(p.localizacao&&p.localizacao.toLowerCase().includes(q))||(p.endereco&&p.endereco.toLowerCase().includes(q))):state.products.slice();
   if(!state.products.length){ box.innerHTML=`<div class="tbl-wrap"><div class="empty"><div class="ico">⌕</div>Nenhum produto cadastrado.</div></div>`; return; }
   if(!list.length){ box.innerHTML=`<div class="tbl-wrap"><div class="empty">Nada encontrado para "<b>${esc(q)}</b>".</div></div>`; return; }
   if(q&&list.length===1){ showConsulta(list[0]); return; }
@@ -1349,6 +1289,8 @@ sb.auth.onAuthStateChange((event,s)=>{ session=s; onAuthReady(); });
 let _rel=null, relTipo='aplicacao';
 function renderRelatorios(){ if(needObra())return;
   const d2=new Date(),d1=new Date(); d1.setDate(d1.getDate()-90);
+  const grupos=[...new Set(state.products.map(p=>p.grupo&&p.grupo.trim()?p.grupo.trim():'(sem grupo)'))].sort((a,b)=>a==='(sem grupo)'?1:b==='(sem grupo)'?-1:a.localeCompare(b,'pt-BR'));
+  const locais=[...new Set(state.products.map(p=>p.localizacao&&p.localizacao.trim()?p.localizacao.trim():'(sem localização)'))].sort((a,b)=>a==='(sem localização)'?1:b==='(sem localização)'?-1:a.localeCompare(b,'pt-BR'));
   $('#view').innerHTML=`
   <div class="panel" style="margin-bottom:16px">
     <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
@@ -1359,32 +1301,59 @@ function renderRelatorios(){ if(needObra())return;
       <button class="btn dark sm" onclick="printRelatorio()">🖨 Imprimir / PDF</button>
       <label style="display:flex;align-items:center;gap:7px;text-transform:none;font-weight:600;font-size:13px;margin:0;color:#1c1c1c;align-self:center"><input type="checkbox" id="relABC" style="width:auto"> Curva ABC</label>
     </div>
+    <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;margin-top:12px">
+      <div class="field" style="margin:0"><label>Grupo de insumo</label><select id="relGrupo"><option value="">Todos os grupos</option>${grupos.map(g=>`<option value="${esc(g)}">${esc(g)}</option>`).join('')}</select></div>
+      <div class="field" style="margin:0"><label>Localização do estoque</label><select id="relLocal"><option value="">Todas as localizações</option>${locais.map(l=>`<option value="${esc(l)}">${esc(l)}</option>`).join('')}</select></div>
+      <div class="field" style="margin:0"><label>Tipo de aplicação</label><select id="relTipoAplic"><option value="">Todos os tipos</option>${APLIC_TIPOS.map(x=>`<option value="${x[0]}">${esc(x[1])}</option>`).join('')}</select></div>
+      <div class="field" style="margin:0"><label>Aplicação / Equipamento</label><select id="relAplicEsp"><option value="">Todas as aplicações</option>${state.aplicacoes.map(a=>`<option value="${a.id}">${esc(a.nome)}</option>`).join('')}</select></div>
+      <div class="field" style="margin:0"><label>Produto (nome/código)</label><input id="relProdutoTxt" placeholder="Buscar produto..."></div>
+      <div class="field" style="margin:0"><label>Ordem de Serviço</label><input id="relOSTxt" placeholder="Nº da OS..."></div>
+    </div>
     <div class="tabs" style="margin-top:14px">
       <button id="rtAplic" onclick="setRelTipo('aplicacao')">Por aplicação</button>
       <button id="rtTipo" onclick="setRelTipo('tipo')">Por tipo de aplicação</button>
       <button id="rtObra" onclick="setRelTipo('obra')">Por obra</button>
       <button id="rtProd" onclick="setRelTipo('produto')">Por produto</button>
+      <button id="rtGrupo" onclick="setRelTipo('grupo')">Insumos por grupo</button>
+      <button id="rtOS" onclick="setRelTipo('os')">Por Ordem de Serviço</button>
+      <button id="rtCons" onclick="setRelTipo('consorcio')">P/ Consórcio (débito)</button>
     </div>
   </div>
   <div id="relView"></div>`;
   setRelTipo(relTipo);
-  ['relFrom','relTo','relObra','relABC'].forEach(id=>{const el=$('#'+id); if(el)el.onchange=drawRelatorio;});
+  ['relFrom','relTo','relObra','relGrupo','relLocal','relTipoAplic','relAplicEsp','relProdutoTxt','relOSTxt','relABC'].forEach(id=>{const el=$('#'+id); if(el){el.onchange=drawRelatorio; if(el.tagName==='INPUT'&&el.type!=='date')el.oninput=drawRelatorio;}});
 }
-function setRelTipo(t){ relTipo=t; [['aplicacao','rtAplic'],['tipo','rtTipo'],['obra','rtObra'],['produto','rtProd']].forEach(([k,id])=>{const b=$('#'+id); if(b)b.classList.toggle('on',k===t);}); drawRelatorio(); }
+function setRelTipo(t){ relTipo=t; [['aplicacao','rtAplic'],['tipo','rtTipo'],['obra','rtObra'],['produto','rtProd'],['grupo','rtGrupo'],['os','rtOS'],['consorcio','rtCons']].forEach(([k,id])=>{const b=$('#'+id); if(b)b.classList.toggle('on',k===t);}); drawRelatorio(); }
 function relPeriod(){ const f=$('#relFrom')&&$('#relFrom').value?new Date($('#relFrom').value+'T00:00:00').getTime():0; const t=$('#relTo')&&$('#relTo').value?new Date($('#relTo').value+'T23:59:59').getTime():Date.now(); return [f,t]; }
+function produtoGrupo(code){ const p=findProduct(code); const g=p&&p.grupo&&p.grupo.trim()?p.grupo.trim():'(sem grupo)'; return g; }
+function movOS(m){ if(m.os)return m.os; const src=((m.doc||'')+' '+(m.obs||'')); const mt=src.match(/OS[\s:]*([^\s·]+)/i); return mt?mt[1]:''; }
+function produtoPassaFiltros(p,gf,lf,pf){ if(gf&&produtoGrupo(p.code)!==gf)return false; if(lf&&produtoLocal(p.code)!==lf)return false; if(pf&&!(p.desc.toLowerCase().includes(pf)||String(p.code).toLowerCase().includes(pf)||(p.aux&&String(p.aux).toLowerCase().includes(pf))))return false; return true; }
+function produtoLocal(code){ const p=findProduct(code); const l=p&&p.localizacao&&p.localizacao.trim()?p.localizacao.trim():'(sem localização)'; return l; }
 function drawRelatorio(){ const box=$('#relView'); if(!box)return;
   const [f,t]=relPeriod(); const emi=emiMap(); const fobra=$('#relObra')?$('#relObra').value:'__all'; const isAll=fobra==='__all';
-  const periodoLbl=`${new Date(f).toLocaleDateString('pt-BR')} a ${new Date(t).toLocaleDateString('pt-BR')}`+(isAll?' · todas as obras':' · '+obraName(fobra));
-  const inP=state.movements.filter(m=>{const d=mdate(m,emi); return d>=f&&d<=t && (isAll||m.obra===fobra||(m.tipo==='transferencia'&&m.obraDest===fobra));});
-  if($('#relABC')&&$('#relABC').checked){ drawABC(inP,isAll,fobra,periodoLbl); return; }
+  const gf=$('#relGrupo')?$('#relGrupo').value:'';
+  const lf=$('#relLocal')?$('#relLocal').value:'';
+  const taf=$('#relTipoAplic')?$('#relTipoAplic').value:'';
+  const aef=$('#relAplicEsp')?$('#relAplicEsp').value:'';
+  const pf=($('#relProdutoTxt')?$('#relProdutoTxt').value:'').toLowerCase().trim();
+  const osf=($('#relOSTxt')?$('#relOSTxt').value:'').toLowerCase().trim();
+  let periodoLbl=`${new Date(f).toLocaleDateString('pt-BR')} a ${new Date(t).toLocaleDateString('pt-BR')}`+(isAll?' · todas as obras':' · '+obraName(fobra))+(gf?' · grupo: '+gf:'')+(lf?' · local: '+lf:'')+(taf?' · tipo aplic.: '+aplicTipoLabel(taf):'')+(aef?' · aplicação: '+aplicName(aef):'')+(pf?' · produto: '+pf:'')+(osf?' · OS: '+osf:'');
+  let inP=state.movements.filter(m=>{const d=mdate(m,emi); return d>=f&&d<=t && (isAll||m.obra===fobra||(m.tipo==='transferencia'&&m.obraDest===fobra));});
+  if(gf)inP=inP.filter(m=>produtoGrupo(m.code)===gf);
+  if(lf)inP=inP.filter(m=>produtoLocal(m.code)===lf);
+  if(taf)inP=inP.filter(m=>{ const a=state.aplicacoes.find(x=>x.id===m.aplic); return a&&a.tipo===taf; });
+  if(aef)inP=inP.filter(m=>m.aplic===aef);
+  if(pf)inP=inP.filter(m=>{ const p=findProduct(m.code); return p&&(p.desc.toLowerCase().includes(pf)||String(p.code).toLowerCase().includes(pf)||(p.aux&&String(p.aux).toLowerCase().includes(pf))); });
+  if(osf)inP=inP.filter(m=>movOS(m).toLowerCase().includes(osf));
+  if($('#relABC')&&$('#relABC').checked&&relTipo!=='grupo'&&relTipo!=='os'&&relTipo!=='consorcio'){ drawABC(inP,isAll,fobra,periodoLbl); return; }
   let titulo,headers,rows,foot;
   if(relTipo==='aplicacao'){
     titulo='Consumo por aplicação';
-    const g={}; inP.filter(m=>m.tipo==='baixa').forEach(m=>{ const k=m.aplic||'__sem'; if(!g[k])g[k]={itens:0,valor:0}; g[k].itens++; g[k].valor+=m.valorTotal; });
-    const arr=Object.entries(g).map(([k,v])=>{ const a=state.aplicacoes.find(x=>x.id===k); return {nome:k==='__sem'?'(sem aplicação)':(a?a.nome:'(removida)'), tipo:k==='__sem'?'—':aplicTipoLabel(a&&a.tipo,a&&a.sub), itens:v.itens, valor:v.valor}; }).sort((a,b)=>b.valor-a.valor);
-    headers=['Aplicação','Tipo','Nº itens','Valor total'];
-    rows=arr.map(a=>[a.nome,a.tipo,String(a.itens),money(a.valor)]);
-    foot=['Total','',String(arr.reduce((s,a)=>s+a.itens,0)),money(arr.reduce((s,a)=>s+a.valor,0))];
+    const g={}; inP.filter(m=>m.tipo==='baixa').forEach(m=>{ const k=m.aplic||'__sem'; if(!g[k])g[k]={itens:0,valor:0,os:new Set()}; g[k].itens++; g[k].valor+=m.valorTotal; const mo=movOS(m); if(mo)g[k].os.add(mo); });
+    const arr=Object.entries(g).map(([k,v])=>{ const a=state.aplicacoes.find(x=>x.id===k); return {nome:k==='__sem'?'(sem aplicação)':(a?a.nome:'(removida)'), tipo:k==='__sem'?'—':aplicTipoLabel(a&&a.tipo,a&&a.sub), itens:v.itens, valor:v.valor, os:[...v.os].sort().join(', ')||'—'}; }).sort((a,b)=>b.valor-a.valor);
+    headers=['Aplicação','Tipo','Ordens de Serviço','Nº itens','Valor total'];
+    rows=arr.map(a=>[a.nome,a.tipo,a.os,String(a.itens),money(a.valor)]);
+    foot=['Total','','',String(arr.reduce((s,a)=>s+a.itens,0)),money(arr.reduce((s,a)=>s+a.valor,0))];
   } else if(relTipo==='tipo'){
     titulo='Consumo por tipo de aplicação';
     const g={}; inP.filter(m=>m.tipo==='baixa').forEach(m=>{ const a=state.aplicacoes.find(x=>x.id===m.aplic); let k=a?(a.tipo==='sede'?'sede:'+(a.sub||''):a.tipo):'__sem'; if(!g[k])g[k]={itens:0,valor:0}; g[k].itens++; g[k].valor+=m.valorTotal; });
@@ -1401,12 +1370,48 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
       const bx=inP.filter(m=>m.tipo==='baixa'&&m.obra===o.id).reduce((s,m)=>s+m.valorTotal,0);
       const tIn=inP.filter(m=>m.tipo==='transferencia'&&m.obraDest===o.id).reduce((s,m)=>s+m.valorTotal,0);
       const tOut=inP.filter(m=>m.tipo==='transferencia'&&m.obra===o.id).reduce((s,m)=>s+m.valorTotal,0);
-      const estoque=state.products.reduce((s,p)=>s+saldoOf(o.id,p.code)*(p.custo||0),0);
+      const estoque=state.products.filter(p=>produtoPassaFiltros(p,gf,lf,pf)).reduce((s,p)=>s+saldoOf(o.id,p.code)*(p.custo||0),0);
       return {nome:o.nome,ent,bx,tIn,tOut,estoque}; });
     headers=['Obra','Entradas','Baixas','Transf. recebidas','Transf. enviadas','Valor em estoque'];
     rows=arr.map(a=>[a.nome,money(a.ent),money(a.bx),money(a.tIn),money(a.tOut),money(a.estoque)]);
     const S=k=>arr.reduce((s,a)=>s+a[k],0);
     foot=['Total',money(S('ent')),money(S('bx')),money(S('tIn')),money(S('tOut')),money(S('estoque'))];
+  } else if(relTipo==='grupo'){
+    titulo='Insumos cadastrados por grupo';
+    const list=state.products.filter(p=>produtoPassaFiltros(p,gf,lf,pf))
+      .map(p=>{ const s=isAll?totalSaldo(p.code):saldoOf(fobra,p.code); return {grupo:produtoGrupo(p.code),code:p.code,desc:p.desc,unit:p.unit||'',saldo:s,valor:s*(p.custo||0)}; })
+      .sort((a,b)=>(a.grupo==='(sem grupo)'?1:b.grupo==='(sem grupo)'?-1:a.grupo.localeCompare(b.grupo,'pt-BR'))||a.desc.localeCompare(b.desc,'pt-BR'));
+    headers=['Grupo do insumo','Código','Insumo (descrição)','Saldo','Valor em estoque'];
+    rows=list.map(a=>[a.grupo,a.code,a.desc+(a.unit?' ('+a.unit+')':''),numf(a.saldo),money(a.valor)]);
+    foot=['Total','',list.length+' insumo(s)',numf(list.reduce((s,a)=>s+a.saldo,0)),money(list.reduce((s,a)=>s+a.valor,0))];
+    periodoLbl=(isAll?'Todas as obras':obraName(fobra))+(gf?' · grupo: '+gf:'')+' · cadastro atual (não depende do período)';
+  } else if(relTipo==='os'){
+    titulo='Insumos aplicados por Ordem de Serviço';
+    const rowsRaw=inP.filter(m=>m.tipo==='baixa'&&movOS(m)).map(m=>{const p=findProduct(m.code); return {os:movOS(m),obra:obraName(m.obra),aplic:m.aplic?aplicName(m.aplic):'—',desc:m.desc,code:m.code,unit:p?(p.unit||''):'',qty:m.qty,valor:m.valorTotal,ts:m.ts};})
+      .sort((a,b)=>a.os.localeCompare(b.os,'pt-BR',{numeric:true})||a.ts-b.ts);
+    headers=['Ordem de Serviço','Obra','Aplicação/Equipamento','Insumo','Qtd','Valor'];
+    rows=rowsRaw.map(a=>[a.os,a.obra,a.aplic,a.desc+' ('+a.code+')',numf(a.qty)+' '+a.unit,money(a.valor)]);
+    foot=['Total','','','',numf(rowsRaw.reduce((s,a)=>s+a.qty,0)),money(rowsRaw.reduce((s,a)=>s+a.valor,0))];
+  } else if(relTipo==='consorcio'){
+    const norm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+    let destObras=state.obras.filter(o=>norm(o.nome).includes('consorcio'));
+    titulo='Materiais transferidos para Consórcio (nota de débito)';
+    if(!isAll) destObras=destObras.filter(o=>o.id===fobra);
+    if(!destObras.length){
+      headers=['Aviso']; rows=[]; foot=null;
+      periodoLbl=!isAll?('A obra selecionada ("'+obraName(fobra)+'") não tem "Consórcio" no nome. Escolha "Todas as obras" ou um consórcio específico.'):'Nenhuma obra com "Consórcio" no nome foi encontrada no cadastro de Obras.';
+    } else {
+      const destIds=destObras.map(o=>o.id);
+      let rowsRaw=state.movements.filter(m=>m.tipo==='transferencia'&&destIds.includes(m.obraDest)).filter(m=>{const d=mdate(m,emi); return d>=f&&d<=t;});
+      if(gf)rowsRaw=rowsRaw.filter(m=>produtoGrupo(m.code)===gf);
+      if(lf)rowsRaw=rowsRaw.filter(m=>produtoLocal(m.code)===lf);
+      if(pf)rowsRaw=rowsRaw.filter(m=>{const p=findProduct(m.code); return p&&(p.desc.toLowerCase().includes(pf)||String(p.code).toLowerCase().includes(pf)||(p.aux&&String(p.aux).toLowerCase().includes(pf)));});
+      rowsRaw.sort((a,b)=>(a.seq||0)-(b.seq||0)||a.ts-b.ts);
+      headers=['Nº Romaneio','Data','Obra de origem','Obra Consórcio','Insumo','Qtd','Valor Unitário','Valor Total'];
+      rows=rowsRaw.map(m=>{const p=findProduct(m.code); return [m.seq?seqf(m.seq):'—',fmtDate(m.ts),obraName(m.obra),obraName(m.obraDest),m.desc+' ('+m.code+')'+(p&&p.unit?' - '+esc(p.unit):''),numf(m.qty),money(m.valorUnit),money(m.valorTotal)];});
+      foot=['Total','','','','',numf(rowsRaw.reduce((s,m)=>s+m.qty,0)),'',money(rowsRaw.reduce((s,m)=>s+m.valorTotal,0))];
+      periodoLbl=`${new Date(f).toLocaleDateString('pt-BR')} a ${new Date(t).toLocaleDateString('pt-BR')} · destino(s): ${destObras.map(o=>o.nome).join(', ')}`;
+    }
   } else {
     titulo='Movimentação por produto';
     const g={}; inP.forEach(m=>{ if(m.tipo==='transferencia')return; if(!g[m.code])g[m.code]={entQ:0,entV:0,bxQ:0,bxV:0}; if(m.tipo==='entrada'){g[m.code].entQ+=m.qty;g[m.code].entV+=m.valorTotal;} else if(m.tipo==='baixa'){g[m.code].bxQ+=m.qty;g[m.code].bxV+=m.valorTotal;} });
