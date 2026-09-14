@@ -294,6 +294,20 @@ function searchProducts(q){ q=String(q).toLowerCase().trim(); if(!q)return []; r
 function aplicName(id){ if(!id)return''; const a=state.aplicacoes.find(a=>a.id===id); return a?(a.nome+(a.tag?' ('+a.tag+')':'')):''; }
 function aplicOptions(sel){ let h=`<option value="">— sem aplicação —</option>`; state.aplicacoes.forEach(a=>h+=`<option value="${a.id}"${a.id===sel?' selected':''}>${esc(a.nome)}${a.tag?' · '+esc(a.tag):''}</option>`); return h; }
 function aplicOptionsSel(sel){ let h=`<option value="">— selecione a aplicação —</option>`; state.aplicacoes.forEach(a=>h+=`<option value="${a.id}"${a.id===sel?' selected':''}>${esc(a.nome)}${a.tag?' · '+esc(a.tag):''}</option>`); return h; }
+/* --- busca de aplicação (campo pesquisável no formulário de consumo) --- */
+function aplicSearchList(q){ q=String(q||'').toLowerCase().trim(); const list=state.aplicacoes.filter(a=>!q||a.nome.toLowerCase().includes(q)||(a.tag&&a.tag.toLowerCase().includes(q))); return list.slice(0,10); }
+function onAplicInput(q){ const hid=$('#saidaAplic'); if(hid)hid.value=''; drawAplicResults(q); }
+function drawAplicResults(q){ const box=$('#saidaAplicResults'); if(!box)return; q=String(q||'');
+  const list=aplicSearchList(q);
+  if(!q.trim()){ box.innerHTML=''; box.style.display='none'; onAplicChange(); return; }
+  box.style.display='block';
+  box.innerHTML=list.length?`<div class="tbl-wrap" style="margin-top:6px"><table><tbody>`+list.map(a=>`<tr><td>${esc(a.nome)}${a.tag?' · <span class="muted" style="font-size:11px">'+esc(a.tag)+'</span>':''}</td><td class="num" style="width:90px"><button class="btn ghost sm" onclick="pickAplic('${esc(a.id)}')">Selecionar</button></td></tr>`).join('')+`</tbody></table></div>`
+    :`<div class="muted" style="font-size:12px;padding:8px 2px">Nenhuma aplicação encontrada para "${esc(q)}".</div>`;
+  onAplicChange(); }
+function pickAplic(id){ const hid=$('#saidaAplic'); if(!hid)return; hid.value=id;
+  const vis=$('#saidaAplicSearch'); if(vis)vis.value=aplicName(id);
+  const box=$('#saidaAplicResults'); if(box){box.innerHTML=''; box.style.display='none';}
+  onAplicChange(); }
 function printSignReport(opt){ const w=window.open('','_blank'); if(!w){toast('Permita pop-ups para gerar o relatório.','err');return;}
   let total=0; const conf=!!opt.conferencia;
   const linhas=opt.itens.map((it,i)=>{const vu=it.valor||0;const vt=it.qty*vu;total+=vt;return `<tr><td>${i+1}</td><td class="mono">${esc(it.code||'')}</td><td class="mono">${esc(it.aux||'—')}</td><td>${esc(it.desc)}</td><td style="text-align:right">${numf(it.qty)} ${esc(it.unit||'')}</td><td style="text-align:right">${money(vu)}</td><td style="text-align:right">${money(vt)}</td>${conf?'<td class="chk"></td>':''}</tr>`;}).join('');
@@ -715,7 +729,7 @@ function processNf(force){
 
 /* ===== PRODUTOS ===== */
 function renderProdutos(){
-  $('#topActions').innerHTML=`${obraSelectorHTML(true)} <button class="btn ghost sm" onclick="newProductModal()">+ Produto</button> <button class="btn dark sm" onclick="printLabels()">🏷 Etiquetas</button>`;
+  $('#topActions').innerHTML=`${obraSelectorHTML(true)} <button class="btn ghost sm" onclick="newProductModal()">+ Produto</button> <button class="btn dark sm" onclick="labelsModal()">🏷 Etiquetas</button>`;
   const o=curObra(); const all=o==='__all'; const sal=c=>all?totalSaldo(c):saldoOf(o,c);
   let html=`<div class="sechead"><h3>Produtos${all?' (saldo total)':' · saldo em '+esc(obraName(o))}</h3>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -801,10 +815,46 @@ function saveNewProduct(){ const desc=$('#npDesc').value.trim(); if(!desc){toast
   state.products.push(p);
   if(qty>0){ addSaldo(obra,code,qty); state.movements.unshift({ts:Date.now(),tipo:'entrada',obra,code,desc,qty,valorUnit:p.custo,valorTotal:qty*p.custo,doc:'Saldo inicial',saldo:qty}); }
   save(); closeModal(); renderProdutos(); toast('Produto cadastrado.','ok'); }
-function printLabels(){ if(!state.products.length){toast('Nada para imprimir.','err');return;}
-  const w=window.open('','_blank');
+/* --- Etiquetas: selecionar código(s) de barras e quantidade a imprimir --- */
+let labelSel={};
+function labelsModal(){ if(!state.products.length){toast('Nenhum produto cadastrado.','err');return;}
+  labelSel={};
+  modal(`<h3>🏷 Gerar etiquetas</h3><p class="mp">Selecione os produtos (código de barras) e informe a quantidade de etiquetas a imprimir de cada um.</p>
+    <div class="search" style="max-width:none;margin-bottom:10px"><span class="si">⌕</span><input id="labelSearch" placeholder="Nome, código ou código auxiliar..." autocomplete="off"></div>
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <button class="btn ghost sm" onclick="labelSelectAll()">Selecionar todos (filtrados)</button>
+      <button class="btn ghost sm" onclick="labelClearAll()">Limpar seleção</button>
+    </div>
+    <div class="tbl-wrap" style="max-height:340px;overflow:auto"><table><thead><tr><th style="width:30px"></th><th>Produto</th><th class="num" style="width:120px">Qtd. etiquetas</th></tr></thead><tbody id="labelRows"></tbody></table></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;gap:12px;flex-wrap:wrap">
+      <span class="muted mono" id="labelCount" style="font-size:12.5px">Nenhum selecionado</span>
+      <div style="display:flex;gap:10px"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="generateLabels()">🖨 Gerar etiquetas</button></div>
+    </div>`);
+  const si=$('#labelSearch'); drawLabelRows(''); si.focus(); si.oninput=e=>drawLabelRows(e.target.value); }
+function labelFilteredList(q){ q=String(q||'').toLowerCase().trim(); if(!q)return state.products; return state.products.filter(p=>p.desc.toLowerCase().includes(q)||String(p.code).toLowerCase().includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))); }
+function drawLabelRows(q){ const box=$('#labelRows'); if(!box)return; const list=labelFilteredList(q);
+  box.innerHTML=list.length?list.map(p=>{ const checked=labelSel.hasOwnProperty(p.code); const qty=checked?labelSel[p.code]:1;
+    return `<tr><td><input type="checkbox" ${checked?'checked':''} onchange="toggleLabelSel('${esc(p.code)}',this.checked)"></td>
+      <td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''}</span></td>
+      <td class="num"><input class="inline-edit" type="number" min="1" step="1" value="${qty}" ${checked?'':'disabled'} onchange="setLabelQty('${esc(p.code)}',this.value)"></td></tr>`; }).join('')
+    :`<tr><td colspan="3" class="empty" style="padding:20px">Nada encontrado.</td></tr>`;
+  updateLabelCount(); }
+function toggleLabelSel(code,on){ if(on){ labelSel[code]=labelSel[code]||1; } else { delete labelSel[code]; } drawLabelRows($('#labelSearch')?$('#labelSearch').value:''); }
+function setLabelQty(code,v){ const n=Math.max(1,parseInt(v)||1); if(labelSel.hasOwnProperty(code))labelSel[code]=n; updateLabelCount(); }
+function labelSelectAll(){ const q=$('#labelSearch')?$('#labelSearch').value:''; labelFilteredList(q).forEach(p=>{ if(!labelSel.hasOwnProperty(p.code))labelSel[p.code]=1; }); drawLabelRows(q); }
+function labelClearAll(){ labelSel={}; drawLabelRows($('#labelSearch')?$('#labelSearch').value:''); }
+function updateLabelCount(){ const el=$('#labelCount'); if(!el)return; const codes=Object.keys(labelSel); const total=codes.reduce((s,c)=>s+(labelSel[c]||0),0);
+  el.textContent=codes.length?`${codes.length} produto(s) selecionado(s) · ${total} etiqueta(s) no total`:'Nenhum selecionado'; }
+function generateLabels(){ const codes=Object.keys(labelSel); if(!codes.length){toast('Selecione ao menos um produto.','err');return;}
+  const items=codes.map(code=>({p:findProduct(code),qty:labelSel[code]})).filter(x=>x.p&&x.qty>0);
+  if(!items.length){toast('Informe a quantidade de etiquetas.','err');return;}
+  closeModal(); printLabels(items); }
+function printLabels(items){
+  if(!items){ if(!state.products.length){toast('Nada para imprimir.','err');return;} items=state.products.map(p=>({p,qty:1})); }
+  if(!items.length){toast('Nada para imprimir.','err');return;}
+  const w=window.open('','_blank'); if(!w){toast('Permita pop-ups para gerar as etiquetas.','err');return;}
   w.document.write(`<html><head><title>Etiquetas</title><script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"><\/script><style>body{font-family:sans-serif;margin:14px}.lab{display:inline-block;border:1px solid #ccc;border-radius:6px;padding:10px;margin:5px;text-align:center;width:200px;vertical-align:top}.lab .d{font-size:12px;font-weight:bold;margin-bottom:4px;height:30px;overflow:hidden}</style></head><body>`);
-  state.products.forEach(p=>w.document.write(`<div class="lab"><div class="d">${esc(p.desc)}</div><svg class="b" data-c="${esc(p.code)}"></svg></div>`));
+  items.forEach(({p,qty})=>{ for(let i=0;i<qty;i++){ w.document.write(`<div class="lab"><div class="d">${esc(p.desc)}</div><svg class="b" data-c="${esc(p.code)}"></svg></div>`); } });
   w.document.write(`<script>document.querySelectorAll('.b').forEach(s=>JsBarcode(s,s.dataset.c,{format:'CODE128',height:50,fontSize:13,margin:4}));setTimeout(()=>window.print(),400);<\/script></body></html>`); w.document.close(); }
 
 /* ===== BAIXA (sempre via requisição, aprovada pelo encarregado) ===== */
@@ -841,7 +891,9 @@ function updateSubmitBtn(){ const sel=$('#saidaAplic'); const btn=$('#submitSaid
 function onAplicChange(){ updateOsReq(); updateSubmitBtn(); }
 function setBaixaMode(m){ baixaMode=m; if($('#bmScan'))$('#bmScan').classList.toggle('on',m==='scanner'); if($('#bmMan'))$('#bmMan').classList.toggle('on',m==='manual');
   const o=curObra()==='__all'?state.obras[0].id:curObra(); const pane=$('#baixaPane');
-  const aplicOsRow=`<div class="field" style="margin:0"><label>Aplicação (obrigatório)</label>${state.aplicacoes.length?`<select id="saidaAplic" onchange="onAplicChange()">${aplicOptionsSel('')}</select>`:`<input disabled placeholder="cadastre em Aplicações">`}</div><div class="field" id="osFieldWrap" style="margin:0;display:none"><label>Ordem de Serviço <span style="color:#c0392b">(obrigatório)</span></label><input id="saidaOS" placeholder="Nº da OS"></div>`;
+  const aplicOsRow=`<div class="field" style="margin:0"><label>Aplicação (obrigatório)</label>${state.aplicacoes.length?`<input type="hidden" id="saidaAplic" value="">
+    <div class="search" style="max-width:none"><span class="si">⌕</span><input id="saidaAplicSearch" placeholder="Digite qualquer informação e pesquise..." autocomplete="off" oninput="onAplicInput(this.value)" onfocus="drawAplicResults(this.value)"></div>
+    <div id="saidaAplicResults" style="display:none"></div>`:`<input disabled placeholder="cadastre em Aplicações">`}</div><div class="field" id="osFieldWrap" style="margin:0;display:none"><label>Ordem de Serviço <span style="color:#c0392b">(obrigatório)</span></label><input id="saidaOS" placeholder="Nº da OS"></div>`;
   if(m==='scanner'){
     pane.innerHTML=`
       ${state.aplicacoes.length?`<div class="panel" style="padding:14px 18px;margin-bottom:12px"><div class="row c3">${aplicOsRow}<div class="field" style="margin:0"><label>Observação (opcional)</label><textarea id="saidaObs" rows="2" placeholder="Ex.: manutenção... (Enter = nova linha)"></textarea></div></div></div>`:`<div class="panel" style="padding:14px 18px;margin-bottom:12px;border-color:#f0c060;background:#fff7e8"><b style="color:#8a5a00">⚠ Cadastre uma aplicação primeiro</b><p class="desc" style="margin:6px 0 8px">O consumo exige informar o equipamento/veículo de destino.</p><button class="btn dark sm" onclick="go('aplic')">Cadastrar aplicação</button></div>`}
@@ -928,7 +980,7 @@ function drawSaidaCart(o){ const b=$('#saidaCartBody'); if(!b)return;
 function confirmSaida(){ const o=curObra()==='__all'?state.obras[0].id:curObra(); if(!saidaCart.length){toast('Adicione itens à solicitação.','err');return;}
   const itens=saidaCart.filter(i=>i.qty>0); if(!itens.length){toast('Informe as quantidades.','err');return;}
   if(!state.aplicacoes.length){toast('Cadastre uma aplicação antes de solicitar.','err');return;}
-  const aplic=($('#saidaAplic')?$('#saidaAplic').value:''); if(!aplic){toast('Informe a aplicação (obrigatório).','err'); if($('#saidaAplic'))$('#saidaAplic').focus(); return;}
+  const aplic=($('#saidaAplic')?$('#saidaAplic').value:''); if(!aplic){toast('Informe a aplicação (obrigatório).','err'); if($('#saidaAplicSearch'))$('#saidaAplicSearch').focus(); return;}
   const os=($('#saidaOS')?$('#saidaOS').value.trim():''); if(aplicRequerOS(aplic)&&!os){ toast('Ordem de Serviço é obrigatória para Equipamento/Veículo.','err'); if($('#saidaOS'))$('#saidaOS').focus(); return; }
   const resp=($('#saidaResp')?$('#saidaResp').value.trim():''); const obs=($('#saidaObs')?$('#saidaObs').value.trim():''); const wantReport=$('#saidaReport')&&$('#saidaReport').checked;
   const excedido=itens.filter(i=>i.qty>saldoOf(o,i.code));
@@ -1133,21 +1185,25 @@ function reportRomaneio(id){ const ms=state.movements.filter(m=>m.tipo==='transf
   printSignReport({titulo:'Romaneio de Transferência de Estoque',numero:seqf(m0.seq),conferencia:true,recebimento:true,subtitulo:'Movimentação entre obras',data:fmtDate(m0.ts),obra:obraName(m0.obra),obraDest:obraName(m0.obraDest),obs:m0.obs,itens,assinaturas:['Responsável obra origem','Responsável obra destino','Transportador / Conferente']}); }
 
 /* ===== CONSULTA ===== */
-function renderConsulta(){ $('#view').innerHTML=`<div class="panel"><h3>Consultar produto</h3><p class="desc">Busque por <b>nome</b> ou <b>código de barras</b>. Veja saldo por obra e valores de entrada e saída.</p><div class="search" style="max-width:none"><span class="si">⌕</span><input id="consInput" placeholder="Nome ou código..." autocomplete="off"></div></div><div id="consResult"></div>`;
+function renderConsulta(){ $('#topActions').innerHTML=obraSelectorHTML(true);
+  const o=curObra(); const all=o==='__all'||!o;
+  $('#view').innerHTML=`<div class="panel"><h3>Consultar produto</h3><p class="desc">Busque por <b>nome</b> ou <b>código de barras</b>. Veja saldo ${all?'total (todas as obras) ou por obra':'no estoque selecionado: <b>'+esc(obraName(o))+'</b>'} e valores de entrada e saída.</p><div class="search" style="max-width:none"><span class="si">⌕</span><input id="consInput" placeholder="Nome ou código..." autocomplete="off"></div></div><div id="consResult"></div>`;
   const inp=$('#consInput'); inp.focus(); inp.addEventListener('keydown',e=>{if(e.key==='Enter'){const p=findProduct(inp.value.trim());if(p){showConsulta(p);return;}}}); inp.oninput=()=>drawConsList(inp.value); drawConsList(''); }
-function drawConsList(q){ q=q.toLowerCase().trim(); const box=$('#consResult');
+function drawConsList(q){ q=q.toLowerCase().trim(); const box=$('#consResult'); const o=curObra(); const all=o==='__all'||!o; const sal=c=>all?totalSaldo(c):saldoOf(o,c);
   const list=q?state.products.filter(p=>p.desc.toLowerCase().includes(q)||String(p.code).includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.ref&&p.ref.toLowerCase().includes(q))||(p.grupo&&p.grupo.toLowerCase().includes(q))||(p.localizacao&&p.localizacao.toLowerCase().includes(q))||(p.endereco&&p.endereco.toLowerCase().includes(q))):state.products.slice();
   if(!state.products.length){ box.innerHTML=`<div class="tbl-wrap"><div class="empty"><div class="ico">⌕</div>Nenhum produto cadastrado.</div></div>`; return; }
   if(!list.length){ box.innerHTML=`<div class="tbl-wrap"><div class="empty">Nada encontrado para "<b>${esc(q)}</b>".</div></div>`; return; }
   if(q&&list.length===1){ showConsulta(list[0]); return; }
-  box.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>Foto</th><th>Cód. barras</th><th>Cód. aux.</th><th>Produto</th><th class="num">Saldo total</th><th class="num">Custo</th><th class="num">Venda</th><th></th></tr></thead><tbody>`+list.map(p=>`<tr><td>${thumb(p.code)}</td><td class="mono">${esc(p.code)}</td><td class="mono">${esc(p.aux||'—')}</td><td>${esc(p.desc)}</td><td class="num">${numf(totalSaldo(p.code))}</td><td class="num">${money(p.custo||0)}</td><td class="num">${p.preco?money(p.preco):'—'}</td><td class="num"><button class="btn ghost sm" onclick='showConsultaCode("${esc(p.code)}")'>Detalhes</button></td></tr>`).join('')+`</tbody></table></div>`; }
+  box.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>Foto</th><th>Cód. barras</th><th>Cód. aux.</th><th>Produto</th><th class="num">${all?'Saldo total':'Saldo em '+esc(obraName(o))}</th><th class="num">Custo</th><th class="num">Venda</th><th></th></tr></thead><tbody>`+list.map(p=>`<tr><td>${thumb(p.code)}</td><td class="mono">${esc(p.code)}</td><td class="mono">${esc(p.aux||'—')}</td><td>${esc(p.desc)}</td><td class="num">${numf(sal(p.code))}</td><td class="num">${money(p.custo||0)}</td><td class="num">${p.preco?money(p.preco):'—'}</td><td class="num"><button class="btn ghost sm" onclick='showConsultaCode("${esc(p.code)}")'>Detalhes</button></td></tr>`).join('')+`</tbody></table></div>`; }
 function showConsultaCode(c){ const p=findProduct(c); if(p)showConsulta(p); }
-function showConsulta(p){ const movs=state.movements.filter(m=>String(m.code)===String(p.code));
+function showConsulta(p){ const o=curObra(); const all=o==='__all'||!o;
+  const movsAll=state.movements.filter(m=>String(m.code)===String(p.code));
+  const movs=all?movsAll:movsAll.filter(m=>m.obra===o||(m.tipo==='transferencia'&&m.obraDest===o));
   const totIn=movs.filter(m=>m.tipo==='entrada').reduce((s,m)=>s+m.qty,0), totOut=movs.filter(m=>m.tipo==='baixa').reduce((s,m)=>s+m.qty,0);
   const valIn=movs.filter(m=>m.tipo==='entrada').reduce((s,m)=>s+m.valorTotal,0), valOut=movs.filter(m=>m.tipo==='baixa').reduce((s,m)=>s+m.valorTotal,0);
-  const tot=totalSaldo(p.code);
+  const tot=all?totalSaldo(p.code):saldoOf(o,p.code);
   const box=$('#consResult');
-  let obrasRows=state.obras.map(o=>{const s=saldoOf(o.id,p.code);const st=statusOf(p,s);return s>0?`<tr><td>${esc(o.nome)}</td><td class="num"><b class="${st==='low'?'neg':''}">${numf(s)}</b> ${esc(p.unit||'')}</td><td class="num">${money(s*(p.custo||0))}</td><td>${st==='low'?'<span class="pill low">Abaixo do mín</span>':st==='high'?'<span class="pill high">Acima do máx</span>':'<span class="pill good">Normal</span>'}</td></tr>`:'';}).join('');
+  let obrasRows=(all?state.obras:state.obras.filter(ob=>ob.id===o)).map(ob=>{const s=saldoOf(ob.id,p.code);const st=statusOf(p,s);return s>0?`<tr><td>${esc(ob.nome)}</td><td class="num"><b class="${st==='low'?'neg':''}">${numf(s)}</b> ${esc(p.unit||'')}</td><td class="num">${money(s*(p.custo||0))}</td><td>${st==='low'?'<span class="pill low">Abaixo do mín</span>':st==='high'?'<span class="pill high">Acima do máx</span>':'<span class="pill good">Normal</span>'}</td></tr>`:'';}).join('');
   box.innerHTML=`<div class="panel">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:20px;flex-wrap:wrap">
       <div style="display:flex;gap:18px;align-items:flex-start">${photoList(p.code).length?`<div style="display:flex;flex-wrap:wrap;gap:6px;max-width:170px">${photoList(p.code).map((s,i)=>`<img src="${s}" style="width:${photoList(p.code).length>1?'78px':'150px'};height:${photoList(p.code).length>1?'78px':'150px'};object-fit:cover;border-radius:10px;border:1px solid #e4dfd4;cursor:zoom-in" onclick="openPhoto('${esc(p.code)}',${i})">`).join('')}</div>`:''}
@@ -1156,13 +1212,13 @@ function showConsulta(p){ const movs=state.movements.filter(m=>String(m.code)===
         ${p.ref?`<div style="margin-top:10px;font-size:13px;color:#6a6357;max-width:420px;line-height:1.5"><b style="color:#4a443a">Referências / Aplicação:</b><br>${esc(p.ref).replace(/\n/g,'<br>')}</div>`:''}</div></div>
       <svg id="consBc"></svg></div></div>
     <div class="cards" style="grid-template-columns:repeat(4,1fr)">
-      <div class="card neutral"><div class="stripe"></div><div class="lbl">Saldo total</div><div class="val">${numf(tot)}</div><div class="sub">${esc(p.unit||'')} · ${money(tot*(p.custo||0))}</div></div>
+      <div class="card neutral"><div class="stripe"></div><div class="lbl">${all?'Saldo total':'Saldo em '+esc(obraName(o))}</div><div class="val">${numf(tot)}</div><div class="sub">${esc(p.unit||'')} · ${money(tot*(p.custo||0))}</div></div>
       <div class="card ok"><div class="stripe"></div><div class="lbl">Total entradas</div><div class="val" style="font-size:19px">${numf(totIn)}</div><div class="sub pos">${money(valIn)}</div></div>
       <div class="card alert"><div class="stripe"></div><div class="lbl">Total saídas</div><div class="val" style="font-size:19px">${numf(totOut)}</div><div class="sub neg">${money(valOut)}</div></div>
       <div class="card neutral"><div class="stripe"></div><div class="lbl">Custo méd. / Venda</div><div class="val" style="font-size:16px">${money(p.custo||0)}</div><div class="sub">venda: ${p.preco?money(p.preco):'—'}</div></div></div>
-    <div class="sechead"><h3>Saldo por obra</h3></div>
+    <div class="sechead"><h3>${all?'Saldo por obra':'Saldo em '+esc(obraName(o))}</h3></div>
     <div class="tbl-wrap" style="margin-bottom:22px"><table><thead><tr><th>Obra</th><th class="num">Saldo</th><th class="num">Valor</th><th>Situação</th></tr></thead><tbody>${obrasRows||`<tr><td colspan="4" class="empty" style="padding:20px">Sem saldo.</td></tr>`}</tbody></table></div>
-    <div class="sechead"><h3>Histórico de movimentações</h3></div>
+    <div class="sechead"><h3>Histórico de movimentações${all?'':' · '+esc(obraName(o))}</h3></div>
     <div class="tbl-wrap"><table><thead><tr><th>Data</th><th>Tipo</th><th>Obra</th><th>Documento</th><th class="num">Qtd</th><th class="num">Valor un.</th><th class="num">Total</th></tr></thead><tbody>`+
     (movs.length?movs.map(m=>{ const tp=m.tipo==='entrada'?'<span class="pill in">Entrada</span>':m.tipo==='baixa'?'<span class="pill out">Baixa</span>':'<span class="pill tr">Transf.</span>';
       const obraCell=m.tipo==='transferencia'?`${esc(obraName(m.obra))} → ${esc(obraName(m.obraDest))}`:esc(obraName(m.obra));
@@ -1379,11 +1435,11 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
   } else if(relTipo==='grupo'){
     titulo='Insumos cadastrados por grupo';
     const list=state.products.filter(p=>produtoPassaFiltros(p,gf,lf,pf))
-      .map(p=>{ const s=isAll?totalSaldo(p.code):saldoOf(fobra,p.code); return {grupo:produtoGrupo(p.code),code:p.code,desc:p.desc,unit:p.unit||'',saldo:s,valor:s*(p.custo||0)}; })
+      .map(p=>{ const s=isAll?totalSaldo(p.code):saldoOf(fobra,p.code); return {grupo:produtoGrupo(p.code),code:p.code,aux:p.aux||'',desc:p.desc,unit:p.unit||'',saldo:s,valor:s*(p.custo||0)}; })
       .sort((a,b)=>(a.grupo==='(sem grupo)'?1:b.grupo==='(sem grupo)'?-1:a.grupo.localeCompare(b.grupo,'pt-BR'))||a.desc.localeCompare(b.desc,'pt-BR'));
-    headers=['Grupo do insumo','Código','Insumo (descrição)','Saldo','Valor em estoque'];
-    rows=list.map(a=>[a.grupo,a.code,a.desc+(a.unit?' ('+a.unit+')':''),numf(a.saldo),money(a.valor)]);
-    foot=['Total','',list.length+' insumo(s)',numf(list.reduce((s,a)=>s+a.saldo,0)),money(list.reduce((s,a)=>s+a.valor,0))];
+    headers=['Grupo do insumo','Código','Código auxiliar','Insumo (descrição)','Saldo','Valor em estoque'];
+    rows=list.map(a=>[a.grupo,a.code,a.aux||'—',a.desc+(a.unit?' ('+a.unit+')':''),numf(a.saldo),money(a.valor)]);
+    foot=['Total','','',list.length+' insumo(s)',numf(list.reduce((s,a)=>s+a.saldo,0)),money(list.reduce((s,a)=>s+a.valor,0))];
     periodoLbl=(isAll?'Todas as obras':obraName(fobra))+(gf?' · grupo: '+gf:'')+' · cadastro atual (não depende do período)';
   } else if(relTipo==='os'){
     titulo='Insumos aplicados por Ordem de Serviço';
