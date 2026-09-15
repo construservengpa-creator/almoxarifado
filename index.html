@@ -158,6 +158,13 @@
   .offbadge{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;font-size:12px;font-weight:600;margin-right:12px}
   .offbadge.off{background:#fde8e8;color:#b03030}
   .offbadge.sync{background:#fff3da;color:#a8731a}
+  #globalAlerts{position:sticky;top:0;z-index:19}
+  .galert{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 30px;font-size:13px;font-weight:600;cursor:pointer;border-bottom:1px solid rgba(0,0,0,.08)}
+  .galert .ga-cta{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;opacity:.85;white-space:nowrap}
+  .galert.warn{background:#fff3da;color:#7a5100}
+  .galert.err{background:#fde8e8;color:#8a1f1f}
+  .galert.ok{background:#e3f7ee;color:#12583c}
+  .galert:hover{filter:brightness(0.97)}
 </style>
 </head>
 <body>
@@ -176,10 +183,11 @@
   <nav id="nav">
     <button data-tab="painel" class="active"><span class="ic">▦</span><span>Painel</span><span class="badge" id="navBadge" style="display:none"></span></button>
     <button data-tab="entrada"><span class="ic">⊕</span><span>Entrada / Nota Fiscal</span></button>
-    <button data-tab="baixa"><span class="ic">⊖</span><span>Consumo de Estoque</span></button>
+    <button data-tab="baixa"><span class="ic">⊖</span><span>Consumo de Estoque</span><span class="badge" id="navBadgeMinhas" style="display:none"></span></button>
     <button data-tab="ajuste" data-role="encarregado"><span class="ic">✎</span><span>Ajuste de Saldo</span></button>
     <button data-tab="aprovacoes" data-role="encarregado"><span class="ic">✔</span><span>Aprovações</span><span class="badge" id="navBadgeAprov" style="display:none"></span></button>
     <button data-tab="separacao" data-role="almoxarife"><span class="ic">📦</span><span>Separação</span><span class="badge" id="navBadgeSeparacao" style="display:none"></span></button>
+    <button data-tab="compras" data-role="separacao_acesso"><span class="ic">🛒</span><span>Compras</span><span class="badge" id="navBadgeCompras" style="display:none"></span></button>
     <button data-tab="transfer"><span class="ic">⇄</span><span>Transferência entre Obras</span></button>
     <button data-tab="consulta"><span class="ic">⌕</span><span>Consulta</span></button>
     <button data-tab="relatorios"><span class="ic">▤</span><span>Relatórios</span></button>
@@ -198,6 +206,7 @@
   </div>
 </aside>
 <main>
+  <div id="globalAlerts" class="noprint"></div>
   <div class="topbar">
     <h2 id="pageTitle">Painel <small id="pageSub"></small></h2>
     <div id="offlineBadge" class="offbadge noprint" style="display:none"></div>
@@ -216,8 +225,10 @@ const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
 let session=null, profile=null;
 function isAdmin(){ return !!profile && profile.papel==='admin' && profile.ativo; }
 function isEncarregado(){ return !!profile && (profile.papel==='admin'||profile.papel==='encarregado') && profile.ativo; }
-function isAlmoxarife(){ return !!profile && (profile.papel==='admin'||profile.papel==='almoxarife') && profile.ativo; }
-function isCompras(){ return !!profile && (profile.papel==='admin'||profile.papel==='compras') && profile.ativo; }
+function isAlmoxarife(){ return !!profile && (profile.papel==='admin'||profile.setor==='almoxarifado') && profile.ativo; }
+function isCompras(){ return !!profile && (profile.papel==='admin'||profile.setor==='compras') && profile.ativo; }
+function isFrotas(){ return !!profile && (profile.papel==='admin'||profile.setor==='frotas') && profile.ativo; }
+function podeVerCompras(){ return isAlmoxarife()||isCompras()||isFrotas(); }
 function isAtivo(){ return !!profile && profile.ativo; }
 
 /* ===== Persistência (Supabase: tabela app_kv + auditoria via RPC) ===== */
@@ -282,7 +293,7 @@ function subscribeRealtime(){
     state=payload.new.value;
     if(!state.obras)state.obras=[]; if(!state.aplicacoes)state.aplicacoes=[]; if(!state.estoque)state.estoque={}; if(!state.movements)state.movements=[]; if(!state.notas)state.notas=[]; if(!state.seq)state.seq={baixa:0,transfer:0};
     if(!state.currentObra||!state.obras.some(o=>o.id===state.currentObra))state.currentObra=state.obras[0]?state.obras[0].id:null;
-    refreshBadge(); refreshAprovBadge();
+    refreshBadge(); refreshAprovBadge(); refreshGlobalAlerts();
     if(SAFE_REFRESH_TABS.includes(activeTab))go(activeTab);
   }).subscribe();
 }
@@ -379,7 +390,8 @@ function requireSupervisor(title,onOk){
   <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn danger" id="rsOk">Confirmar</button></div>`);
   $('#rsOk').onclick=()=>{ closeModal(); onOk&&onOk(); };
 }
-function papelLabel(p){ return p==='admin'?'Administrador':p==='encarregado'?'Encarregado':p==='almoxarife'?'Almoxarife':p==='compras'?'Compras':'Operador'; }
+function papelLabel(p){ return p==='admin'?'Administrador':p==='encarregado'?'Encarregado':'Operador'; }
+function setorLabel(s){ return s==='almoxarifado'?'Almoxarifado':s==='compras'?'Compras':s==='frotas'?'Frotas':''; }
 
 /* ===== Scanner de câmera (celular / tablet) ===== */
 let camScanner=null;
@@ -401,27 +413,64 @@ function closeCameraScanner(){ if(camScanner){ const c=camScanner; camScanner=nu
 const titles={ painel:['Painel','Visão por obra'],entrada:['Entrada / Nota Fiscal','XML, colado ou manual'],baixa:['Consumo de Estoque','Solicitação com aprovação do encarregado'],
   ajuste:['Ajuste de Saldo','Lançar ou corrigir saldo sem nota fiscal'],
   aprovacoes:['Aprovações','Requisições pendentes de aprovação'],
-  separacao:['Separação','Verificação de estoque, separação e compra de faltantes'],
+  separacao:['Separação','Separação física dos itens disponíveis'],
+  compras:['Compras','Itens faltantes aguardando compra'],
   transfer:['Transferência entre Obras','Mover saldo de uma obra para outra'],consulta:['Consulta','Buscar por nome, código ou equipamento'],
   obras:['Obras','Cadastro de obras'],aplic:['Aplicações','Equipamentos e veículos (placa/tag)'],produtos:['Produtos & Etiquetas','Catálogo e códigos de barras'],importar:['Importar Planilha','Carga inicial por obra'],admin:['Administração','Usuários e exclusões protegidas'],relatorios:['Relatórios','Consumo por aplicação, tipo, obra e produto'],auditoria:['Auditoria','Histórico de ações no sistema'] };
 let activeTab='painel';
 function go(tab){ activeTab=tab;
   document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
   $('#pageTitle').firstChild.textContent=titles[tab][0]+' '; $('#pageSub').textContent=titles[tab][1]; $('#topActions').innerHTML='';
-  ({painel:renderPainel,entrada:renderEntrada,baixa:renderBaixa,ajuste:renderAjuste,aprovacoes:renderAprovacoes,separacao:renderSeparacao,transfer:renderTransfer,consulta:renderConsulta,obras:renderObras,aplic:renderAplic,produtos:renderProdutos,importar:renderImportar,admin:renderAdmin,relatorios:renderRelatorios,auditoria:renderAuditoria}[tab])();
+  ({painel:renderPainel,entrada:renderEntrada,baixa:renderBaixa,ajuste:renderAjuste,aprovacoes:renderAprovacoes,separacao:renderSeparacao,compras:renderCompras,transfer:renderTransfer,consulta:renderConsulta,obras:renderObras,aplic:renderAplic,produtos:renderProdutos,importar:renderImportar,admin:renderAdmin,relatorios:renderRelatorios,auditoria:renderAuditoria}[tab])();
 }
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>go(b.dataset.tab));
 function applyRoleNav(){
   document.querySelectorAll('#nav button[data-role]').forEach(b=>{
     const need=b.dataset.role;
-    const ok=need==='admin'?isAdmin():need==='almoxarife'?isAlmoxarife():need==='compras'?isCompras():isEncarregado();
+    const ok=need==='admin'?isAdmin():need==='almoxarife'?isAlmoxarife():need==='compras'?isCompras():need==='separacao_acesso'?podeVerCompras():isEncarregado();
     b.style.display=ok?'':'none';
   });
   $('#uAvatar').textContent=(profile.nome||'?').trim().charAt(0).toUpperCase();
-  $('#uNome').textContent=profile.nome||profile.email; $('#uPapel').textContent=papelLabel(profile.papel);
+  $('#uNome').textContent=profile.nome||profile.email; $('#uPapel').textContent=papelLabel(profile.papel)+(profile.setor?' · '+setorLabel(profile.setor):'');
 }
 async function refreshAprovBadge(){ if(!isEncarregado())return; const {count}=await sb.from('requisicoes').select('id',{count:'exact',head:true}).eq('status','pendente'); const b=$('#navBadgeAprov'); if(!b)return; if(count){b.textContent=count;b.style.display='';}else b.style.display='none'; }
-async function refreshSeparacaoBadge(){ if(!isAlmoxarife())return; const {count}=await sb.from('requisicoes').select('id',{count:'exact',head:true}).in('status',['em_separacao','aguardando_compra']); const b=$('#navBadgeSeparacao'); if(!b)return; if(count){b.textContent=count;b.style.display='';}else b.style.display='none'; }
+async function refreshSeparacaoBadge(){ if(!isAlmoxarife())return; const b=$('#navBadgeSeparacao'); if(!b)return;
+  const {count}=await sb.from('requisicao_itens_status').select('id',{count:'exact',head:true}).eq('status','disponivel');
+  if(count){b.textContent=count;b.style.display='';}else b.style.display='none'; }
+async function refreshComprasBadge(){ if(!podeVerCompras())return; const b=$('#navBadgeCompras'); if(!b)return;
+  let count=0;
+  if(profile.setor==='compras'||profile.setor==='frotas'){
+    const r=await sb.from('compras_pendentes').select('id',{count:'exact',head:true}).in('status',['pendente','solicitada']).eq('atribuido_a',session.user.id); count=r.count||0;
+  } else {
+    const r=await sb.from('compras_pendentes').select('id',{count:'exact',head:true}).eq('status','pendente').is('atribuido_a',null); count=r.count||0;
+  }
+  if(count){b.textContent=count;b.style.display='';}else b.style.display='none'; }
+async function refreshMinhasBadge(){ if(!session)return; const {count}=await sb.from('requisicoes').select('id',{count:'exact',head:true}).eq('solicitante_id',session.user.id).eq('status','aguardando_compra'); const b=$('#navBadgeMinhas'); if(!b)return; if(count){b.textContent=count;b.style.display='';}else b.style.display='none'; }
+async function refreshGlobalAlerts(){
+  const box=$('#globalAlerts'); if(!box||!profile)return;
+  const alerts=[];
+  if(isEncarregado()){
+    const {count:c1}=await sb.from('requisicoes').select('id',{count:'exact',head:true}).eq('status','pendente');
+    if(c1)alerts.push({tab:'aprovacoes',tone:'warn',text:(c1===1?'1 requisição':c1+' requisições')+' aguardando sua aprovação.'});
+  }
+  if(isAlmoxarife()){
+    const {count:c2}=await sb.from('requisicoes').select('id',{count:'exact',head:true}).eq('status','em_separacao');
+    if(c2)alerts.push({tab:'separacao',tone:'ok',text:(c2===1?'1 requisição':c2+' requisições')+' pronta(s) para separar.'});
+  }
+  if(podeVerCompras()){
+    const {count:c3}=await sb.from('compras_pendentes').select('id',{count:'exact',head:true}).in('status',['pendente','solicitada']).eq('atribuido_a',session.user.id);
+    if(c3)alerts.push({tab:'compras',tone:'err',text:(c3===1?'1 item de compra atribuído':c3+' itens de compra atribuídos')+' a você.'});
+  }
+  if(isAlmoxarife()){
+    const {count:c5}=await sb.from('compras_pendentes').select('id',{count:'exact',head:true}).eq('status','pendente').is('atribuido_a',null);
+    if(c5)alerts.push({tab:'compras',tone:'warn',text:(c5===1?'1 item de compra sem responsável definido.':c5+' itens de compra sem responsável definido.')});
+  }
+  if(session){
+    const {count:c4}=await sb.from('requisicoes').select('id',{count:'exact',head:true}).eq('solicitante_id',session.user.id).eq('status','aguardando_compra');
+    if(c4)alerts.push({tab:'baixa',tone:'err',text:c4===1?'Seu pedido está aguardando compra de material faltante.':'Você tem '+c4+' pedidos aguardando compra de material faltante.'});
+  }
+  box.innerHTML=alerts.map(a=>`<div class="galert ${a.tone}" onclick="go('${a.tab}')"><span>${esc(a.text)}</span><span class="ga-cta">Ver →</span></div>`).join('');
+}
 function needObra(){ if(!state.obras.length){ $('#view').innerHTML=`<div class="tbl-wrap"><div class="empty"><div class="ico">⌂</div>Nenhuma obra cadastrada ainda.<br>Cadastre uma obra para começar.<br><button class="btn primary" onclick="go('obras')">+ Cadastrar obra</button></div></div>`; return true; } return false; }
 
 /* ===== PAINEL ===== */
@@ -864,8 +913,8 @@ function printLabels(items){
   if(!items){ if(!state.products.length){toast('Nada para imprimir.','err');return;} items=state.products.map(p=>({p,qty:1})); }
   if(!items.length){toast('Nada para imprimir.','err');return;}
   const w=window.open('','_blank'); if(!w){toast('Permita pop-ups para gerar as etiquetas.','err');return;}
-  w.document.write(`<html><head><title>Etiquetas</title><script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"><\/script><style>body{font-family:sans-serif;margin:14px}.lab{display:inline-block;border:1px solid #ccc;border-radius:6px;padding:10px;margin:5px;text-align:center;width:200px;vertical-align:top}.lab .d{font-size:12px;font-weight:bold;margin-bottom:4px;height:30px;overflow:hidden}</style></head><body>`);
-  items.forEach(({p,qty})=>{ for(let i=0;i<qty;i++){ w.document.write(`<div class="lab"><div class="d">${esc(p.desc)}</div><svg class="b" data-c="${esc(p.code)}"></svg></div>`); } });
+  w.document.write(`<html><head><title>Etiquetas</title><script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"><\/script><style>body{font-family:sans-serif;margin:14px}.lab{display:inline-block;padding:10px 6px;margin:5px;text-align:center;width:200px;vertical-align:top}.lab .d{font-size:11.5px;font-weight:bold;margin-bottom:2px;line-height:1.25;word-wrap:break-word}.lab .a{font-size:10px;color:#555;margin-bottom:4px}</style></head><body>`);
+  items.forEach(({p,qty})=>{ for(let i=0;i<qty;i++){ w.document.write(`<div class="lab"><div class="d">${esc(p.desc)}</div>${p.aux?`<div class="a">Aux: ${esc(p.aux)}</div>`:''}<svg class="b" data-c="${esc(p.code)}"></svg></div>`); } });
   w.document.write(`<script>document.querySelectorAll('.b').forEach(s=>JsBarcode(s,s.dataset.c,{format:'CODE128',height:50,fontSize:13,margin:4}));setTimeout(()=>window.print(),400);<\/script></body></html>`); w.document.close(); }
 
 /* ===== BAIXA (sempre via requisição, aprovada pelo encarregado) ===== */
@@ -881,8 +930,10 @@ function renderBaixa(){
   <div class="sechead" style="margin-top:24px"><h3>Últimas baixas</h3></div>
   <div class="tbl-wrap"><table><thead><tr><th>Data</th><th>Nº</th><th>Obra</th><th>Produto</th><th class="num">Qtd</th><th class="num">Total</th><th></th></tr></thead><tbody id="baixaHist"></tbody></table></div>
   <div class="sechead" style="margin-top:24px"><h3>Minhas solicitações pendentes de aprovação</h3></div>
-  <div class="tbl-wrap" id="minhasFrotas"><div class="empty">Carregando...</div></div>`;
-  setBaixaMode(baixaMode); drawBaixaHist(); drawMinhasFrotasPendentes();
+  <div class="tbl-wrap" id="minhasFrotas"><div class="empty">Carregando...</div></div>
+  <div class="sechead" style="margin-top:24px"><h3>Minhas solicitações em andamento</h3></div>
+  <div class="tbl-wrap" id="minhasAndamento"><div class="empty">Carregando...</div></div>`;
+  setBaixaMode(baixaMode); drawBaixaHist(); drawMinhasFrotasPendentes(); drawMinhasEmAndamento();
 }
 async function drawMinhasFrotasPendentes(){ const box=$('#minhasFrotas'); if(!box)return;
   if(!isOnline){ box.innerHTML='<div class="empty">Sem conexão — indisponível no momento.</div>'; return; }
@@ -890,6 +941,12 @@ async function drawMinhasFrotasPendentes(){ const box=$('#minhasFrotas'); if(!bo
   if(error){ box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>'; return; }
   box.innerHTML=`<table><thead><tr><th>Nº</th><th>Data</th><th>Obra / OS</th><th>Aplicação</th><th>Itens</th><th></th></tr></thead><tbody>${
     (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(r.criado_em).getTime())}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${esc(r.aplicacao_nome||'—')}</td><td>${r.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td class="num"><button class="btn ghost sm" onclick="cancelarRequisicao(${r.id})">Cancelar</button></td></tr>`).join('')||`<tr><td colspan="6" class="empty" style="padding:20px">Nenhuma pendência.</td></tr>`}</tbody></table>`; }
+async function drawMinhasEmAndamento(){ const box=$('#minhasAndamento'); if(!box)return;
+  if(!isOnline){ box.innerHTML='<div class="empty">Sem conexão — indisponível no momento.</div>'; return; }
+  const {data,error}=await sb.from('requisicoes').select('*').eq('solicitante_id',session.user.id).in('status',['em_separacao','aguardando_compra','separado','embalado','faturado','embarcado']).order('criado_em',{ascending:false}).limit(30);
+  if(error){ box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>'; return; }
+  box.innerHTML=`<table><thead><tr><th>Nº</th><th>Data</th><th>Obra / OS</th><th>Itens</th><th>Situação</th></tr></thead><tbody>${
+    (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(r.criado_em).getTime())}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${r.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${r.status==='aguardando_compra'?'<br><span class="muted" style="font-size:11px">Falta material — aguardando compra</span>':''}</td></tr>`).join('')||`<tr><td colspan="5" class="empty" style="padding:20px">Nada em andamento.</td></tr>`}</tbody></table>`; }
 function aplicRequerOS(id){ const a=state.aplicacoes.find(x=>x.id===id); return !!(a&&(a.tipo==='equipamento'||a.tipo==='veiculo')); }
 function precisaAprovacao(id){ const a=state.aplicacoes.find(x=>x.id===id); if(!a)return false;
   if(a.tipo==='equipamento'||a.tipo==='veiculo')return true;
@@ -897,8 +954,7 @@ function precisaAprovacao(id){ const a=state.aplicacoes.find(x=>x.id===id); if(!
 function updateOsReq(){ const sel=$('#saidaAplic'); const wrap=$('#osFieldWrap'); const inp=$('#saidaOS'); if(!sel||!wrap)return;
   const need=aplicRequerOS(sel.value);
   wrap.style.display=need?'':'none'; if(!need&&inp)inp.value=''; }
-function updateSubmitBtn(){ const sel=$('#saidaAplic'); const btn=$('#submitSaidaBtn'); if(!sel||!btn)return;
-  btn.textContent=precisaAprovacao(sel.value)?'📋 Enviar para aprovação':'⊖ Confirmar baixa'; }
+function updateSubmitBtn(){ const btn=$('#submitSaidaBtn'); if(!btn)return; btn.textContent='📋 Enviar para aprovação'; }
 function onAplicChange(){ updateOsReq(); updateSubmitBtn(); }
 function setBaixaMode(m){ baixaMode=m; if($('#bmScan'))$('#bmScan').classList.toggle('on',m==='scanner'); if($('#bmMan'))$('#bmMan').classList.toggle('on',m==='manual');
   const o=curObra()==='__all'?state.obras[0].id:curObra(); const pane=$('#baixaPane');
@@ -911,13 +967,13 @@ function setBaixaMode(m){ baixaMode=m; if($('#bmScan'))$('#bmScan').classList.to
       <div class="scan-box"><label>📷 Solicitação de material — obra: ${esc(obraName(o))}</label>
       <input id="scanInput" placeholder="Leia o código de barras ou digite nome / código (parcial)" autocomplete="off">
       <button class="btn dark sm" style="margin-top:8px" onclick="openCameraScanner(c=>{$('#scanInput').value=c; lookupScan(c,true);})">📷 Usar câmera do celular</button>
-      <div class="scan-hint">⚡ Escaneie ou pesquise, informe a quantidade e <b>adicione à lista</b>. Equipamento/veículo ou aplicações de frota/oficina passam por aprovação do encarregado antes da baixa.</div></div>
+      <div class="scan-hint">⚡ Escaneie ou pesquise, informe a quantidade e <b>adicione à lista</b>. Toda solicitação passa por aprovação do encarregado antes da separação — mesmo sem saldo suficiente.</div></div>
       <div id="scanResults"></div>
       <div class="found-card" id="foundCard"></div>
       <div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Produto</th><th class="num">Saldo</th><th class="num">Qtd</th><th class="num">Valor</th><th></th></tr></thead><tbody id="saidaCartBody"></tbody></table></div>
       <div style="text-align:right;margin-top:6px;font-size:13px;color:#5a544a">Valor total estimado: <b id="saidaTotal" class="mono">R$ 0,00</b></div>
       <div class="row c2" style="margin-top:12px"><div class="field" style="margin:0"><label>Responsável / Solicitante</label><input id="saidaResp"></div>
-        <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-weight:500;font-size:13px;margin:0;color:#1c1c1c;align-self:flex-end"><input type="checkbox" id="saidaReport" checked style="width:auto"> Gerar comprovante</label></div>
+      </div>
       <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn primary" id="submitSaidaBtn" onclick="confirmSaida()">📋 Enviar para aprovação</button></div>`;
     const inp=$('#scanInput'); inp.focus();
     inp.oninput=e=>drawScanResults(e.target.value);
@@ -931,8 +987,7 @@ function setBaixaMode(m){ baixaMode=m; if($('#bmScan'))$('#bmScan').classList.to
       <div style="text-align:right;margin-top:6px;font-size:13px;color:#5a544a">Valor total estimado: <b id="saidaTotal" class="mono">R$ 0,00</b></div>
       <div class="row c3" style="margin-top:14px">${aplicOsRow}<div class="field" style="margin:0"><label>Responsável / Solicitante</label><input id="saidaResp"></div></div>
       <div class="field"><label>Observação (opcional)</label><textarea id="saidaObs" rows="2" placeholder="Enter = nova linha"></textarea></div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;flex-wrap:wrap;gap:10px">
-        <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-weight:500;font-size:13px;margin:0;color:#1c1c1c"><input type="checkbox" id="saidaReport" checked style="width:auto"> Gerar comprovante para assinatura</label>
+      <div style="display:flex;justify-content:flex-end;align-items:center;margin-top:14px;flex-wrap:wrap;gap:10px">
         <button class="btn primary" id="submitSaidaBtn" onclick="confirmSaida()">📋 Enviar para aprovação</button></div></div>`;
     const si=$('#saidaSearch'); si.focus(); si.oninput=e=>drawSaidaResults(e.target.value,o); drawSaidaCart(o); onAplicChange();
   }
@@ -948,7 +1003,7 @@ function delBaixaMov(id){ const m=state.movements.find(x=>x.id===id&&x.tipo==='b
 function drawScanResults(q){ const box=$('#scanResults'); if(!box)return; q=(q||'').trim(); if(!q){box.innerHTML='';return;}
   const o=curObra()==='__all'?state.obras[0].id:curObra();
   if(findByCodeOrAux(q)){ box.innerHTML=''; return; }
-  const list=searchProducts(q).filter(p=>saldoOf(o,p.code)>0).slice(0,8); if(!list.length){box.innerHTML='';return;}
+  const list=searchProducts(q).slice(0,8); if(!list.length){box.innerHTML='';return;}
   box.innerHTML=`<div class="tbl-wrap" style="margin:6px 0 10px"><table><tbody>`+list.map(p=>`<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · saldo ${numf(saldoOf(o,p.code))} ${esc(p.unit||'')}</span></td><td class="num" style="width:90px"><button class="btn ghost sm" onclick="lookupScanPick('${esc(p.code)}')">Selecionar</button></td></tr>`).join('')+`</tbody></table></div>`; }
 function lookupScanPick(code){ if($('#scanResults'))$('#scanResults').innerHTML=''; lookupScan(code,true); }
 function lookupScan(code,exactCode){ code=String(code).trim(); if(!code)return; const o=curObra()==='__all'?state.obras[0].id:curObra();
@@ -957,32 +1012,28 @@ function lookupScan(code,exactCode){ code=String(code).trim(); if(!code)return; 
   if(!p){ fc.className='found-card show'; fc.style.borderColor='var(--red)'; fc.innerHTML=`<div style="text-align:center;color:#c0392b">Nada encontrado para: <span class="mono">${esc(code)}</span></div>`; $('#scanInput').value=''; $('#scanInput').focus(); toast('Produto não encontrado.','err'); return; }
   if($('#scanResults'))$('#scanResults').innerHTML='';
   const s=saldoOf(o,p.code); const st=statusOf(p,s);
-  if(s<=0){ baixaProduct=null; fc.className='found-card show'; fc.style.borderColor='var(--red)';
-    fc.innerHTML=`<div class="fc-head"><div><div class="code">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · ${esc(obraName(o))}</div><div class="name">${esc(p.desc)}</div></div></div>
-      <div style="background:#fdeaea;border:1px solid #e0a0a0;border-radius:8px;padding:10px 12px;margin-top:8px;font-size:12.5px;color:#a02525">⛔ Sem saldo em <b>${esc(obraName(o))}</b> — não é possível dar baixa.${obrasComSaldo(p.code)?`<br>Há saldo em: ${obrasComSaldo(p.code)}. Troque a obra no topo.`:''}</div>
-      <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn ghost" onclick="cancelBaixa()">Fechar</button></div>`;
-    $('#scanInput').value=''; $('#scanInput').focus(); toast('Item zerado nesta obra — não pode ser baixado.','warn'); return; }
   baixaProduct=p;
-  fc.style.borderColor='var(--amber)'; fc.className='found-card show';
-  fc.innerHTML=`<div class="fc-head"><div><div class="code">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · ${esc(obraName(o))}</div><div class="name">${esc(p.desc)}</div></div>${st==='low'?'<span class="pill low">Abaixo do mín</span>':st==='high'?'<span class="pill high">Acima do máx</span>':'<span class="pill good">Normal</span>'}</div>
+  fc.style.borderColor=s<=0?'var(--red)':'var(--amber)'; fc.className='found-card show';
+  fc.innerHTML=`<div class="fc-head"><div><div class="code">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · ${esc(obraName(o))}</div><div class="name">${esc(p.desc)}</div></div>${s<=0?'<span class="pill low">Sem saldo</span>':st==='low'?'<span class="pill low">Abaixo do mín</span>':st==='high'?'<span class="pill high">Acima do máx</span>':'<span class="pill good">Normal</span>'}</div>
     <div class="fc-stats"><div class="fc-stat"><div class="l">Saldo na obra</div><div class="v">${numf(s)} <span style="font-size:11px">${esc(p.unit||'')}</span></div></div><div class="fc-stat"><div class="l">Custo médio</div><div class="v" style="font-size:15px">${money(p.custo||0)}</div></div><div class="fc-stat"><div class="l">Preço venda</div><div class="v" style="font-size:15px">${p.preco?money(p.preco):'—'}</div></div></div>
-    <div class="field" style="margin:8px 0 0"><label>Quantidade a dar baixa</label><input id="baixaQty" type="number" step="any" min="0" max="${s}" autofocus></div>
+    ${s<=0?'<div style="background:#fdeaea;border:1px solid #e0a0a0;border-radius:8px;padding:8px 12px;margin-top:8px;font-size:12px;color:#a02525">Sem saldo nesta obra — a quantidade pedida vai virar compra pendente após a aprovação.</div>':''}
+    <div class="field" style="margin:8px 0 0"><label>Quantidade a solicitar</label><input id="baixaQty" type="number" step="any" min="0" autofocus></div>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="cancelBaixa()">Cancelar</button><button class="btn primary" onclick="addScanToCart()">+ Adicionar à lista</button></div>`;
   $('#scanInput').value=''; const bq=$('#baixaQty'); bq.focus(); bq.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();addScanToCart();}});
 }
 function addScanToCart(){ const p=baixaProduct; if(!p)return; const o=curObra()==='__all'?state.obras[0].id:curObra();
   const qty=parseFloat($('#baixaQty').value); if(!(qty>0)){toast('Informe a quantidade.','err');return;}
   const s=saldoOf(o,p.code); const ex=saidaCart.find(i=>i.code===p.code); const have=ex?(ex.qty||0):0;
-  if(have+qty>s){toast(`Saldo insuficiente: ${p.desc} (disponível ${numf(s)}).`,'err');return;}
+  if(have+qty>s){toast(`Atenção: ${p.desc} ficará com falta (disponível ${numf(s)}) — vai gerar compra pendente após aprovação.`,'warn');}
   if(ex)ex.qty=have+qty; else saidaCart.push({code:p.code,qty});
   baixaProduct=null; const fc=$('#foundCard'); if(fc)fc.className='found-card'; drawSaidaCart(o);
   if($('#scanInput')){$('#scanInput').value='';$('#scanInput').focus();} }
 function cancelBaixa(){ baixaProduct=null; const fc=$('#foundCard'); if(fc)fc.className='found-card'; if($('#scanInput'))$('#scanInput').focus(); }
 /* --- manual / saída de material --- */
-function drawSaidaResults(q,o){ const box=$('#saidaResults'); if(!box)return; const list=searchProducts(q).filter(p=>saldoOf(o,p.code)>0).slice(0,8);
-  if(!q||!list.length){ box.innerHTML=q&&!list.length?`<div class="muted" style="font-size:12px;padding:8px 2px">Nenhum item com saldo nesta obra.</div>`:''; return; }
+function drawSaidaResults(q,o){ const box=$('#saidaResults'); if(!box)return; const list=searchProducts(q).slice(0,8);
+  if(!q||!list.length){ box.innerHTML=q&&!list.length?`<div class="muted" style="font-size:12px;padding:8px 2px">Nenhum item encontrado.</div>`:''; return; }
   box.innerHTML=`<div class="tbl-wrap" style="margin-top:10px"><table><tbody>`+list.map(p=>`<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · saldo ${numf(saldoOf(o,p.code))} ${esc(p.unit||'')}</span></td><td class="num" style="width:80px"><button class="btn ghost sm" onclick="addSaida('${esc(p.code)}')">+ Add</button></td></tr>`).join('')+`</tbody></table></div>`; }
-function addSaida(code){ const o=curObra()==='__all'?state.obras[0].id:curObra(); if(saldoOf(o,code)<=0){toast('Item sem saldo nesta obra.','err');return;} if(!saidaCart.some(i=>i.code===code))saidaCart.push({code,qty:1}); if($('#saidaSearch'))$('#saidaSearch').value=''; if($('#saidaResults'))$('#saidaResults').innerHTML=''; drawSaidaCart(o); if($('#saidaSearch'))$('#saidaSearch').focus(); }
+function addSaida(code){ const o=curObra()==='__all'?state.obras[0].id:curObra(); if(!saidaCart.some(i=>i.code===code))saidaCart.push({code,qty:1}); if($('#saidaSearch'))$('#saidaSearch').value=''; if($('#saidaResults'))$('#saidaResults').innerHTML=''; drawSaidaCart(o); if($('#saidaSearch'))$('#saidaSearch').focus(); }
 function rmSaida(code){ saidaCart=saidaCart.filter(i=>i.code!==code); const o=curObra()==='__all'?state.obras[0].id:curObra(); drawSaidaCart(o); }
 function setSaidaQty(code,v){ const it=saidaCart.find(i=>i.code===code); if(it)it.qty=parseFloat(v)||0; const p=findProduct(code); const cell=$('#sv_'+CSS.escape(code)); if(cell&&p)cell.textContent=money((it?it.qty:0)*((p.custo)||0)); updateSaidaTotal(); }
 function drawSaidaCart(o){ const b=$('#saidaCartBody'); if(!b)return;
@@ -993,35 +1044,14 @@ function confirmSaida(){ const o=curObra()==='__all'?state.obras[0].id:curObra()
   if(!state.aplicacoes.length){toast('Cadastre uma aplicação antes de solicitar.','err');return;}
   const aplic=($('#saidaAplic')?$('#saidaAplic').value:''); if(!aplic){toast('Informe a aplicação (obrigatório).','err'); if($('#saidaAplicSearch'))$('#saidaAplicSearch').focus(); return;}
   const os=($('#saidaOS')?$('#saidaOS').value.trim():''); if(aplicRequerOS(aplic)&&!os){ toast('Ordem de Serviço é obrigatória para Equipamento/Veículo.','err'); if($('#saidaOS'))$('#saidaOS').focus(); return; }
-  const resp=($('#saidaResp')?$('#saidaResp').value.trim():''); const obs=($('#saidaObs')?$('#saidaObs').value.trim():''); const wantReport=$('#saidaReport')&&$('#saidaReport').checked;
-  const excedido=itens.filter(i=>i.qty>saldoOf(o,i.code));
-  if(excedido.length){ toast('Saldo insuficiente para: '+excedido.map(i=>findProduct(i.code).desc).join(', ')+'.','err'); return; }
+  const resp=($('#saidaResp')?$('#saidaResp').value.trim():''); const obs=($('#saidaObs')?$('#saidaObs').value.trim():'');
 
-  if(precisaAprovacao(aplic)){
-    const payload={obra_id:o,obra_nome:obraName(o),solicitante_id:session.user.id,solicitante_nome:profile.nome||profile.email,
-      itens:itens.map(i=>{const p=findProduct(i.code); return {code:p.code,desc:p.desc,unit:p.unit,qty:i.qty};}),
-      observacao:(obs||resp?[obs,resp?('Solicitante: '+resp):''].filter(Boolean).join(' · '):null),ordem_servico:os||null,aplicacao_id:aplic,aplicacao_nome:aplicName(aplic)};
-    const finish=()=>{ saidaCart=[]; drawBaixaHist(); drawMinhasFrotasPendentes(); setBaixaMode(baixaMode); };
-    if(!isOnline){ queueAction('requisicao',payload); toast('Sem conexão — solicitação guardada neste aparelho, será enviada quando a conexão voltar.','warn'); finish(); return; }
-    sb.from('requisicoes').insert(payload).then(({error})=>{ if(error){toast('Erro ao enviar: '+error.message,'err');return;} toast('Solicitação enviada para aprovação.','ok'); refreshAprovBadge(); finish(); });
-    return;
-  }
-
-  const baixaId=uid();
-  const seq=++state.seq.baixa; const doc=`Baixa Nº ${seqf(seq)}`+(resp?' · '+resp:'')+(os?' · OS '+os:'')+(isOnline?'':' (offline)');
-  itens.forEach(i=>{const p=findProduct(i.code); const vu=p.custo||0; addSaldo(o,p.code,-i.qty);
-    state.movements.unshift({id:uid(),ts:Date.now(),seq,baixaId,tipo:'baixa',obra:o,aplic,obs,os,code:p.code,desc:p.desc,qty:i.qty,valorUnit:vu,valorTotal:i.qty*vu,doc,saldo:saldoOf(o,p.code)}); });
-  if(!isOnline){
-    cacheState();
-    queueAction('baixa',{obra:o,aplic,obs,os,doc:`Baixa Nº ${seqf(seq)}`+(resp?' · '+resp:''),baixaId,ts:Date.now(),itens:itens.map(i=>{const p=findProduct(i.code); return {code:p.code,desc:p.desc,unit:p.unit,qty:i.qty,valorUnit:p.custo||0};})},'Baixa Nº '+seqf(seq)+' · '+itens.length+' item(ns) em '+obraName(o));
-    toast(`Saída Nº ${seqf(seq)} guardada offline · ${itens.length} item(ns). Envia sozinha quando a conexão voltar.`,'warn');
-  } else {
-    save('Baixa Nº '+seqf(seq)+' · '+itens.length+' item(ns) em '+obraName(o)); toast(`Saída Nº ${seqf(seq)} · ${itens.length} item(ns) em ${esc(obraName(o))}.`,'ok');
-  }
-  itens.forEach(i=>{const p=findProduct(i.code); if(saldoOf(o,p.code)<=p.min)toast(`⚠ ${p.desc} no mínimo (${numf(saldoOf(o,p.code))}).`,'warn');});
-  if(wantReport){ const repItens=itens.map(i=>{const p=findProduct(i.code); return {code:p.code,aux:p.aux,desc:p.desc,qty:i.qty,unit:p.unit,valor:p.custo||0};});
-    printSignReport({titulo:'Comprovante de Saída de Material',numero:seqf(seq),subtitulo:'Baixa de estoque',data:fmtDate(Date.now()),obra:obraName(o),aplicacao:aplicName(aplic),doc,responsavel:resp,obs,itens:repItens,assinaturas:['Solicitante','Responsável pelo almoxarifado','Recebedor']}); }
-  saidaCart=[]; drawBaixaHist(); setBaixaMode(baixaMode);
+  const payload={obra_id:o,obra_nome:obraName(o),solicitante_id:session.user.id,solicitante_nome:profile.nome||profile.email,
+    itens:itens.map(i=>{const p=findProduct(i.code); return {code:p.code,desc:p.desc,unit:p.unit,qty:i.qty};}),
+    observacao:(obs||resp?[obs,resp?('Solicitante: '+resp):''].filter(Boolean).join(' · '):null),ordem_servico:os||null,aplicacao_id:aplic,aplicacao_nome:aplicName(aplic)};
+  const finish=()=>{ saidaCart=[]; drawBaixaHist(); drawMinhasFrotasPendentes(); setBaixaMode(baixaMode); };
+  if(!isOnline){ queueAction('requisicao',payload); toast('Sem conexão — solicitação guardada neste aparelho, será enviada quando a conexão voltar.','warn'); finish(); return; }
+  sb.from('requisicoes').insert(payload).then(({error})=>{ if(error){toast('Erro ao enviar: '+error.message,'err');return;} toast('Solicitação enviada para aprovação.','ok'); refreshAprovBadge(); refreshGlobalAlerts(); finish(); });
 }
 
 /* ===== AJUSTE DE SALDO (lançamento direto, sem nota fiscal) ===== */
@@ -1077,7 +1107,7 @@ function aplicarAjuste(code){ const p=findProduct(code); if(!p)return; const obr
     toast('Saldo ajustado e salvo.','ok'); renderAjuste(); }); }
 
 function reqStatusLabel(s){ return {pendente:'Pendente',aprovada:'Aprovada',rejeitada:'Rejeitada',cancelada:'Cancelada',em_separacao:'Em separação',aguardando_compra:'Aguardando compra',separado:'Separado',embalado:'Embalado',faturado:'Faturado',embarcado:'Embarcado',recebido:'Recebido'}[s]||s; }
-async function cancelarRequisicao(id){ const {error}=await sb.from('requisicoes').update({status:'cancelada'}).eq('id',id); if(error){toast('Erro: '+error.message,'err');return;} toast('Requisição cancelada.','warn'); if(activeTab==='baixa')drawMinhasFrotasPendentes(); refreshAprovBadge(); }
+async function cancelarRequisicao(id){ const {error}=await sb.from('requisicoes').update({status:'cancelada'}).eq('id',id); if(error){toast('Erro: '+error.message,'err');return;} toast('Requisição cancelada.','warn'); if(activeTab==='baixa')drawMinhasFrotasPendentes(); refreshAprovBadge(); refreshGlobalAlerts(); }
 
 /* ===== APROVAÇÕES (encarregado / admin) ===== */
 async function renderAprovacoes(){
@@ -1122,30 +1152,73 @@ async function aprovarRequisicao(id){
   const {error:e4}=await sb.from('requisicoes').update({status:novoStatus,decidido_por:session.user.id,decidido_por_nome:profile.nome||profile.email,decidido_em:new Date().toISOString()}).eq('id',id);
   if(e4){toast('Erro ao atualizar a requisição: '+e4.message,'err');return;}
   toast(temFaltante?'Requisição aprovada. Itens faltantes enviados para compras.':'Requisição aprovada — pronta para separação.','ok');
-  drawAprovPend(); drawAprovHist(); refreshAprovBadge(); refreshSeparacaoBadge(); }
+  drawAprovPend(); drawAprovHist(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshMinhasBadge(); refreshGlobalAlerts(); }
 function rejeitarRequisicao(id){ modal(`<h3>Rejeitar requisição</h3><p class="mp">Informe o motivo (visível ao solicitante).</p><div class="field"><textarea id="rjMotivo" rows="3" autofocus></textarea></div><div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn danger" id="rjOk">Rejeitar</button></div>`);
   $('#rjOk').onclick=async()=>{ const motivo=$('#rjMotivo').value.trim(); if(!motivo){toast('Informe o motivo.','err');return;}
     const {error}=await sb.from('requisicoes').update({status:'rejeitada',motivo_rejeicao:motivo,decidido_por:session.user.id,decidido_por_nome:profile.nome||profile.email,decidido_em:new Date().toISOString()}).eq('id',id);
-    if(error){toast('Erro: '+error.message,'err');return;} closeModal(); toast('Requisição rejeitada.','warn'); drawAprovPend(); drawAprovHist(); refreshAprovBadge(); }; }
+    if(error){toast('Erro: '+error.message,'err');return;} closeModal(); toast('Requisição rejeitada.','warn'); drawAprovPend(); drawAprovHist(); refreshAprovBadge(); refreshGlobalAlerts(); }; }
 
 /* ===== SEPARAÇÃO (almoxarife / admin) ===== */
 function itemStatusLabel(s){ return {pendente_verificacao:'—',disponivel:'Disponível',faltante:'Faltante',comprado:'Comprado',separado:'Separado'}[s]||s; }
+let _comprasAssignees=null;
+async function loadComprasAssignees(force){ if(_comprasAssignees&&!force)return _comprasAssignees;
+  const {data}=await sb.from('profiles').select('id,nome,email,papel,setor').in('setor',['compras','frotas']).eq('ativo',true);
+  _comprasAssignees=data||[]; return _comprasAssignees; }
 async function renderSeparacao(){
-  if(!isAlmoxarife()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito ao almoxarifado/administradores.</div></div>'; return; }
-  $('#view').innerHTML=`
-  <div class="sechead"><h3>Aguardando compra de faltantes</h3></div>
-  <div class="tbl-wrap" id="compPend" style="margin-bottom:26px"><div class="empty">Carregando...</div></div>
-  <div class="sechead"><h3>Requisições em separação</h3></div>
-  <div id="sepList"><div class="empty">Carregando...</div></div>`;
-  await drawComprasPendentes(); await drawSeparacaoList();
+  if(!isAlmoxarife()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito ao almoxarifado e administradores.</div></div>'; return; }
+  $('#view').innerHTML=`<div id="sepList"><div class="empty">Carregando...</div></div>`;
+  await drawSeparacaoList();
+}
+async function renderCompras(){
+  if(!podeVerCompras()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito ao almoxarifado, compras, frotas e administradores.</div></div>'; return; }
+  $('#view').innerHTML=`<div class="tbl-wrap" id="compPend"><div class="empty">Carregando...</div></div>`;
+  await drawComprasPendentes();
 }
 async function drawComprasPendentes(){ const box=$('#compPend'); if(!box)return;
+  const assignees=await loadComprasAssignees();
   const {data,error}=await sb.from('compras_pendentes').select('*, requisicoes(obra_nome,ordem_servico)').in('status',['pendente','solicitada']).order('criado_em',{ascending:true});
   if(error){box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>';return;}
-  box.innerHTML=`<table><thead><tr><th>Requisição</th><th>Obra</th><th>Item</th><th class="num">Qtd faltante</th><th>Situação</th><th></th></tr></thead><tbody>${
-    (data||[]).map(c=>`<tr><td class="mono">REQ-${String(c.requisicao_id).padStart(5,'0')}</td><td>${esc(c.requisicoes?c.requisicoes.obra_nome:'—')}</td><td>${esc(c.descricao)}</td><td class="num">${numf(c.quantidade)}</td><td><span class="pill ${c.status}">${c.status==='pendente'?'Pendente':'Solicitada'}</span></td><td class="num" style="white-space:nowrap">${c.status==='pendente'?`<button class="btn ghost sm" onclick="marcarCompraSolicitada(${c.id})">Marcar solicitada</button> `:''}<button class="btn primary sm" onclick="marcarCompraRecebida(${c.id})">Recebida</button></td></tr>`).join('')||`<tr><td colspan="6" class="empty" style="padding:20px">Nada pendente de compra.</td></tr>`}</tbody></table>`;
+  box.innerHTML=`<table><thead><tr><th>Requisição</th><th>Obra</th><th>Item</th><th class="num">Qtd faltante</th><th>Atribuído a</th><th>Situação</th><th></th></tr></thead><tbody>${
+    (data||[]).map(c=>`<tr><td class="mono">REQ-${String(c.requisicao_id).padStart(5,'0')}</td><td>${esc(c.requisicoes?c.requisicoes.obra_nome:'—')}</td><td>${esc(c.descricao)}</td><td class="num">${numf(c.quantidade)}</td>
+      <td><select onchange="atribuirCompra(${c.id},this.value)" style="width:auto;min-width:150px;padding:5px 6px;font-size:12.5px">
+        <option value="">— atribuir —</option>
+        ${assignees.map(a=>`<option value="${a.id}" ${c.atribuido_a===a.id?'selected':''}>${esc(a.nome||a.email)}</option>`).join('')}
+      </select></td>
+      <td><span class="pill ${c.status}">${c.status==='pendente'?'Pendente':'Solicitada'}</span>${c.status==='solicitada'?`<br><span class="muted" style="font-size:11px">Sienge: ${c.numero_solicitacao_sienge?esc(c.numero_solicitacao_sienge):'—'} <button class="btn ghost sm" style="padding:1px 6px;font-size:10.5px" data-sienge-id="${c.id}" data-sienge-ref="${esc(c.numero_solicitacao_sienge||'')}" onclick="editarSiengeRef(this.dataset.siengeId,this.dataset.siengeRef)">editar</button></span>`:''}</td>
+      <td class="num" style="white-space:nowrap">${c.status==='pendente'?`<button class="btn ghost sm" onclick="marcarCompraSolicitada(${c.id})">Marcar solicitada</button> `:''}<button class="btn primary sm" onclick="marcarCompraRecebida(${c.id})">Recebida</button></td></tr>`).join('')||`<tr><td colspan="7" class="empty" style="padding:20px">Nada pendente de compra.</td></tr>`}</tbody></table>`;
 }
-async function marcarCompraSolicitada(id){ const {error}=await sb.from('compras_pendentes').update({status:'solicitada',data_solicitacao:new Date().toISOString()}).eq('id',id); if(error){toast('Erro: '+error.message,'err');return;} toast('Compra marcada como solicitada.','ok'); drawComprasPendentes(); }
+async function atribuirCompra(id,userId){
+  if(!userId){ const {error}=await sb.from('compras_pendentes').update({atribuido_a:null,atribuido_a_nome:null}).eq('id',id); if(error){toast('Erro: '+error.message,'err');return;} toast('Atribuição removida.','warn'); refreshGlobalAlerts(); return; }
+  const assignees=await loadComprasAssignees(); const a=assignees.find(x=>x.id===userId);
+  const {error}=await sb.from('compras_pendentes').update({atribuido_a:userId,atribuido_a_nome:a?(a.nome||a.email):null}).eq('id',id);
+  if(error){toast('Erro: '+error.message,'err');return;}
+  toast('Compra atribuída a '+(a?(a.nome||a.email):'—')+'.','ok'); refreshGlobalAlerts();
+}
+function editarSiengeRef(id,atual){
+  modal(`<h3>Referência da solicitação no Sienge</h3><p class="mp">Informe ou atualize o número/referência lançado no Sienge para este item.</p>
+    <div class="field"><label>Nº / referência no Sienge</label><input id="mcsRef2" value="${esc(atual||'')}" placeholder="ex.: SOL-000123" autofocus></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" id="mcsOk2">Salvar</button></div>`);
+  $('#mcsOk2').onclick=async()=>{
+    const ref=$('#mcsRef2').value.trim();
+    closeModal();
+    const {error}=await sb.from('compras_pendentes').update({numero_solicitacao_sienge:ref||null}).eq('id',id);
+    if(error){toast('Erro: '+error.message,'err');return;}
+    toast('Referência atualizada.','ok'); drawComprasPendentes();
+  };
+}
+function marcarCompraSolicitada(id){
+  modal(`<h3>Marcar como solicitada</h3><p class="mp">Informe o número/referência da solicitação lançada no Sienge.</p>
+    <div class="field"><label>Nº / referência no Sienge</label><input id="mcsRef" placeholder="ex.: SOL-000123" autofocus></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" id="mcsOk">Confirmar</button></div>`);
+  $('#mcsOk').onclick=async()=>{
+    const ref=$('#mcsRef').value.trim();
+    if(!ref){toast('Informe a referência do Sienge.','err');return;}
+    closeModal();
+    const {error}=await sb.from('compras_pendentes').update({status:'solicitada',data_solicitacao:new Date().toISOString(),numero_solicitacao_sienge:ref}).eq('id',id);
+    if(error){toast('Erro: '+error.message,'err');return;}
+    toast('Compra marcada como solicitada.','ok'); drawComprasPendentes(); refreshGlobalAlerts();
+  };
+}
 async function marcarCompraRecebida(id){
   const {data:c,error:e1}=await sb.from('compras_pendentes').select('*').eq('id',id).maybeSingle();
   if(e1||!c){toast('Erro ao carregar a compra.','err');return;}
@@ -1161,17 +1234,18 @@ async function marcarCompraRecebida(id){
       await sb.from('compras_pendentes').update({status:'recebida',quantidade:qtd,data_recebimento:new Date().toISOString()}).eq('id',id);
     } else {
       await sb.from('compras_pendentes').update({quantidade:restante}).eq('id',id);
-      await sb.from('compras_pendentes').insert({requisicao_id:c.requisicao_id,code:c.code,descricao:c.descricao,quantidade:qtd,status:'recebida',data_recebimento:new Date().toISOString()});
+      await sb.from('compras_pendentes').insert({requisicao_id:c.requisicao_id,code:c.code,descricao:c.descricao,quantidade:qtd,status:'recebida',data_recebimento:new Date().toISOString(),atribuido_a:c.atribuido_a,atribuido_a_nome:c.atribuido_a_nome,numero_solicitacao_sienge:c.numero_solicitacao_sienge});
     }
     const {data:item,error:e2}=await sb.from('requisicao_itens_status').select('*').eq('requisicao_id',c.requisicao_id).eq('code',c.code).maybeSingle();
     if(!e2&&item){
-      const novaDisp=Math.min(item.quantidade_disponivel+qtd, item.quantidade_solicitada);
-      const novoStatus=novaDisp>=item.quantidade_solicitada?'disponivel':'faltante';
+      const faltaAinda=item.quantidade_solicitada-item.quantidade_separada-item.quantidade_disponivel;
+      const novaDisp=item.quantidade_disponivel+Math.min(qtd,Math.max(faltaAinda,0));
+      const novoStatus=(item.quantidade_separada+novaDisp)>=item.quantidade_solicitada?'disponivel':'faltante';
       await sb.from('requisicao_itens_status').update({quantidade_disponivel:novaDisp,status:novoStatus,atualizado_em:new Date().toISOString()}).eq('id',item.id);
     }
     const {count}=await sb.from('requisicao_itens_status').select('id',{count:'exact',head:true}).eq('requisicao_id',c.requisicao_id).eq('status','faltante');
     if(!count){ await sb.from('requisicoes').update({status:'em_separacao'}).eq('id',c.requisicao_id); }
-    toast('Recebimento registrado.','ok'); drawComprasPendentes(); drawSeparacaoList(); refreshSeparacaoBadge();
+    toast('Recebimento registrado.','ok'); drawComprasPendentes(); drawSeparacaoList(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshMinhasBadge(); refreshGlobalAlerts();
   };
 }
 async function drawSeparacaoList(){ const box=$('#sepList'); if(!box)return;
@@ -1184,25 +1258,29 @@ async function drawSeparacaoList(){ const box=$('#sepList'); if(!box)return;
     const its=(itens||[]).filter(i=>i.requisicao_id===r.id);
     return `<div class="panel" style="margin-bottom:14px">
       <div class="sechead" style="margin-bottom:10px"><h3 style="font-size:14px">REQ-${String(r.id).padStart(5,'0')} — ${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</h3><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span></div>
-      <table><thead><tr><th>Item</th><th class="num">Solicitado</th><th class="num">Disponível</th><th>Situação</th><th></th></tr></thead><tbody>${
-        its.map(i=>`<tr><td>${esc(i.descricao)}</td><td class="num">${numf(i.quantidade_solicitada)} ${esc(i.unidade||'')}</td><td class="num">${numf(i.quantidade_disponivel)}</td><td><span class="pill ${i.status}">${itemStatusLabel(i.status)}</span></td><td class="num">${i.status==='disponivel'?`<button class="btn primary sm" onclick="separarItem(${i.id})">Separar</button>`:i.status==='separado'?'✓':''}</td></tr>`).join('')
+      <table><thead><tr><th>Item</th><th class="num">Solicitado</th><th class="num">Disponível agora</th><th>Situação</th><th></th></tr></thead><tbody>${
+        its.map(i=>`<tr><td>${esc(i.descricao)}${i.quantidade_separada>0?`<div class="muted" style="font-size:10.5px">já separado: ${numf(i.quantidade_separada)}</div>`:''}</td><td class="num">${numf(i.quantidade_solicitada)} ${esc(i.unidade||'')}</td><td class="num">${numf(i.quantidade_disponivel)}</td><td><span class="pill ${i.status}">${itemStatusLabel(i.status)}</span></td><td class="num">${i.quantidade_disponivel>0&&i.status!=='separado'?`<button class="btn primary sm" onclick="separarItem(${i.id})">Separar ${numf(i.quantidade_disponivel)}</button>`:i.status==='separado'?'✓':''}</td></tr>`).join('')
       }</tbody></table></div>`;
   }).join('');
 }
 async function separarItem(id){
   const {data:item,error:e1}=await sb.from('requisicao_itens_status').select('*').eq('id',id).maybeSingle();
   if(e1||!item){toast('Erro ao carregar item.','err');return;}
+  if(!(item.quantidade_disponivel>0)){toast('Nada disponível pra separar neste item.','err');return;}
   const {data:r,error:e2}=await sb.from('requisicoes').select('*').eq('id',item.requisicao_id).maybeSingle();
   if(e2||!r){toast('Erro ao carregar requisição.','err');return;}
   const p=findProduct(item.code); const vu=p?(p.custo||0):0;
-  addSaldo(r.obra_id,item.code,-item.quantidade_disponivel);
-  state.movements.unshift({id:uid(),ts:Date.now(),tipo:'baixa',obra:r.obra_id,aplic:r.aplicacao_id||'',obs:'Separação REQ-'+String(r.id).padStart(5,'0'),os:r.ordem_servico||'',code:item.code,desc:item.descricao,qty:item.quantidade_disponivel,valorUnit:vu,valorTotal:item.quantidade_disponivel*vu,doc:'Separação REQ-'+String(r.id).padStart(5,'0'),saldo:saldoOf(r.obra_id,item.code)});
+  const qtdSeparar=item.quantidade_disponivel;
+  addSaldo(r.obra_id,item.code,-qtdSeparar);
+  state.movements.unshift({id:uid(),ts:Date.now(),tipo:'baixa',obra:r.obra_id,aplic:r.aplicacao_id||'',obs:'Separação REQ-'+String(r.id).padStart(5,'0'),os:r.ordem_servico||'',code:item.code,desc:item.descricao,qty:qtdSeparar,valorUnit:vu,valorTotal:qtdSeparar*vu,doc:'Separação REQ-'+String(r.id).padStart(5,'0'),saldo:saldoOf(r.obra_id,item.code)});
   await save('Separação REQ-'+String(r.id).padStart(5,'0')+': '+item.descricao);
-  await sb.from('requisicao_itens_status').update({status:'separado',atualizado_em:new Date().toISOString()}).eq('id',id);
+  const novaSeparada=item.quantidade_separada+qtdSeparar;
+  const novoStatus=novaSeparada>=item.quantidade_solicitada?'separado':'faltante';
+  await sb.from('requisicao_itens_status').update({quantidade_disponivel:0,quantidade_separada:novaSeparada,status:novoStatus,atualizado_em:new Date().toISOString()}).eq('id',id);
   const {count}=await sb.from('requisicao_itens_status').select('id',{count:'exact',head:true}).eq('requisicao_id',r.id).neq('status','separado');
   if(!count){ await sb.from('requisicoes').update({status:'separado'}).eq('id',r.id); toast('Todos os itens separados! Requisição pronta para embalamento.','ok'); }
-  else toast('Item separado.','ok');
-  drawSeparacaoList(); refreshSeparacaoBadge();
+  else toast(novoStatus==='separado'?'Item totalmente separado.':'Separado o que estava disponível — o restante continua aguardando compra.','ok');
+  drawSeparacaoList(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshMinhasBadge(); refreshGlobalAlerts();
 }
 
 /* ===== AUDITORIA (encarregado / admin) ===== */
@@ -1370,27 +1448,38 @@ async function renderAdmin(){
   const uRows=(users||[]).map(u=>`<tr>
     <td>${esc(u.nome||'—')}<div class="muted" style="font-size:11px">${esc(u.email)}</div></td>
     <td><select id="up_${u.id}" ${u.id===profile.id?'disabled':''} style="width:auto"><option value="operador"${u.papel==='operador'?' selected':''}>Operador</option><option value="encarregado"${u.papel==='encarregado'?' selected':''}>Encarregado</option><option value="admin"${u.papel==='admin'?' selected':''}>Admin</option></select></td>
+    <td><select id="us_${u.id}" style="width:auto"><option value=""${!u.setor?' selected':''}>—</option><option value="almoxarifado"${u.setor==='almoxarifado'?' selected':''}>Almoxarifado</option><option value="compras"${u.setor==='compras'?' selected':''}>Compras</option><option value="frotas"${u.setor==='frotas'?' selected':''}>Frotas</option></select></td>
     <td class="num"><label style="display:flex;align-items:center;gap:6px;justify-content:flex-end;text-transform:none;font-weight:500;margin:0"><input type="checkbox" id="ua_${u.id}" ${u.ativo?'checked':''} ${u.id===profile.id?'disabled':''} style="width:auto"> Ativo</label></td>
     <td class="num">${u.id===profile.id?'<span class="muted">você</span>':`<button class="btn primary sm" onclick="saveUserRole('${u.id}')">Salvar</button>`}</td></tr>`).join('');
-  let html=`<div class="panel"><h3>👤 Usuários</h3><p class="desc">Cadastros novos ficam <b>inativos</b> até você aprovar. Papéis: <b>operador</b> (solicita materiais e consulta), <b>encarregado</b> (aprova requisições, faz entradas/baixas, vê auditoria), <b>admin</b> (tudo, inclusive esta tela).</p>
-    <div class="tbl-wrap"><table><thead><tr><th>Usuário</th><th>Papel</th><th class="num">Situação</th><th></th></tr></thead><tbody>${uRows||'<tr><td colspan="4" class="empty">Nenhum usuário.</td></tr>'}</tbody></table></div></div>
+  let html=`<div class="panel"><h3>👤 Usuários</h3><p class="desc">Cadastros novos ficam <b>inativos</b> até você aprovar. <b>Papel</b> define a permissão — operador (solicita e consulta), encarregado (aprova requisições, faz entradas/baixas), admin (tudo). <b>Setor</b> é independente do papel e define a função — almoxarifado (separa e embala), compras/frotas (aparecem pra atribuição de compra de faltantes).</p>
+    <div class="tbl-wrap"><table><thead><tr><th>Usuário</th><th>Papel</th><th>Setor</th><th class="num">Situação</th><th></th></tr></thead><tbody>${uRows||'<tr><td colspan="5" class="empty">Nenhum usuário.</td></tr>'}</tbody></table></div></div>
   <div class="panel"><h3>Excluir nota fiscal</h3><p class="desc">As entradas da nota são <b>estornadas do estoque</b> da obra correspondente.</p>`;
   if(!notas.length)html+=`<div class="empty" style="padding:26px">Nenhuma nota lançada.</div>`;
   else html+=`<div class="tbl-wrap"><table><thead><tr><th>Nota</th><th>Obra</th><th>Emissão</th><th class="num">Itens</th><th class="num">Valor</th><th></th></tr></thead><tbody>`+notas.map(n=>`<tr><td class="mono">NF ${esc(n.numero)}</td><td>${esc(obraName(n.obra))}</td><td class="muted" style="font-size:12px">${n.dataEmissao?new Date(n.dataEmissao+'T00:00:00').toLocaleDateString('pt-BR'):fmtDate(n.ts)}</td><td class="num">${n.itens.length}</td><td class="num">${money(n.valor||0)}</td><td class="num"><button class="btn danger sm" onclick="deleteNotaId('${n.id}')">🔒 Excluir</button></td></tr>`).join('')+`</tbody></table></div>`;
-  html+=`</div><div class="panel danger-zone"><h3>⚠ Zona de risco</h3><p class="desc" style="color:#a05050">Apaga <b>todos os produtos, saldos, movimentações, notas e fotos</b>. Obras e usuários são mantidos.</p><button class="btn danger" onclick="wipeAll()">🔒 Zerar todo o estoque</button></div>`;
+  html+=`</div><div class="panel danger-zone"><h3>⚠ Zona de risco</h3><p class="desc" style="color:#a05050">Apaga <b>todos os produtos, saldos, movimentações, notas, fotos, requisições, itens de compra, caixas e embarques</b>. Obras e usuários são mantidos.</p><button class="btn danger" onclick="wipeAll()">🔒 Zerar todo o estoque</button></div>`;
   $('#view').innerHTML=html;
 }
-async function saveUserRole(id){ const papel=$('#up_'+id).value; const ativo=$('#ua_'+id).checked;
-  const {error}=await sb.from('profiles').update({papel,ativo}).eq('id',id);
+async function saveUserRole(id){ const papel=$('#up_'+id).value; const setor=$('#us_'+id).value||null; const ativo=$('#ua_'+id).checked;
+  const {error}=await sb.from('profiles').update({papel,setor,ativo}).eq('id',id);
   if(error){toast('Erro: '+error.message,'err');return;}
-  await sb.rpc('log_event',{p_acao:'usuario_atualizado',p_entidade:'profiles',p_entidade_id:id,p_detalhes:{papel,ativo}});
-  toast('Usuário atualizado.','ok'); renderAdmin(); }
+  await sb.rpc('log_event',{p_acao:'usuario_atualizado',p_entidade:'profiles',p_entidade_id:id,p_detalhes:{papel,setor,ativo}});
+  _comprasAssignees=null; toast('Usuário atualizado.','ok'); renderAdmin(); }
 function deleteNotaId(id,fromEntrada){ const n=state.notas.find(x=>x.id===id); if(!n)return; requireSupervisor(`Excluir NF ${n.numero}`,()=>{
   state.movements.filter(m=>m.notaId===id).forEach(m=>addSaldo(m.obra,m.code,-m.qty));
   state.movements=state.movements.filter(m=>m.notaId!==id);
   state.notas=state.notas.filter(x=>x.id!==id); save('NF '+n.numero+' excluída e estornada'); if(fromEntrada)drawNfHist(); else renderAdmin(); toast('Nota excluída e estornada.','warn'); }); }
-function wipeAll(){ requireSupervisor('Zerar todo o estoque',()=>{ modal(`<h3 style="color:#b03030">Confirmar exclusão total</h3><p class="mp">Apaga <b>${state.products.length} produto(s)</b>, todos os saldos, histórico e fotos. <b>Não há como desfazer.</b></p><div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn danger" onclick="doWipe()">Apagar tudo</button></div>`); }); }
-function doWipe(){ state.products=[]; state.movements=[]; state.estoque={}; state.notas=[]; photos={}; savePhotos(); save('Estoque zerado (zona de risco)'); closeModal(); renderAdmin(); toast('Estoque zerado.','warn'); }
+function wipeAll(){ requireSupervisor('Zerar todo o estoque',()=>{ modal(`<h3 style="color:#b03030">Confirmar exclusão total</h3><p class="mp">Apaga <b>${state.products.length} produto(s)</b>, todos os saldos, histórico, fotos, <b>requisições, compras pendentes, caixas e embarques</b>. <b>Não há como desfazer.</b></p><div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn danger" onclick="doWipe()">Apagar tudo</button></div>`); }); }
+async function doWipe(){
+  state.products=[]; state.movements=[]; state.estoque={}; state.notas=[]; photos={}; savePhotos();
+  await save('Estoque zerado (zona de risco)');
+  try{
+    await sb.from('embarques').delete().gt('id',-1);
+    await sb.from('notas_fiscais_saida').delete().gt('id',-1);
+    await sb.from('requisicoes').delete().gt('id',-1);
+  }catch(e){ toast('Estoque zerado, mas houve erro limpando requisições/compras: '+(e&&e.message||e),'err'); }
+  closeModal(); renderAdmin(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshMinhasBadge(); refreshGlobalAlerts();
+  toast('Estoque e requisições zerados.','warn');
+}
 
 /* ===== Autenticação (Supabase Auth) ===== */
 function downloadBackup(){ const blob=new Blob([JSON.stringify({state,photos},null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='estoque_backup_'+new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')+'.json'; a.click(); }
@@ -1438,7 +1527,7 @@ async function onAuthReady(){
   if(!session){ profile=null; drawAuthView(); showGate(); return; }
   profile=await loadProfile();
   if(!profile||!profile.ativo){ showPending(); return; }
-  hideGate(); applyRoleNav(); await load(); await loadPhotos(); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); updateOfflineBadge(); go('painel');
+  hideGate(); applyRoleNav(); await load(); await loadPhotos(); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshMinhasBadge(); refreshGlobalAlerts(); updateOfflineBadge(); go('painel');
   if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); }
 }
 sb.auth.onAuthStateChange((event,s)=>{ session=s; onAuthReady(); });
