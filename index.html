@@ -136,6 +136,11 @@
   @media print{aside,.topbar,.noprint{display:none!important}main{background:#fff}}
   @media(max-width:860px){.cards>.card{flex-basis:42%}.row.c4,.row.c3{grid-template-columns:1fr 1fr}}
   .pill.pendente{background:#fff3da;color:#a8731a} .pill.aprovada{background:#e3f7ee;color:#1c7a52} .pill.rejeitada{background:#fde8e8;color:#c0392b} .pill.cancelada{background:#eee;color:#777}
+  .pill.em_separacao{background:#e6effc;color:#2766b8} .pill.aguardando_compra{background:#fde8e8;color:#c0392b}
+  .pill.separado{background:#e3f7ee;color:#1c7a52} .pill.embalado{background:#fff3da;color:#a8731a}
+  .pill.faturado{background:#e6effc;color:#2766b8} .pill.embarcado{background:#f0e6fc;color:#6b3fa0} .pill.recebido{background:#e3f7ee;color:#1c7a52}
+  .pill.disponivel{background:#e3f7ee;color:#1c7a52} .pill.faltante{background:#fde8e8;color:#c0392b}
+  .pill.pendente_verificacao{background:#eee;color:#777} .pill.comprado{background:#e6effc;color:#2766b8} .pill.solicitada{background:#e6effc;color:#2766b8} .pill.recebida{background:#e3f7ee;color:#1c7a52}
   .userbox{display:flex;align-items:center;gap:10px;padding:11px 18px;border-top:1px solid var(--line)}
   .userbox .av{width:30px;height:30px;border-radius:50%;background:var(--amber);color:#1a1206;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0}
   .userbox .nm{font-size:12.5px;font-weight:600;line-height:1.3} .userbox .rl{font-size:10.5px;color:var(--muted2);text-transform:uppercase;letter-spacing:.4px}
@@ -174,6 +179,7 @@
     <button data-tab="baixa"><span class="ic">⊖</span><span>Consumo de Estoque</span></button>
     <button data-tab="ajuste" data-role="encarregado"><span class="ic">✎</span><span>Ajuste de Saldo</span></button>
     <button data-tab="aprovacoes" data-role="encarregado"><span class="ic">✔</span><span>Aprovações</span><span class="badge" id="navBadgeAprov" style="display:none"></span></button>
+    <button data-tab="separacao" data-role="almoxarife"><span class="ic">📦</span><span>Separação</span><span class="badge" id="navBadgeSeparacao" style="display:none"></span></button>
     <button data-tab="transfer"><span class="ic">⇄</span><span>Transferência entre Obras</span></button>
     <button data-tab="consulta"><span class="ic">⌕</span><span>Consulta</span></button>
     <button data-tab="relatorios"><span class="ic">▤</span><span>Relatórios</span></button>
@@ -210,6 +216,8 @@ const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
 let session=null, profile=null;
 function isAdmin(){ return !!profile && profile.papel==='admin' && profile.ativo; }
 function isEncarregado(){ return !!profile && (profile.papel==='admin'||profile.papel==='encarregado') && profile.ativo; }
+function isAlmoxarife(){ return !!profile && (profile.papel==='admin'||profile.papel==='almoxarife') && profile.ativo; }
+function isCompras(){ return !!profile && (profile.papel==='admin'||profile.papel==='compras') && profile.ativo; }
 function isAtivo(){ return !!profile && profile.ativo; }
 
 /* ===== Persistência (Supabase: tabela app_kv + auditoria via RPC) ===== */
@@ -267,7 +275,7 @@ function applyBaixaPayload(p){ const seq=++state.seq.baixa;
     state.movements.unshift({id:uid(),ts:p.ts||Date.now(),seq,baixaId:p.baixaId,tipo:'baixa',obra:p.obra,aplic:p.aplic||'',obs:p.obs||'',os:p.os||'',code:it.code,desc:it.desc,qty:it.qty,valorUnit:it.valorUnit||0,valorTotal:it.qty*(it.valorUnit||0),doc:p.doc,saldo:saldoOf(p.obra,it.code)}); }); }
 window.addEventListener('online',()=>{ isOnline=true; updateOfflineBadge(); if(getQueue().length){toast('Conexão de volta — sincronizando pendências...','ok'); processOfflineQueue();} });
 window.addEventListener('offline',()=>{ isOnline=false; updateOfflineBadge(); toast('Sem conexão — as próximas ações ficam guardadas neste aparelho.','warn'); });
-const SAFE_REFRESH_TABS=['painel','obras','aplic','produtos','consulta','relatorios'];
+const SAFE_REFRESH_TABS=['obras','aplic','produtos','consulta','relatorios'];
 function subscribeRealtime(){
   sb.channel('app_kv_sync').on('postgres_changes',{event:'UPDATE',schema:'public',table:'app_kv',filter:'key=eq.'+KEY},payload=>{
     if(!payload.new||!payload.new.value)return;
@@ -371,7 +379,7 @@ function requireSupervisor(title,onOk){
   <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn danger" id="rsOk">Confirmar</button></div>`);
   $('#rsOk').onclick=()=>{ closeModal(); onOk&&onOk(); };
 }
-function papelLabel(p){ return p==='admin'?'Administrador':p==='encarregado'?'Encarregado':'Operador'; }
+function papelLabel(p){ return p==='admin'?'Administrador':p==='encarregado'?'Encarregado':p==='almoxarife'?'Almoxarife':p==='compras'?'Compras':'Operador'; }
 
 /* ===== Scanner de câmera (celular / tablet) ===== */
 let camScanner=null;
@@ -393,24 +401,27 @@ function closeCameraScanner(){ if(camScanner){ const c=camScanner; camScanner=nu
 const titles={ painel:['Painel','Visão por obra'],entrada:['Entrada / Nota Fiscal','XML, colado ou manual'],baixa:['Consumo de Estoque','Solicitação com aprovação do encarregado'],
   ajuste:['Ajuste de Saldo','Lançar ou corrigir saldo sem nota fiscal'],
   aprovacoes:['Aprovações','Requisições pendentes de aprovação'],
+  separacao:['Separação','Verificação de estoque, separação e compra de faltantes'],
   transfer:['Transferência entre Obras','Mover saldo de uma obra para outra'],consulta:['Consulta','Buscar por nome, código ou equipamento'],
   obras:['Obras','Cadastro de obras'],aplic:['Aplicações','Equipamentos e veículos (placa/tag)'],produtos:['Produtos & Etiquetas','Catálogo e códigos de barras'],importar:['Importar Planilha','Carga inicial por obra'],admin:['Administração','Usuários e exclusões protegidas'],relatorios:['Relatórios','Consumo por aplicação, tipo, obra e produto'],auditoria:['Auditoria','Histórico de ações no sistema'] };
 let activeTab='painel';
 function go(tab){ activeTab=tab;
   document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
   $('#pageTitle').firstChild.textContent=titles[tab][0]+' '; $('#pageSub').textContent=titles[tab][1]; $('#topActions').innerHTML='';
-  ({painel:renderPainel,entrada:renderEntrada,baixa:renderBaixa,ajuste:renderAjuste,aprovacoes:renderAprovacoes,transfer:renderTransfer,consulta:renderConsulta,obras:renderObras,aplic:renderAplic,produtos:renderProdutos,importar:renderImportar,admin:renderAdmin,relatorios:renderRelatorios,auditoria:renderAuditoria}[tab])();
+  ({painel:renderPainel,entrada:renderEntrada,baixa:renderBaixa,ajuste:renderAjuste,aprovacoes:renderAprovacoes,separacao:renderSeparacao,transfer:renderTransfer,consulta:renderConsulta,obras:renderObras,aplic:renderAplic,produtos:renderProdutos,importar:renderImportar,admin:renderAdmin,relatorios:renderRelatorios,auditoria:renderAuditoria}[tab])();
 }
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>go(b.dataset.tab));
 function applyRoleNav(){
   document.querySelectorAll('#nav button[data-role]').forEach(b=>{
-    const need=b.dataset.role; const ok=need==='admin'?isAdmin():isEncarregado();
+    const need=b.dataset.role;
+    const ok=need==='admin'?isAdmin():need==='almoxarife'?isAlmoxarife():need==='compras'?isCompras():isEncarregado();
     b.style.display=ok?'':'none';
   });
   $('#uAvatar').textContent=(profile.nome||'?').trim().charAt(0).toUpperCase();
   $('#uNome').textContent=profile.nome||profile.email; $('#uPapel').textContent=papelLabel(profile.papel);
 }
 async function refreshAprovBadge(){ if(!isEncarregado())return; const {count}=await sb.from('requisicoes').select('id',{count:'exact',head:true}).eq('status','pendente'); const b=$('#navBadgeAprov'); if(!b)return; if(count){b.textContent=count;b.style.display='';}else b.style.display='none'; }
+async function refreshSeparacaoBadge(){ if(!isAlmoxarife())return; const {count}=await sb.from('requisicoes').select('id',{count:'exact',head:true}).in('status',['em_separacao','aguardando_compra']); const b=$('#navBadgeSeparacao'); if(!b)return; if(count){b.textContent=count;b.style.display='';}else b.style.display='none'; }
 function needObra(){ if(!state.obras.length){ $('#view').innerHTML=`<div class="tbl-wrap"><div class="empty"><div class="ico">⌂</div>Nenhuma obra cadastrada ainda.<br>Cadastre uma obra para começar.<br><button class="btn primary" onclick="go('obras')">+ Cadastrar obra</button></div></div>`; return true; } return false; }
 
 /* ===== PAINEL ===== */
@@ -1065,7 +1076,7 @@ function aplicarAjuste(code){ const p=findProduct(code); if(!p)return; const obr
     await save('Ajuste de saldo: '+p.desc+' em '+obraName(obra)+' ('+(delta>0?'+':'')+numf(delta)+') · '+motivo);
     toast('Saldo ajustado e salvo.','ok'); renderAjuste(); }); }
 
-function reqStatusLabel(s){ return {pendente:'Pendente',aprovada:'Aprovada',rejeitada:'Rejeitada',cancelada:'Cancelada'}[s]||s; }
+function reqStatusLabel(s){ return {pendente:'Pendente',aprovada:'Aprovada',rejeitada:'Rejeitada',cancelada:'Cancelada',em_separacao:'Em separação',aguardando_compra:'Aguardando compra',separado:'Separado',embalado:'Embalado',faturado:'Faturado',embarcado:'Embarcado',recebido:'Recebido'}[s]||s; }
 async function cancelarRequisicao(id){ const {error}=await sb.from('requisicoes').update({status:'cancelada'}).eq('id',id); if(error){toast('Erro: '+error.message,'err');return;} toast('Requisição cancelada.','warn'); if(activeTab==='baixa')drawMinhasFrotasPendentes(); refreshAprovBadge(); }
 
 /* ===== APROVAÇÕES (encarregado / admin) ===== */
@@ -1088,20 +1099,111 @@ async function drawAprovHist(){ const box=$('#aprovHist'); if(!box)return;
 async function aprovarRequisicao(id){
   const {data:r,error:e1}=await sb.from('requisicoes').select('*').eq('id',id).maybeSingle();
   if(e1||!r){toast('Erro ao carregar pedido.','err');return;}
-  const faltando=r.itens.filter(i=>{const p=findProduct(i.code); return !p||saldoOf(r.obra_id,i.code)<i.qty;});
-  if(faltando.length){ toast('Saldo insuficiente para: '+faltando.map(i=>i.desc).join(', ')+'. Faça uma entrada antes de aprovar.','err'); return; }
-  const seq=++state.seq.baixa; const baixaId=uid(); const doc=`Requisição REQ-${String(r.id).padStart(5,'0')} aprovada · ${r.solicitante_nome}`+(r.ordem_servico?' · OS '+r.ordem_servico:'');
-  const obsMov='Requisição REQ-'+String(r.id).padStart(5,'0')+(r.ordem_servico?' · OS '+r.ordem_servico:'');
-  r.itens.forEach(i=>{ const p=findProduct(i.code); const vu=p.custo||0; addSaldo(r.obra_id,p.code,-i.qty);
-    state.movements.unshift({id:uid(),ts:Date.now(),seq,baixaId,tipo:'baixa',obra:r.obra_id,aplic:r.aplicacao_id||'',obs:obsMov,os:r.ordem_servico||'',code:p.code,desc:p.desc,qty:i.qty,valorUnit:vu,valorTotal:i.qty*vu,doc,saldo:saldoOf(r.obra_id,p.code)}); });
-  await save('Requisição REQ-'+String(r.id).padStart(5,'0')+' aprovada ('+r.obra_nome+')');
-  const {error:e2}=await sb.from('requisicoes').update({status:'aprovada',decidido_por:session.user.id,decidido_por_nome:profile.nome||profile.email,decidido_em:new Date().toISOString()}).eq('id',id);
-  if(e2){toast('Baixa feita, mas houve erro ao marcar a requisição: '+e2.message,'err');return;}
-  toast('Requisição aprovada e baixa lançada.','ok'); drawAprovPend(); drawAprovHist(); refreshAprovBadge(); }
+  // Verifica o saldo item a item — não bloqueia mais a aprovação por falta de estoque.
+  const itensAvaliados=r.itens.map(i=>{
+    const disponivel=Math.max(Math.min(saldoOf(r.obra_id,i.code), i.qty),0);
+    return {code:i.code, desc:i.desc, unit:i.unit||'', qty:i.qty, disponivel, faltante:Math.max(i.qty-disponivel,0)};
+  });
+  const temFaltante=itensAvaliados.some(i=>i.faltante>0);
+  const rowsStatus=itensAvaliados.map(i=>({
+    requisicao_id:r.id, code:i.code, descricao:i.desc, unidade:i.unit,
+    quantidade_solicitada:i.qty, quantidade_disponivel:i.disponivel,
+    status: i.faltante>0?'faltante':'disponivel'
+  }));
+  const {error:e2}=await sb.from('requisicao_itens_status').upsert(rowsStatus,{onConflict:'requisicao_id,code'});
+  if(e2){toast('Erro ao gravar verificação de estoque: '+e2.message,'err');return;}
+  const faltantes=itensAvaliados.filter(i=>i.faltante>0);
+  if(faltantes.length){
+    const rowsCompra=faltantes.map(i=>({requisicao_id:r.id, code:i.code, descricao:i.desc, quantidade:i.faltante, status:'pendente'}));
+    const {error:e3}=await sb.from('compras_pendentes').insert(rowsCompra);
+    if(e3){toast('Verificação salva, mas houve erro ao gerar compra pendente: '+e3.message,'err');return;}
+  }
+  const novoStatus=temFaltante?'aguardando_compra':'em_separacao';
+  const {error:e4}=await sb.from('requisicoes').update({status:novoStatus,decidido_por:session.user.id,decidido_por_nome:profile.nome||profile.email,decidido_em:new Date().toISOString()}).eq('id',id);
+  if(e4){toast('Erro ao atualizar a requisição: '+e4.message,'err');return;}
+  toast(temFaltante?'Requisição aprovada. Itens faltantes enviados para compras.':'Requisição aprovada — pronta para separação.','ok');
+  drawAprovPend(); drawAprovHist(); refreshAprovBadge(); refreshSeparacaoBadge(); }
 function rejeitarRequisicao(id){ modal(`<h3>Rejeitar requisição</h3><p class="mp">Informe o motivo (visível ao solicitante).</p><div class="field"><textarea id="rjMotivo" rows="3" autofocus></textarea></div><div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn danger" id="rjOk">Rejeitar</button></div>`);
   $('#rjOk').onclick=async()=>{ const motivo=$('#rjMotivo').value.trim(); if(!motivo){toast('Informe o motivo.','err');return;}
     const {error}=await sb.from('requisicoes').update({status:'rejeitada',motivo_rejeicao:motivo,decidido_por:session.user.id,decidido_por_nome:profile.nome||profile.email,decidido_em:new Date().toISOString()}).eq('id',id);
     if(error){toast('Erro: '+error.message,'err');return;} closeModal(); toast('Requisição rejeitada.','warn'); drawAprovPend(); drawAprovHist(); refreshAprovBadge(); }; }
+
+/* ===== SEPARAÇÃO (almoxarife / admin) ===== */
+function itemStatusLabel(s){ return {pendente_verificacao:'—',disponivel:'Disponível',faltante:'Faltante',comprado:'Comprado',separado:'Separado'}[s]||s; }
+async function renderSeparacao(){
+  if(!isAlmoxarife()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito ao almoxarifado/administradores.</div></div>'; return; }
+  $('#view').innerHTML=`
+  <div class="sechead"><h3>Aguardando compra de faltantes</h3></div>
+  <div class="tbl-wrap" id="compPend" style="margin-bottom:26px"><div class="empty">Carregando...</div></div>
+  <div class="sechead"><h3>Requisições em separação</h3></div>
+  <div id="sepList"><div class="empty">Carregando...</div></div>`;
+  await drawComprasPendentes(); await drawSeparacaoList();
+}
+async function drawComprasPendentes(){ const box=$('#compPend'); if(!box)return;
+  const {data,error}=await sb.from('compras_pendentes').select('*, requisicoes(obra_nome,ordem_servico)').in('status',['pendente','solicitada']).order('criado_em',{ascending:true});
+  if(error){box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>';return;}
+  box.innerHTML=`<table><thead><tr><th>Requisição</th><th>Obra</th><th>Item</th><th class="num">Qtd faltante</th><th>Situação</th><th></th></tr></thead><tbody>${
+    (data||[]).map(c=>`<tr><td class="mono">REQ-${String(c.requisicao_id).padStart(5,'0')}</td><td>${esc(c.requisicoes?c.requisicoes.obra_nome:'—')}</td><td>${esc(c.descricao)}</td><td class="num">${numf(c.quantidade)}</td><td><span class="pill ${c.status}">${c.status==='pendente'?'Pendente':'Solicitada'}</span></td><td class="num" style="white-space:nowrap">${c.status==='pendente'?`<button class="btn ghost sm" onclick="marcarCompraSolicitada(${c.id})">Marcar solicitada</button> `:''}<button class="btn primary sm" onclick="marcarCompraRecebida(${c.id})">Recebida</button></td></tr>`).join('')||`<tr><td colspan="6" class="empty" style="padding:20px">Nada pendente de compra.</td></tr>`}</tbody></table>`;
+}
+async function marcarCompraSolicitada(id){ const {error}=await sb.from('compras_pendentes').update({status:'solicitada',data_solicitacao:new Date().toISOString()}).eq('id',id); if(error){toast('Erro: '+error.message,'err');return;} toast('Compra marcada como solicitada.','ok'); drawComprasPendentes(); }
+async function marcarCompraRecebida(id){
+  const {data:c,error:e1}=await sb.from('compras_pendentes').select('*').eq('id',id).maybeSingle();
+  if(e1||!c){toast('Erro ao carregar a compra.','err');return;}
+  modal(`<h3>Confirmar recebimento</h3><p class="mp">${esc(c.descricao)} — faltavam ${numf(c.quantidade)}.</p>
+    <div class="field"><label>Quantidade recebida</label><input id="mcrQtd" type="number" step="any" value="${c.quantidade}"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" id="mcrOk">Confirmar</button></div>`);
+  $('#mcrOk').onclick=async()=>{
+    const qtd=parseFloat($('#mcrQtd').value);
+    if(isNaN(qtd)||qtd<=0){toast('Informe uma quantidade válida.','err');return;}
+    closeModal();
+    const restante=c.quantidade-qtd;
+    if(restante<=0.0001){
+      await sb.from('compras_pendentes').update({status:'recebida',quantidade:qtd,data_recebimento:new Date().toISOString()}).eq('id',id);
+    } else {
+      await sb.from('compras_pendentes').update({quantidade:restante}).eq('id',id);
+      await sb.from('compras_pendentes').insert({requisicao_id:c.requisicao_id,code:c.code,descricao:c.descricao,quantidade:qtd,status:'recebida',data_recebimento:new Date().toISOString()});
+    }
+    const {data:item,error:e2}=await sb.from('requisicao_itens_status').select('*').eq('requisicao_id',c.requisicao_id).eq('code',c.code).maybeSingle();
+    if(!e2&&item){
+      const novaDisp=Math.min(item.quantidade_disponivel+qtd, item.quantidade_solicitada);
+      const novoStatus=novaDisp>=item.quantidade_solicitada?'disponivel':'faltante';
+      await sb.from('requisicao_itens_status').update({quantidade_disponivel:novaDisp,status:novoStatus,atualizado_em:new Date().toISOString()}).eq('id',item.id);
+    }
+    const {count}=await sb.from('requisicao_itens_status').select('id',{count:'exact',head:true}).eq('requisicao_id',c.requisicao_id).eq('status','faltante');
+    if(!count){ await sb.from('requisicoes').update({status:'em_separacao'}).eq('id',c.requisicao_id); }
+    toast('Recebimento registrado.','ok'); drawComprasPendentes(); drawSeparacaoList(); refreshSeparacaoBadge();
+  };
+}
+async function drawSeparacaoList(){ const box=$('#sepList'); if(!box)return;
+  const {data:reqs,error}=await sb.from('requisicoes').select('*').in('status',['em_separacao','aguardando_compra']).order('criado_em',{ascending:true});
+  if(error){box.innerHTML='<div class="tbl-wrap"><div class="empty">Erro: '+esc(error.message)+'</div></div>';return;}
+  if(!reqs||!reqs.length){box.innerHTML='<div class="tbl-wrap"><div class="empty">Nenhuma requisição em separação no momento.</div></div>';return;}
+  const ids=reqs.map(r=>r.id);
+  const {data:itens}=await sb.from('requisicao_itens_status').select('*').in('requisicao_id',ids);
+  box.innerHTML=reqs.map(r=>{
+    const its=(itens||[]).filter(i=>i.requisicao_id===r.id);
+    return `<div class="panel" style="margin-bottom:14px">
+      <div class="sechead" style="margin-bottom:10px"><h3 style="font-size:14px">REQ-${String(r.id).padStart(5,'0')} — ${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</h3><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span></div>
+      <table><thead><tr><th>Item</th><th class="num">Solicitado</th><th class="num">Disponível</th><th>Situação</th><th></th></tr></thead><tbody>${
+        its.map(i=>`<tr><td>${esc(i.descricao)}</td><td class="num">${numf(i.quantidade_solicitada)} ${esc(i.unidade||'')}</td><td class="num">${numf(i.quantidade_disponivel)}</td><td><span class="pill ${i.status}">${itemStatusLabel(i.status)}</span></td><td class="num">${i.status==='disponivel'?`<button class="btn primary sm" onclick="separarItem(${i.id})">Separar</button>`:i.status==='separado'?'✓':''}</td></tr>`).join('')
+      }</tbody></table></div>`;
+  }).join('');
+}
+async function separarItem(id){
+  const {data:item,error:e1}=await sb.from('requisicao_itens_status').select('*').eq('id',id).maybeSingle();
+  if(e1||!item){toast('Erro ao carregar item.','err');return;}
+  const {data:r,error:e2}=await sb.from('requisicoes').select('*').eq('id',item.requisicao_id).maybeSingle();
+  if(e2||!r){toast('Erro ao carregar requisição.','err');return;}
+  const p=findProduct(item.code); const vu=p?(p.custo||0):0;
+  addSaldo(r.obra_id,item.code,-item.quantidade_disponivel);
+  state.movements.unshift({id:uid(),ts:Date.now(),tipo:'baixa',obra:r.obra_id,aplic:r.aplicacao_id||'',obs:'Separação REQ-'+String(r.id).padStart(5,'0'),os:r.ordem_servico||'',code:item.code,desc:item.descricao,qty:item.quantidade_disponivel,valorUnit:vu,valorTotal:item.quantidade_disponivel*vu,doc:'Separação REQ-'+String(r.id).padStart(5,'0'),saldo:saldoOf(r.obra_id,item.code)});
+  await save('Separação REQ-'+String(r.id).padStart(5,'0')+': '+item.descricao);
+  await sb.from('requisicao_itens_status').update({status:'separado',atualizado_em:new Date().toISOString()}).eq('id',id);
+  const {count}=await sb.from('requisicao_itens_status').select('id',{count:'exact',head:true}).eq('requisicao_id',r.id).neq('status','separado');
+  if(!count){ await sb.from('requisicoes').update({status:'separado'}).eq('id',r.id); toast('Todos os itens separados! Requisição pronta para embalamento.','ok'); }
+  else toast('Item separado.','ok');
+  drawSeparacaoList(); refreshSeparacaoBadge();
+}
 
 /* ===== AUDITORIA (encarregado / admin) ===== */
 let _auditRows=[];
@@ -1336,7 +1438,7 @@ async function onAuthReady(){
   if(!session){ profile=null; drawAuthView(); showGate(); return; }
   profile=await loadProfile();
   if(!profile||!profile.ativo){ showPending(); return; }
-  hideGate(); applyRoleNav(); await load(); await loadPhotos(); refreshBadge(); refreshAprovBadge(); updateOfflineBadge(); go('painel');
+  hideGate(); applyRoleNav(); await load(); await loadPhotos(); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); updateOfflineBadge(); go('painel');
   if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); }
 }
 sb.auth.onAuthStateChange((event,s)=>{ session=s; onAuthReady(); });
