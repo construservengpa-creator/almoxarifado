@@ -2332,6 +2332,13 @@ var qrcode = function() {
   nav button .badge{margin-left:auto;background:var(--red);color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:10px}
   nav button.active .badge{background:#1a1206;color:var(--amber)}
   .navsep{font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted2);padding:14px 14px 6px;font-weight:600}
+  .navgrp-hd{display:flex;align-items:center;justify-content:space-between;padding:10px 13px 6px;margin-top:4px;font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted2);font-weight:600;cursor:pointer;border-radius:8px}
+  .navgrp-hd:hover{color:var(--muted)}
+  .navgrp-hd .navgrp-hd-l{display:flex;align-items:center;gap:6px}
+  .navgrp-hd .navgrp-chev{font-size:10px;transition:transform .15s}
+  .navgrp-hd .badge{background:var(--red);color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:10px}
+  .navgrp-body button{padding-left:13px}
+  .navgrp-divider{border-top:1px solid var(--line);margin:10px 6px 6px}
   .side-foot{padding:14px 18px;border-top:1px solid var(--line);font-size:10.5px;color:var(--muted2);line-height:1.6}
   main{flex:1;background:var(--content);color:#1c1c1c;min-width:0}
   .topbar{background:#fff;border-bottom:2px solid #e4dfd4;padding:16px 30px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:20;gap:16px;flex-wrap:wrap}
@@ -2438,8 +2445,18 @@ var qrcode = function() {
   .pill.em_separacao{background:#e6effc;color:#2766b8} .pill.aguardando_compra{background:#fde8e8;color:#c0392b}
   .pill.separado{background:#e3f7ee;color:#1c7a52} .pill.embalado{background:#fff3da;color:#a8731a}
   .pill.faturado{background:#e6effc;color:#2766b8} .pill.embarcado{background:#f0e6fc;color:#6b3fa0} .pill.recebido{background:#e3f7ee;color:#1c7a52}
+  .pill.romaneio_emitido{background:#fff3da;color:#a8731a} .pill.retirado{background:#e3f7ee;color:#1c7a52}
   .pill.disponivel{background:#e3f7ee;color:#1c7a52} .pill.faltante{background:#fde8e8;color:#c0392b}
   .pill.pendente_verificacao{background:#eee;color:#777} .pill.comprado{background:#e6effc;color:#2766b8} .pill.solicitada{background:#e6effc;color:#2766b8} .pill.recebida{background:#e3f7ee;color:#1c7a52}
+  .stepper{display:flex;align-items:center;gap:0;margin:10px 0}
+  .stepper .st{display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;position:relative}
+  .stepper .st .dot{width:22px;height:22px;border-radius:50%;background:#e2e2e2;color:#888;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;z-index:1}
+  .stepper .st.done .dot{background:#1c7a52;color:#fff}
+  .stepper .st.current .dot{background:#c98a1a;color:#fff}
+  .stepper .st .lbl{font-size:9.5px;text-transform:uppercase;letter-spacing:.3px;color:#888;text-align:center}
+  .stepper .st.done .lbl,.stepper .st.current .lbl{color:#333;font-weight:600}
+  .stepper .st:not(:last-child)::after{content:'';position:absolute;top:11px;left:50%;width:100%;height:2px;background:#e2e2e2;z-index:0}
+  .stepper .st.done:not(:last-child)::after{background:#1c7a52}
   .userbox{display:flex;align-items:center;gap:10px;padding:11px 18px;border-top:1px solid var(--line)}
   .userbox .av{width:30px;height:30px;border-radius:50%;background:var(--amber);color:#1a1206;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0}
   .userbox .nm{font-size:12.5px;font-weight:600;line-height:1.3} .userbox .rl{font-size:10.5px;color:var(--muted2);text-transform:uppercase;letter-spacing:.4px}
@@ -2481,21 +2498,41 @@ var qrcode = function() {
   </div>
   <nav id="nav">
     <button data-tab="painel" class="active"><span class="ic">▦</span><span>Painel</span><span class="badge" id="navBadge" style="display:none"></span></button>
-    <button data-tab="entrada"><span class="ic">⊕</span><span>Entrada / Nota Fiscal</span></button>
-    <button data-tab="baixa"><span class="ic">⊖</span><span>Consumo de Estoque</span><span class="badge" id="navBadgeMinhas" style="display:none"></span></button>
-    <button data-tab="ajuste" data-role="encarregado"><span class="ic">✎</span><span>Ajuste de Saldo</span></button>
-    <button data-tab="aprovacoes" data-role="encarregado"><span class="ic">✔</span><span>Aprovações</span><span class="badge" id="navBadgeAprov" style="display:none"></span></button>
-    <button data-tab="separacao" data-role="almoxarife"><span class="ic">📦</span><span>Separação</span><span class="badge" id="navBadgeSeparacao" style="display:none"></span></button>
-    <button data-tab="compras" data-role="separacao_acesso"><span class="ic">🛒</span><span>Compras</span><span class="badge" id="navBadgeCompras" style="display:none"></span></button>
-    <button data-tab="transfer"><span class="ic">⇄</span><span>Transferência entre Obras</span></button>
-    <button data-tab="consulta"><span class="ic">⌕</span><span>Consulta</span></button>
-    <button data-tab="relatorios"><span class="ic">▤</span><span>Relatórios</span></button>
-    <button data-tab="auditoria" data-role="encarregado"><span class="ic">🛡</span><span>Auditoria</span></button>
-    <div class="navsep">Cadastros</div>
-    <button data-tab="obras"><span class="ic">⌂</span><span>Obras</span></button>
-    <button data-tab="aplic"><span class="ic">⚙</span><span>Aplicações</span></button>
-    <button data-tab="produtos"><span class="ic">≣</span><span>Produtos &amp; Etiquetas</span></button>
-    <button data-tab="importar"><span class="ic">↥</span><span>Importar Planilha</span></button>
+
+    <div class="navgrp-hd" data-grp-toggle="mov"><span class="navgrp-hd-l">Movimentação</span><span class="navgrp-chev">▾</span></div>
+    <div class="navgrp-body" id="navgrpBody-mov">
+      <button data-tab="entrada"><span class="ic">⊕</span><span>Entrada / Nota Fiscal</span></button>
+      <button data-tab="baixa"><span class="ic">⊖</span><span>Consumo de Estoque</span><span class="badge" id="navBadgeMinhas" style="display:none"></span></button>
+      <button data-tab="ajuste" data-role="encarregado"><span class="ic">✎</span><span>Ajuste de Saldo</span></button>
+      <button data-tab="transfer"><span class="ic">⇄</span><span>Transferência entre Obras</span></button>
+      <button data-tab="mutuo" data-role="encarregado"><span class="ic">💱</span><span>Mútuo entre Empresas</span></button>
+    </div>
+
+    <div class="navgrp-hd" data-grp-toggle="fluxo"><span class="navgrp-hd-l">Fluxo de Requisição<span class="badge" id="navBadgeFluxo" style="display:none"></span></span><span class="navgrp-chev">▾</span></div>
+    <div class="navgrp-body" id="navgrpBody-fluxo">
+      <button data-tab="aprovacoes" data-role="encarregado"><span class="ic">✔</span><span>Aprovações</span><span class="badge" id="navBadgeAprov" style="display:none"></span></button>
+      <button data-tab="separacao" data-role="almoxarife"><span class="ic">📦</span><span>Separação</span><span class="badge" id="navBadgeSeparacao" style="display:none"></span></button>
+      <button data-tab="compras" data-role="separacao_acesso"><span class="ic">🛒</span><span>Compras</span><span class="badge" id="navBadgeCompras" style="display:none"></span></button>
+      <button data-tab="expedicao" data-role="almoxarife"><span class="ic">🚚</span><span>Expedição</span><span class="badge" id="navBadgeExped" style="display:none"></span></button>
+    </div>
+
+    <div class="navgrp-hd" data-grp-toggle="consulta"><span class="navgrp-hd-l">Consulta e Relatórios</span><span class="navgrp-chev">▸</span></div>
+    <div class="navgrp-body" id="navgrpBody-consulta" style="display:none">
+      <button data-tab="consulta"><span class="ic">⌕</span><span>Consulta</span></button>
+      <button data-tab="relatorios"><span class="ic">▤</span><span>Relatórios</span></button>
+      <button data-tab="auditoria" data-role="encarregado"><span class="ic">🛡</span><span>Auditoria</span></button>
+    </div>
+
+    <div class="navgrp-hd" data-grp-toggle="cad"><span class="navgrp-hd-l">Cadastros</span><span class="navgrp-chev">▸</span></div>
+    <div class="navgrp-body" id="navgrpBody-cad" style="display:none">
+      <button data-tab="obras"><span class="ic">⌂</span><span>Obras</span></button>
+      <button data-tab="aplic"><span class="ic">⚙</span><span>Aplicações</span></button>
+      <button data-tab="produtos"><span class="ic">≣</span><span>Produtos &amp; Etiquetas</span></button>
+      <button data-tab="importar"><span class="ic">↥</span><span>Importar Planilha</span></button>
+      <button data-tab="empresas"><span class="ic">🏢</span><span>Empresas</span></button>
+    </div>
+
+    <div class="navgrp-divider"></div>
     <button data-tab="admin" data-role="admin"><span class="ic">⚿</span><span>Administração</span></button>
   </nav>
   <div class="userbox">
@@ -2541,7 +2578,7 @@ let photos={};
 async function load(){ const d=await Store.get(KEY);
   if(d===undefined){ if(loadCache())toast('Sem conexão — carregando última cópia salva neste aparelho.','warn'); }
   else if(d&&d.products){state=d;}
-  if(!state.obras)state.obras=[]; if(!state.aplicacoes)state.aplicacoes=[]; if(!state.estoque)state.estoque={}; if(!state.movements)state.movements=[]; if(!state.notas)state.notas=[]; if(!state.seq)state.seq={baixa:0,transfer:0}; if(!state.config)state.config={supHash:null};
+  if(!state.obras)state.obras=[]; if(!state.aplicacoes)state.aplicacoes=[]; if(!state.estoque)state.estoque={}; if(!state.movements)state.movements=[]; if(!state.notas)state.notas=[]; if(!state.seq)state.seq={baixa:0,transfer:0}; if(!state.config)state.config={supHash:null}; if(!state.empresas)state.empresas=[];
   state.movements.forEach(m=>{ if(!m.id)m.id=uid(); });
   if(!state.currentObra || !state.obras.some(o=>o.id===state.currentObra)) state.currentObra=state.obras[0]?state.obras[0].id:null;
   cacheState();
@@ -2590,7 +2627,7 @@ function subscribeRealtime(){
   sb.channel('app_kv_sync').on('postgres_changes',{event:'UPDATE',schema:'public',table:'app_kv',filter:'key=eq.'+KEY},payload=>{
     if(!payload.new||!payload.new.value)return;
     state=payload.new.value;
-    if(!state.obras)state.obras=[]; if(!state.aplicacoes)state.aplicacoes=[]; if(!state.estoque)state.estoque={}; if(!state.movements)state.movements=[]; if(!state.notas)state.notas=[]; if(!state.seq)state.seq={baixa:0,transfer:0};
+    if(!state.obras)state.obras=[]; if(!state.aplicacoes)state.aplicacoes=[]; if(!state.estoque)state.estoque={}; if(!state.movements)state.movements=[]; if(!state.notas)state.notas=[]; if(!state.seq)state.seq={baixa:0,transfer:0}; if(!state.empresas)state.empresas=[];
     if(!state.currentObra||!state.obras.some(o=>o.id===state.currentObra))state.currentObra=state.obras[0]?state.obras[0].id:null;
     refreshBadge(); refreshAprovBadge(); refreshGlobalAlerts();
     if(SAFE_REFRESH_TABS.includes(activeTab))go(activeTab);
@@ -2713,16 +2750,39 @@ const titles={ painel:['Painel','Visão por obra'],entrada:['Entrada / Nota Fisc
   ajuste:['Ajuste de Saldo','Lançar ou corrigir saldo sem nota fiscal'],
   aprovacoes:['Aprovações','Requisições pendentes de aprovação'],
   separacao:['Separação','Separação física dos itens disponíveis'],
+  expedicao:['Expedição','Embalagem, romaneio, nota fiscal, etiquetas de volume e envio'],
+  mutuo:['Mútuo entre Empresas','Controle de valores entre empresas e fechamento por período'],
   compras:['Compras','Itens faltantes aguardando compra'],
   transfer:['Transferência entre Obras','Mover saldo de uma obra para outra'],consulta:['Consulta','Buscar por nome, código ou equipamento'],
-  obras:['Obras','Cadastro de obras'],aplic:['Aplicações','Equipamentos e veículos (placa/tag)'],produtos:['Produtos & Etiquetas','Catálogo e códigos de barras'],importar:['Importar Planilha','Carga inicial por obra'],admin:['Administração','Usuários e exclusões protegidas'],relatorios:['Relatórios','Consumo por aplicação, tipo, obra e produto'],auditoria:['Auditoria','Histórico de ações no sistema'] };
+  obras:['Obras','Cadastro de obras'],aplic:['Aplicações','Equipamentos e veículos (placa/tag)'],produtos:['Produtos & Etiquetas','Catálogo e códigos de barras'],importar:['Importar Planilha','Carga inicial por obra'],empresas:['Empresas','Razão social, CNPJ e endereço'],admin:['Administração','Usuários e exclusões protegidas'],relatorios:['Relatórios','Consumo por aplicação, tipo, obra e produto'],auditoria:['Auditoria','Histórico de ações no sistema'] };
 let activeTab='painel';
 function go(tab){ activeTab=tab;
   document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
+  const activeBtn=document.querySelector('#nav button[data-tab="'+tab+'"]'); const grpBody=activeBtn&&activeBtn.closest('.navgrp-body'); if(grpBody&&grpBody.style.display==='none')toggleNavGrp(grpBody.id.replace('navgrpBody-',''),true);
   $('#pageTitle').firstChild.textContent=titles[tab][0]+' '; $('#pageSub').textContent=titles[tab][1]; $('#topActions').innerHTML='';
-  ({painel:renderPainel,entrada:renderEntrada,baixa:renderBaixa,ajuste:renderAjuste,aprovacoes:renderAprovacoes,separacao:renderSeparacao,compras:renderCompras,transfer:renderTransfer,consulta:renderConsulta,obras:renderObras,aplic:renderAplic,produtos:renderProdutos,importar:renderImportar,admin:renderAdmin,relatorios:renderRelatorios,auditoria:renderAuditoria}[tab])();
+  ({painel:renderPainel,entrada:renderEntrada,baixa:renderBaixa,ajuste:renderAjuste,aprovacoes:renderAprovacoes,separacao:renderSeparacao,expedicao:renderExpedicao,compras:renderCompras,transfer:renderTransfer,mutuo:renderMutuo,consulta:renderConsulta,obras:renderObras,aplic:renderAplic,produtos:renderProdutos,importar:renderImportar,empresas:renderEmpresas,admin:renderAdmin,relatorios:renderRelatorios,auditoria:renderAuditoria}[tab])();
 }
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>go(b.dataset.tab));
+function toggleNavGrp(key,forceOpen){
+  const body=document.getElementById('navgrpBody-'+key); if(!body)return;
+  const isOpen=body.style.display!=='none';
+  const open=forceOpen?true:!isOpen;
+  body.style.display=open?'':'none';
+  const chev=document.querySelector('.navgrp-hd[data-grp-toggle="'+key+'"] .navgrp-chev'); if(chev)chev.textContent=open?'▾':'▸';
+  try{ localStorage.setItem('navgrp_'+key, open?'1':'0'); }catch(e){}
+}
+function initNavGrps(){
+  document.querySelectorAll('.navgrp-hd').forEach(hd=>hd.onclick=()=>toggleNavGrp(hd.dataset.grpToggle));
+  [['mov',true],['fluxo',true],['consulta',false],['cad',false]].forEach(([key,def])=>{
+    let saved=null; try{saved=localStorage.getItem('navgrp_'+key);}catch(e){}
+    const open=saved===null?def:saved==='1';
+    const body=document.getElementById('navgrpBody-'+key); const chev=document.querySelector('.navgrp-hd[data-grp-toggle="'+key+'"] .navgrp-chev');
+    if(body)body.style.display=open?'':'none'; if(chev)chev.textContent=open?'▾':'▸';
+  });
+}
+function refreshFluxoGroupBadge(){ const ids=['navBadgeAprov','navBadgeSeparacao','navBadgeCompras','navBadgeExped']; let total=0;
+  ids.forEach(id=>{ const el=document.getElementById(id); if(el&&el.style.display!=='none'){ const n=parseInt(el.textContent,10); if(!isNaN(n))total+=n; } });
+  const b=document.getElementById('navBadgeFluxo'); if(!b)return; if(total){b.textContent=total;b.style.display='';}else b.style.display='none'; }
 function applyRoleNav(){
   document.querySelectorAll('#nav button[data-role]').forEach(b=>{
     const need=b.dataset.role;
@@ -2732,10 +2792,10 @@ function applyRoleNav(){
   $('#uAvatar').textContent=(profile.nome||'?').trim().charAt(0).toUpperCase();
   $('#uNome').textContent=profile.nome||profile.email; $('#uPapel').textContent=papelLabel(profile.papel)+(profile.setor?' · '+setorLabel(profile.setor):'');
 }
-async function refreshAprovBadge(){ if(!isEncarregado())return; const {count}=await sb.from('requisicoes').select('id',{count:'exact',head:true}).eq('status','pendente'); const b=$('#navBadgeAprov'); if(!b)return; if(count){b.textContent=count;b.style.display='';}else b.style.display='none'; }
+async function refreshAprovBadge(){ if(!isEncarregado())return; const {count}=await sb.from('requisicoes').select('id',{count:'exact',head:true}).eq('status','pendente'); const b=$('#navBadgeAprov'); if(!b)return; if(count){b.textContent=count;b.style.display='';}else b.style.display='none'; refreshFluxoGroupBadge(); }
 async function refreshSeparacaoBadge(){ if(!isAlmoxarife())return; const b=$('#navBadgeSeparacao'); if(!b)return;
   const {count}=await sb.from('requisicao_itens_status').select('id',{count:'exact',head:true}).eq('status','disponivel');
-  if(count){b.textContent=count;b.style.display='';}else b.style.display='none'; }
+  if(count){b.textContent=count;b.style.display='';}else b.style.display='none'; refreshFluxoGroupBadge(); }
 async function refreshComprasBadge(){ if(!podeVerCompras())return; const b=$('#navBadgeCompras'); if(!b)return;
   let count=0;
   if(profile.setor==='compras'||profile.setor==='frotas'){
@@ -2743,7 +2803,7 @@ async function refreshComprasBadge(){ if(!podeVerCompras())return; const b=$('#n
   } else {
     const r=await sb.from('compras_pendentes').select('id',{count:'exact',head:true}).eq('status','pendente').is('atribuido_a',null); count=r.count||0;
   }
-  if(count){b.textContent=count;b.style.display='';}else b.style.display='none'; }
+  if(count){b.textContent=count;b.style.display='';}else b.style.display='none'; refreshFluxoGroupBadge(); }
 async function refreshMinhasBadge(){ if(!session)return; const {count}=await sb.from('requisicoes').select('id',{count:'exact',head:true}).eq('solicitante_id',session.user.id).eq('status','aguardando_compra'); const b=$('#navBadgeMinhas'); if(!b)return; if(count){b.textContent=count;b.style.display='';}else b.style.display='none'; }
 async function refreshGlobalAlerts(){
   const box=$('#globalAlerts'); if(!box||!profile)return;
@@ -2755,6 +2815,8 @@ async function refreshGlobalAlerts(){
   if(isAlmoxarife()){
     const {count:c2}=await sb.from('requisicoes').select('id',{count:'exact',head:true}).eq('status','em_separacao');
     if(c2)alerts.push({tab:'separacao',tone:'ok',text:(c2===1?'1 requisição':c2+' requisições')+' pronta(s) para separar.'});
+    const {count:c6}=await sb.from('requisicoes').select('id',{count:'exact',head:true}).in('status',['separado','embalado','romaneio_emitido','faturado']);
+    if(c6)alerts.push({tab:'expedicao',tone:'ok',text:(c6===1?'1 requisição':c6+' requisições')+' em andamento na expedição.'});
   }
   if(podeVerCompras()){
     const {count:c3}=await sb.from('compras_pendentes').select('id',{count:'exact',head:true}).in('status',['pendente','solicitada']).eq('atribuido_a',session.user.id);
@@ -2893,9 +2955,9 @@ function renderObras(){
   $('#topActions').innerHTML=`<button class="btn primary sm" onclick="obraModal()">+ Nova obra</button>`;
   let html=`<div class="sechead"><h3>Obras cadastradas</h3></div>`;
   if(!state.obras.length){ html+=`<div class="tbl-wrap"><div class="empty"><div class="ico">⌂</div>Nenhuma obra cadastrada.<br><button class="btn primary" onclick="obraModal()">+ Cadastrar primeira obra</button></div></div>`; $('#view').innerHTML=html; return; }
-  html+=`<div class="tbl-wrap"><table><thead><tr><th>Obra</th><th>Local</th><th class="num">Itens c/ saldo</th><th class="num">Valor em estoque</th><th></th></tr></thead><tbody>`;
+  html+=`<div class="tbl-wrap"><table><thead><tr><th>Obra</th><th>Empresa</th><th>Local</th><th class="num">Itens c/ saldo</th><th class="num">Valor em estoque</th><th></th></tr></thead><tbody>`;
   state.obras.forEach(o=>{ let itens=0,val=0; state.products.forEach(p=>{const s=saldoOf(o.id,p.code); if(s>0){itens++;val+=s*(p.custo||0);}});
-    html+=`<tr><td><b>${esc(o.nome)}</b></td><td class="muted">${esc(o.local||'—')}</td><td class="num">${itens}</td><td class="num">${money(val)}</td>
+    html+=`<tr><td><b>${esc(o.nome)}</b></td><td class="muted">${esc(o.empresa||'—')}</td><td class="muted">${esc(o.local||'—')}</td><td class="num">${itens}</td><td class="num">${money(val)}</td>
     <td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="obraModal('${o.id}')">✎</button> <button class="btn danger sm" onclick="delObra('${o.id}')">✕</button></td></tr>`; });
   html+=`</tbody></table></div>`;
   $('#view').innerHTML=html;
@@ -2903,16 +2965,52 @@ function renderObras(){
 function obraModal(id){ const o=id?state.obras.find(x=>x.id===id):null;
   modal(`<h3>${o?'Editar obra':'Nova obra'}</h3>
     <div class="field"><label>Nome da obra</label><input id="obNome" value="${o?esc(o.nome):''}" placeholder="Ex.: Obra 57 — Vias Guajará"></div>
+    <div class="field"><label>Empresa (razão social)</label>${state.empresas&&state.empresas.length?`<select id="obEmpresaId">
+      <option value="">— nenhuma —</option>${state.empresas.map(e=>`<option value="${e.id}" ${o&&o.empresaId===e.id?'selected':''}>${esc(e.razaoSocial)}</option>`).join('')}
+      </select><div class="muted" style="font-size:11px;margin-top:4px">Não achou a empresa? <a href="javascript:void(0)" onclick="closeModal();go('empresas')">cadastre em Empresas</a>.</div>`
+      :`<input disabled placeholder="cadastre em Empresas primeiro">`}</div>
     <div class="field"><label>Local / referência (opcional)</label><input id="obLocal" value="${o?esc(o.local||''):''}" placeholder="Cidade, contrato..."></div>
     <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="saveObra('${id||''}')">Salvar</button></div>`);
 }
 function saveObra(id){ const nome=$('#obNome').value.trim(); if(!nome){toast('Informe o nome da obra.','err');return;} const local=$('#obLocal').value.trim();
-  if(id){ const o=state.obras.find(x=>x.id===id); o.nome=nome; o.local=local; } else { const nid=uid(); state.obras.push({id:nid,nome,local}); if(!state.currentObra)state.currentObra=nid; }
+  const empresaId=$('#obEmpresaId')?$('#obEmpresaId').value:''; const emp=empresaId?state.empresas.find(e=>e.id===empresaId):null; const empresa=emp?emp.razaoSocial:'';
+  if(id){ const o=state.obras.find(x=>x.id===id); o.nome=nome; o.local=local; o.empresa=empresa; o.empresaId=empresaId||null; } else { const nid=uid(); state.obras.push({id:nid,nome,local,empresa,empresaId:empresaId||null}); if(!state.currentObra)state.currentObra=nid; }
   save(); closeModal(); renderObras(); toast('Obra salva.','ok'); }
 function delObra(id){ const itens=state.products.filter(p=>saldoOf(id,p.code)>0).length;
   if(itens>0){ toast('A obra tem saldo em estoque. Zere ou transfira antes de excluir.','err'); return; }
   const nomeObra=obraName(id); requireSupervisor(`Excluir obra "${nomeObra}"`,()=>{ state.obras=state.obras.filter(o=>o.id!==id); delete state.estoque[id];
     if(state.currentObra===id)state.currentObra=state.obras[0]?state.obras[0].id:null; save('Obra excluída: '+nomeObra); renderObras(); toast('Obra excluída.','ok'); }); }
+
+/* ===== EMPRESAS ===== */
+function renderEmpresas(){
+  $('#topActions').innerHTML=`<button class="btn primary sm" onclick="empresaModal()">+ Nova empresa</button>`;
+  if(!state.empresas)state.empresas=[];
+  let html=`<div class="panel"><h3>🏢 Empresas</h3><p class="desc">Razão social, CNPJ e endereço — usados no cabeçalho de emitente/destinatário das etiquetas de volume e no controle de mútuo. Vincule cada obra a uma empresa no cadastro de Obras.</p></div>`;
+  if(!state.empresas.length){ html+=`<div class="tbl-wrap"><div class="empty"><div class="ico">🏢</div>Nenhuma empresa cadastrada.<br><button class="btn primary" onclick="empresaModal()">+ Cadastrar primeira empresa</button></div></div>`; $('#view').innerHTML=html; return; }
+  html+=`<div class="tbl-wrap"><table><thead><tr><th>Razão social</th><th>CNPJ</th><th>Endereço</th><th class="num">Obras vinculadas</th><th></th></tr></thead><tbody>`;
+  state.empresas.forEach(e=>{ const nObras=state.obras.filter(o=>o.empresaId===e.id).length;
+    html+=`<tr><td><b>${esc(e.razaoSocial)}</b></td><td class="mono">${esc(e.cnpj||'—')}</td><td class="muted" style="font-size:12.5px">${esc(e.endereco||'—')}</td><td class="num">${nObras}</td>
+    <td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="empresaModal('${e.id}')">✎</button> <button class="btn danger sm" onclick="delEmpresa('${e.id}')">✕</button></td></tr>`; });
+  html+=`</tbody></table></div>`;
+  $('#view').innerHTML=html;
+}
+function empresaModal(id){ const e=id?state.empresas.find(x=>x.id===id):null;
+  modal(`<h3>${e?'Editar empresa':'Nova empresa'}</h3>
+    <div class="field"><label>Razão social</label><input id="emRazao" value="${e?esc(e.razaoSocial):''}" placeholder="Ex.: AMETA Engenharia Ltda"></div>
+    <div class="field"><label>CNPJ</label><input id="emCnpj" value="${e?esc(e.cnpj||''):''}" placeholder="00.000.000/0000-00"></div>
+    <div class="field"><label>Endereço completo</label><textarea id="emEndereco" rows="2" placeholder="Rua, número, bairro, cidade/UF, CEP">${e?esc(e.endereco||''):''}</textarea></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="saveEmpresa('${id||''}')">Salvar</button></div>`);
+}
+function saveEmpresa(id){ const razaoSocial=$('#emRazao').value.trim(); if(!razaoSocial){toast('Informe a razão social.','err');return;}
+  const cnpj=$('#emCnpj').value.trim(); const endereco=$('#emEndereco').value.trim();
+  if(!state.empresas)state.empresas=[];
+  if(id){ const e=state.empresas.find(x=>x.id===id); e.razaoSocial=razaoSocial; e.cnpj=cnpj; e.endereco=endereco;
+    state.obras.filter(o=>o.empresaId===id).forEach(o=>o.empresa=razaoSocial);
+  } else { state.empresas.push({id:uid(),razaoSocial,cnpj,endereco}); }
+  save(); closeModal(); renderEmpresas(); toast('Empresa salva.','ok'); }
+function delEmpresa(id){ const nObras=state.obras.filter(o=>o.empresaId===id).length;
+  if(nObras>0){ toast('Existem obras vinculadas a essa empresa. Desvincule antes de excluir.','err'); return; }
+  const e=state.empresas.find(x=>x.id===id); requireSupervisor(`Excluir empresa "${e?e.razaoSocial:''}"`,()=>{ state.empresas=state.empresas.filter(x=>x.id!==id); save('Empresa excluída: '+(e?e.razaoSocial:'')); renderEmpresas(); toast('Empresa excluída.','ok'); }); }
 
 /* ===== APLICAÇÕES ===== */
 const APLIC_TIPOS=[['equipamento','⚙ EQUIPAMENTO'],['veiculo','🚚 VEÍCULO'],['sede','🏢 SEDE']];
@@ -3296,12 +3394,18 @@ function updateSubmitBtn(){ const btn=$('#submitSaidaBtn'); if(!btn)return; btn.
 function onAplicChange(){ updateOsReq(); updateSubmitBtn(); }
 function setBaixaMode(m){ baixaMode=m; if($('#bmScan'))$('#bmScan').classList.toggle('on',m==='scanner'); if($('#bmMan'))$('#bmMan').classList.toggle('on',m==='manual');
   const o=curObra()==='__all'?state.obras[0].id:curObra(); const pane=$('#baixaPane');
+  const oObra=state.obras.find(x=>x.id===o);
   const aplicOsRow=`<div class="field" style="margin:0"><label>Aplicação (obrigatório)</label>${state.aplicacoes.length?`<input type="hidden" id="saidaAplic" value="">
     <div class="search" style="max-width:none"><span class="si">⌕</span><input id="saidaAplicSearch" placeholder="Digite qualquer informação e pesquise..." autocomplete="off" oninput="onAplicInput(this.value)" onfocus="drawAplicResults(this.value)"></div>
     <div id="saidaAplicResults" style="display:none"></div>`:`<input disabled placeholder="cadastre em Aplicações">`}</div><div class="field" id="osFieldWrap" style="margin:0;display:none"><label>Ordem de Serviço <span style="color:#c0392b">(obrigatório)</span></label><input id="saidaOS" placeholder="Nº da OS"></div>`;
+  const outrasEmpresas=oObra&&oObra.empresa?state.obras.filter(x=>x.id!==o&&x.empresa&&x.empresa.trim().toLowerCase()!==oObra.empresa.trim().toLowerCase()):[];
+  const mutuoRow=(oObra&&oObra.empresa)?`<div class="panel" style="padding:12px 18px;margin-bottom:12px;border-color:#d8c8a0;background:#fff9ee">
+    <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-weight:500;font-size:13px;margin:0;color:#1c1c1c"><input type="checkbox" id="saidaMutuo" style="width:auto" onchange="toggleSaidaMutuo()"> Este consumo é para uso de outra empresa (registra o mútuo automaticamente na separação)</label>
+    <div id="saidaMutuoFields" style="display:none;margin-top:10px"><div class="field" style="margin:0"><label>Obra de destino (outra empresa)</label><select id="saidaMutuoObra">${outrasEmpresas.length?outrasEmpresas.map(x=>`<option value="${x.id}">${esc(x.nome)} (${esc(x.empresa)})</option>`).join(''):'<option value="">— nenhuma obra de outra empresa cadastrada —</option>'}</select></div></div></div>`:'';
   if(m==='scanner'){
     pane.innerHTML=`
       ${state.aplicacoes.length?`<div class="panel" style="padding:14px 18px;margin-bottom:12px"><div class="row c3">${aplicOsRow}<div class="field" style="margin:0"><label>Observação (opcional)</label><textarea id="saidaObs" rows="2" placeholder="Ex.: manutenção... (Enter = nova linha)"></textarea></div></div></div>`:`<div class="panel" style="padding:14px 18px;margin-bottom:12px;border-color:#f0c060;background:#fff7e8"><b style="color:#8a5a00">⚠ Cadastre uma aplicação primeiro</b><p class="desc" style="margin:6px 0 8px">O consumo exige informar o equipamento/veículo de destino.</p><button class="btn dark sm" onclick="go('aplic')">Cadastrar aplicação</button></div>`}
+      ${mutuoRow}
       <div class="scan-box"><label>📷 Solicitação de material — obra: ${esc(obraName(o))}</label>
       <input id="scanInput" placeholder="Leia o código de barras ou digite nome / código (parcial)" autocomplete="off">
       <button class="btn dark sm" style="margin-top:8px" onclick="openCameraScanner(c=>{$('#scanInput').value=c; lookupScan(c,true);})">📷 Usar câmera do celular</button>
@@ -3325,11 +3429,13 @@ function setBaixaMode(m){ baixaMode=m; if($('#bmScan'))$('#bmScan').classList.to
       <div style="text-align:right;margin-top:6px;font-size:13px;color:#5a544a">Valor total estimado: <b id="saidaTotal" class="mono">R$ 0,00</b></div>
       <div class="row c3" style="margin-top:14px">${aplicOsRow}<div class="field" style="margin:0"><label>Responsável / Solicitante</label><input id="saidaResp"></div></div>
       <div class="field"><label>Observação (opcional)</label><textarea id="saidaObs" rows="2" placeholder="Enter = nova linha"></textarea></div>
+      ${mutuoRow}
       <div style="display:flex;justify-content:flex-end;align-items:center;margin-top:14px;flex-wrap:wrap;gap:10px">
         <button class="btn primary" id="submitSaidaBtn" onclick="confirmSaida()">📋 Enviar para aprovação</button></div></div>`;
     const si=$('#saidaSearch'); si.focus(); si.oninput=e=>drawSaidaResults(e.target.value,o); drawSaidaCart(o); onAplicChange();
   }
 }
+function toggleSaidaMutuo(){ const chk=$('#saidaMutuo'); const box=$('#saidaMutuoFields'); if(box)box.style.display=chk&&chk.checked?'':'none'; }
 function updateSaidaTotal(){ const el=$('#saidaTotal'); if(!el)return; let t=0; saidaCart.forEach(i=>{const p=findProduct(i.code); t+=(i.qty||0)*((p&&p.custo)||0);}); el.textContent=money(t); }
 function drawBaixaHist(){ const list=state.movements.filter(m=>m.tipo==='baixa').slice(0,40);
   $('#baixaHist').innerHTML=list.length?list.map(m=>`<tr><td class="muted" style="font-size:12px">${fmtDate(m.ts)}</td><td class="mono">${m.seq?seqf(m.seq):'—'}</td><td>${esc(obraName(m.obra))}</td><td>${esc(m.desc)}${m.aplic?`<br><span class="muted" style="font-size:11px">→ ${esc(aplicName(m.aplic))}</span>`:''}${m.os?`<br><span class="muted" style="font-size:11px">OS ${esc(m.os)}</span>`:''}${m.obs?`<br><span class="muted" style="font-size:11px">obs: ${esc(m.obs)}</span>`:''}</td><td class="num neg">−${numf(m.qty)}</td><td class="num">${money(m.valorTotal)}</td><td class="num"><button class="btn ghost sm" title="Comprovante (agrupado)" onclick="reportBaixaGroup('${m.baixaId||m.id}')">🖨</button> <button class="btn danger sm" title="Excluir e estornar (supervisor)" onclick="delBaixaMov('${m.id}')">🗑</button></td></tr>`).join(''):`<tr><td colspan="7" class="empty" style="padding:24px">Nenhuma baixa.</td></tr>`; }
@@ -3383,13 +3489,20 @@ function confirmSaida(){ const o=curObra()==='__all'?state.obras[0].id:curObra()
   const aplic=($('#saidaAplic')?$('#saidaAplic').value:''); if(!aplic){toast('Informe a aplicação (obrigatório).','err'); if($('#saidaAplicSearch'))$('#saidaAplicSearch').focus(); return;}
   const os=($('#saidaOS')?$('#saidaOS').value.trim():''); if(aplicRequerOS(aplic)&&!os){ toast('Ordem de Serviço é obrigatória para Equipamento/Veículo.','err'); if($('#saidaOS'))$('#saidaOS').focus(); return; }
   const resp=($('#saidaResp')?$('#saidaResp').value.trim():''); const obs=($('#saidaObs')?$('#saidaObs').value.trim():'');
+  const mutuoChk=$('#saidaMutuo'); let mutuoFields={};
+  if(mutuoChk&&mutuoChk.checked){
+    const destObraId=$('#saidaMutuoObra')?$('#saidaMutuoObra').value:'';
+    if(!destObraId){toast('Selecione a obra de destino do mútuo.','err');return;}
+    const oOrig=state.obras.find(x=>x.id===o), oDest=state.obras.find(x=>x.id===destObraId);
+    mutuoFields={mutuo_empresa_origem:oOrig.empresa,mutuo_empresa_destino:oDest.empresa,mutuo_obra_destino_nome:oDest.nome};
+  }
 
   const payload={obra_id:o,obra_nome:obraName(o),solicitante_id:session.user.id,solicitante_nome:profile.nome||profile.email,
     itens:itens.map(i=>{const p=findProduct(i.code); return {code:p.code,desc:p.desc,unit:p.unit,qty:i.qty};}),
-    observacao:(obs||resp?[obs,resp?('Solicitante: '+resp):''].filter(Boolean).join(' · '):null),ordem_servico:os||null,aplicacao_id:aplic,aplicacao_nome:aplicName(aplic)};
+    observacao:(obs||resp?[obs,resp?('Solicitante: '+resp):''].filter(Boolean).join(' · '):null),ordem_servico:os||null,aplicacao_id:aplic,aplicacao_nome:aplicName(aplic),...mutuoFields};
   const finish=()=>{ saidaCart=[]; drawBaixaHist(); drawMinhasFrotasPendentes(); setBaixaMode(baixaMode); };
   if(!isOnline){ queueAction('requisicao',payload); toast('Sem conexão — solicitação guardada neste aparelho, será enviada quando a conexão voltar.','warn'); finish(); return; }
-  sb.from('requisicoes').insert(payload).then(({error})=>{ if(error){toast('Erro ao enviar: '+error.message,'err');return;} toast('Solicitação enviada para aprovação.','ok'); refreshAprovBadge(); refreshGlobalAlerts(); finish(); });
+  sb.from('requisicoes').insert(payload).then(({error})=>{ if(error){toast('Erro ao enviar: '+error.message,'err');return;} toast(mutuoFields.mutuo_empresa_destino?'Solicitação enviada para aprovação — o mútuo será registrado automaticamente na separação.':'Solicitação enviada para aprovação.','ok'); refreshAprovBadge(); refreshGlobalAlerts(); finish(); });
 }
 
 /* ===== AJUSTE DE SALDO (lançamento direto, sem nota fiscal) ===== */
@@ -3444,7 +3557,7 @@ function aplicarAjuste(code){ const p=findProduct(code); if(!p)return; const obr
     await save('Ajuste de saldo: '+p.desc+' em '+obraName(obra)+' ('+(delta>0?'+':'')+numf(delta)+') · '+motivo);
     toast('Saldo ajustado e salvo.','ok'); renderAjuste(); }); }
 
-function reqStatusLabel(s){ return {pendente:'Pendente',aprovada:'Aprovada',rejeitada:'Rejeitada',cancelada:'Cancelada',em_separacao:'Em separação',aguardando_compra:'Aguardando compra',separado:'Separado',embalado:'Embalado',faturado:'Faturado',embarcado:'Embarcado',recebido:'Recebido'}[s]||s; }
+function reqStatusLabel(s){ return {pendente:'Pendente',aprovada:'Aprovada',rejeitada:'Rejeitada',cancelada:'Cancelada',em_separacao:'Em separação',aguardando_compra:'Aguardando compra',separado:'Separado',embalado:'Embalado',romaneio_emitido:'Romaneio emitido',faturado:'Faturado',embarcado:'Embarcado (despacho)',retirado:'Retirado (interna)',recebido:'Recebido'}[s]||s; }
 async function cancelarRequisicao(id){ const {error}=await sb.from('requisicoes').update({status:'cancelada'}).eq('id',id); if(error){toast('Erro: '+error.message,'err');return;} toast('Requisição cancelada.','warn'); if(activeTab==='baixa')drawMinhasFrotasPendentes(); refreshAprovBadge(); refreshGlobalAlerts(); }
 
 /* ===== APROVAÇÕES (encarregado / admin) ===== */
@@ -3462,8 +3575,49 @@ async function drawAprovPend(){ const box=$('#aprovPend'); if(!box)return;
 async function drawAprovHist(){ const box=$('#aprovHist'); if(!box)return;
   const {data,error}=await sb.from('requisicoes').select('*').neq('status','pendente').order('decidido_em',{ascending:false}).limit(40);
   if(error){box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>';return;}
-  box.innerHTML=`<table><thead><tr><th>Nº</th><th>Obra / OS</th><th>Aplicação</th><th>Solicitante</th><th>Situação</th><th>Decidido por</th><th>Quando</th></tr></thead><tbody>${
-    (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${esc(r.aplicacao_nome||'—')}</td><td>${esc(r.solicitante_nome)}</td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${r.motivo_rejeicao?`<br><span class="muted" style="font-size:11px">${esc(r.motivo_rejeicao)}</span>`:''}</td><td>${esc(r.decidido_por_nome||'—')}</td><td class="muted" style="font-size:12px">${r.decidido_em?fmtDate(new Date(r.decidido_em).getTime()):'—'}</td></tr>`).join('')||`<tr><td colspan="7" class="empty" style="padding:24px">Nenhuma decisão ainda.</td></tr>`}</tbody></table>`; }
+  box.innerHTML=`<table><thead><tr><th>Nº</th><th>Obra / OS</th><th>Aplicação</th><th>Solicitante</th><th>Situação</th><th>Decidido por</th><th>Quando</th>${isAdmin()?'<th></th>':''}</tr></thead><tbody>${
+    (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${esc(r.aplicacao_nome||'—')}</td><td>${esc(r.solicitante_nome)}</td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${r.motivo_rejeicao?`<br><span class="muted" style="font-size:11px">${esc(r.motivo_rejeicao)}</span>`:''}</td><td>${esc(r.decidido_por_nome||'—')}</td><td class="muted" style="font-size:12px">${r.decidido_em?fmtDate(new Date(r.decidido_em).getTime()):'—'}</td>${isAdmin()?`<td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="excluirEventoSeparacao(${r.id})">Excluir separação</button> <button class="btn danger sm" onclick="excluirRequisicaoAdmin(${r.id})">Excluir REQ</button></td>`:''}</tr>`).join('')||`<tr><td colspan="${isAdmin()?8:7}" class="empty" style="padding:24px">Nenhuma decisão ainda.</td></tr>`}</tbody></table>`; }
+async function excluirEventoSeparacao(reqId){
+  if(!isAdmin()){toast('Apenas administradores podem excluir o evento de separação.','err');return;}
+  requireSupervisor('Excluir separação da REQ-'+String(reqId).padStart(5,'0')+' (estorna o estoque separado)',async()=>{
+    const {data:r,error:e1}=await sb.from('requisicoes').select('*').eq('id',reqId).maybeSingle();
+    if(e1||!r){toast('Erro ao carregar requisição.','err');return;}
+    const {data:itens,error:e2}=await sb.from('requisicao_itens_status').select('*').eq('requisicao_id',reqId);
+    if(e2){toast('Erro: '+e2.message,'err');return;}
+    const separados=(itens||[]).filter(i=>i.quantidade_separada>0);
+    if(!separados.length){toast('Não há separação ativa nesta requisição.','err');return;}
+    separados.forEach(i=>addSaldo(r.obra_id,i.code,i.quantidade_separada));
+    state.movements=state.movements.filter(m=>!(m.tipo==='baixa'&&m.obs==='Separação REQ-'+String(reqId).padStart(5,'0')));
+    await save('Separação da REQ-'+String(reqId).padStart(5,'0')+' excluída (estorno de estoque)');
+    for(const i of separados){
+      const novaDisp=i.quantidade_disponivel+i.quantidade_separada;
+      const novoStatus=novaDisp>=i.quantidade_solicitada?'disponivel':'faltante';
+      await sb.from('requisicao_itens_status').update({quantidade_disponivel:novaDisp,quantidade_separada:0,status:novoStatus,atualizado_em:new Date().toISOString()}).eq('id',i.id);
+    }
+    await sb.from('caixas').delete().eq('requisicao_id',reqId);
+    const {count}=await sb.from('requisicao_itens_status').select('id',{count:'exact',head:true}).eq('requisicao_id',reqId).eq('status','faltante');
+    await sb.from('requisicoes').update({status:count?'aguardando_compra':'em_separacao'}).eq('id',reqId);
+    toast('Separação excluída — estoque estornado.','warn');
+    drawAprovHist(); if(typeof drawSeparacaoList==='function')drawSeparacaoList(); if(typeof drawExpedicaoList==='function')drawExpedicaoList();
+    refreshSeparacaoBadge(); refreshExpedBadge(); refreshComprasBadge(); refreshGlobalAlerts();
+  });
+}
+async function excluirRequisicaoAdmin(reqId){
+  if(!isAdmin()){toast('Apenas administradores podem excluir requisições.','err');return;}
+  const {data:itens,error:e1}=await sb.from('requisicao_itens_status').select('quantidade_separada').eq('requisicao_id',reqId);
+  if(e1){toast('Erro: '+e1.message,'err');return;}
+  const ativa=(itens||[]).some(i=>i.quantidade_separada>0);
+  if(ativa){toast('Essa requisição tem separação ativa. Exclua o evento de separação primeiro.','err');return;}
+  requireSupervisor('Excluir requisição REQ-'+String(reqId).padStart(5,'0')+' definitivamente',async()=>{
+    await sb.from('embarques').delete().eq('requisicao_id',reqId);
+    await sb.from('notas_fiscais_saida').delete().eq('requisicao_id',reqId);
+    await sb.from('retiradas_internas').delete().eq('requisicao_id',reqId);
+    const {error}=await sb.from('requisicoes').delete().eq('id',reqId);
+    if(error){toast('Erro: '+error.message,'err');return;}
+    toast('Requisição excluída.','warn');
+    drawAprovHist(); if(typeof drawExpedicaoList==='function')drawExpedicaoList(); refreshGlobalAlerts();
+  });
+}
 async function aprovarRequisicao(id){
   const {data:r,error:e1}=await sb.from('requisicoes').select('*').eq('id',id).maybeSingle();
   if(e1||!r){toast('Erro ao carregar pedido.','err');return;}
@@ -3612,14 +3766,255 @@ async function separarItem(id){
   addSaldo(r.obra_id,item.code,-qtdSeparar);
   state.movements.unshift({id:uid(),ts:Date.now(),tipo:'baixa',obra:r.obra_id,aplic:r.aplicacao_id||'',obs:'Separação REQ-'+String(r.id).padStart(5,'0'),os:r.ordem_servico||'',code:item.code,desc:item.descricao,qty:qtdSeparar,valorUnit:vu,valorTotal:qtdSeparar*vu,doc:'Separação REQ-'+String(r.id).padStart(5,'0'),saldo:saldoOf(r.obra_id,item.code)});
   await save('Separação REQ-'+String(r.id).padStart(5,'0')+': '+item.descricao);
+  if(r.mutuo_empresa_destino){
+    const {error:e3}=await sb.from('mutuos_intercompany').insert({periodo:periodoAtual(),empresa_origem:r.mutuo_empresa_origem,empresa_destino:r.mutuo_empresa_destino,obra_origem_nome:r.obra_nome,obra_destino_nome:r.mutuo_obra_destino_nome,descricao:item.descricao+' (REQ-'+String(r.id).padStart(5,'0')+')',valor:qtdSeparar*vu,registrado_por:session.user.id,registrado_por_nome:profile.nome||profile.email});
+    if(e3)toast('Baixa feita, mas houve erro ao registrar o mútuo: '+e3.message,'err');
+  }
   const novaSeparada=item.quantidade_separada+qtdSeparar;
   const novoStatus=novaSeparada>=item.quantidade_solicitada?'separado':'faltante';
   await sb.from('requisicao_itens_status').update({quantidade_disponivel:0,quantidade_separada:novaSeparada,status:novoStatus,atualizado_em:new Date().toISOString()}).eq('id',id);
   const {count}=await sb.from('requisicao_itens_status').select('id',{count:'exact',head:true}).eq('requisicao_id',r.id).neq('status','separado');
-  if(!count){ await sb.from('requisicoes').update({status:'separado'}).eq('id',r.id); toast('Todos os itens separados! Requisição pronta para embalamento.','ok'); }
+  if(!count){ await sb.from('requisicoes').update({status:'separado'}).eq('id',r.id); toast('Todos os itens separados! Requisição pronta para embalamento.','ok'); refreshExpedBadge(); }
   else toast(novoStatus==='separado'?'Item totalmente separado.':'Separado o que estava disponível — o restante continua aguardando compra.','ok');
   drawSeparacaoList(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshMinhasBadge(); refreshGlobalAlerts();
 }
+
+/* ===== EXPEDIÇÃO (embalagem, romaneio, NF, etiquetas de volume, envio) ===== */
+const EXPED_STAGES=['Separado','Embalado','Romaneio','Nota Fiscal','Etiquetas','Envio'];
+function caixaStatusLabel(s){ return {em_montagem:'Em montagem',fechada:'Fechada',etiquetada:'Etiquetada',embarcada:'Embarcada',recebida:'Recebida'}[s]||s; }
+function expedDoneCount(r,caixas){
+  if(r.status==='embarcado'||r.status==='retirado'||r.status==='recebido')return 6;
+  if(r.status==='faturado'){ const todas=caixas.length>0&&caixas.every(c=>c.status!=='em_montagem'&&c.status!=='fechada'); return todas?5:4; }
+  if(r.status==='romaneio_emitido')return 3;
+  if(r.status==='embalado')return 2;
+  if(r.status==='separado')return 1;
+  return 0;
+}
+function expedStepperHTML(r,caixas){
+  const done=expedDoneCount(r,caixas);
+  return `<div class="stepper">${EXPED_STAGES.map((lbl,i)=>{ const n=i+1; const cls=n<done?'done':n===done?'current':'';
+    return `<div class="st ${cls}"><div class="dot">${n<done?'✓':n}</div><div class="lbl">${lbl}</div></div>`; }).join('')}</div>`;
+}
+async function refreshExpedBadge(){ if(!isAlmoxarife())return; const b=$('#navBadgeExped'); if(!b)return;
+  const {count}=await sb.from('requisicoes').select('id',{count:'exact',head:true}).in('status',['separado','embalado','romaneio_emitido','faturado']);
+  if(count){b.textContent=count;b.style.display='';}else b.style.display='none'; refreshFluxoGroupBadge(); }
+async function renderExpedicao(){
+  if(!isAlmoxarife()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito ao almoxarifado e administradores.</div></div>'; return; }
+  $('#view').innerHTML=`<div id="expedList"><div class="empty">Carregando...</div></div>`;
+  await drawExpedicaoList();
+}
+async function drawExpedicaoList(){ const box=$('#expedList'); if(!box)return;
+  const {data:reqs,error}=await sb.from('requisicoes').select('*').in('status',['separado','embalado','romaneio_emitido','faturado']).order('criado_em',{ascending:false}).limit(60);
+  if(error){box.innerHTML='<div class="tbl-wrap"><div class="empty">Erro: '+esc(error.message)+'</div></div>';return;}
+  if(!reqs||!reqs.length){box.innerHTML='<div class="tbl-wrap"><div class="empty">Nenhuma requisição em expedição no momento.</div></div>';return;}
+  const ids=reqs.map(r=>r.id);
+  const {data:caixasAll}=await sb.from('caixas').select('*').in('requisicao_id',ids);
+  box.innerHTML=reqs.map(r=>{ const caixas=(caixasAll||[]).filter(c=>c.requisicao_id===r.id);
+    return `<div class="panel" style="margin-bottom:14px;cursor:pointer" onclick="abrirExpedicao(${r.id})">
+      <div class="sechead" style="margin-bottom:6px"><h3 style="font-size:14px">REQ-${String(r.id).padStart(5,'0')} — ${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</h3><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span></div>
+      ${expedStepperHTML(r,caixas)}</div>`; }).join('');
+}
+async function abrirExpedicao(reqId){
+  const {data:r,error:e1}=await sb.from('requisicoes').select('*').eq('id',reqId).maybeSingle();
+  if(e1||!r){toast('Erro ao carregar requisição.','err');return;}
+  const {data:itens}=await sb.from('requisicao_itens_status').select('*').eq('requisicao_id',reqId);
+  const {data:caixas}=await sb.from('caixas').select('*').eq('requisicao_id',reqId).order('id');
+  const caixaIds=(caixas||[]).map(c=>c.id);
+  const {data:itensCaixaAll}=caixaIds.length?await sb.from('itens_caixa').select('*').in('caixa_id',caixaIds):{data:[]};
+  const {data:nfRows}=await sb.from('notas_fiscais_saida').select('*').eq('requisicao_id',reqId).order('id',{ascending:false}).limit(1);
+  const {data:embRows}=await sb.from('embarques').select('*').eq('requisicao_id',reqId).order('id',{ascending:false}).limit(1);
+  const {data:retRows}=await sb.from('retiradas_internas').select('*').eq('requisicao_id',reqId).order('id',{ascending:false}).limit(1);
+  window._expedCtx={r,itens:itens||[],caixas:caixas||[],itensCaixa:itensCaixaAll||[],nf:(nfRows&&nfRows[0])||null,emb:(embRows&&embRows[0])||null,ret:(retRows&&retRows[0])||null};
+  renderExpedModal();
+}
+function renderExpedModal(){
+  const {r,itens,caixas,itensCaixa,nf,emb,ret}=window._expedCtx;
+  const restante=itens.filter(i=>i.quantidade_separada-i.quantidade_embalada>0.0001);
+  let html=`<h3>Expedição — REQ-${String(r.id).padStart(5,'0')}</h3>
+    <p class="mp">${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}${r.aplicacao_nome?' · '+esc(r.aplicacao_nome):''}${r.tipo_envio?' · '+(r.tipo_envio==='despacho'?'🚚 Despacho':'🤝 Tramitação interna'):''}</p>
+    ${expedStepperHTML(r,caixas)}`;
+
+  const backMap={embalado:'separado',romaneio_emitido:'embalado',faturado:'romaneio_emitido',embarcado:'faturado',retirado:'faturado'};
+  if(backMap[r.status]) html+=`<div style="margin-top:8px"><button class="btn ghost sm" onclick="voltarEtapa(${r.id})">◀ Voltar etapa</button></div>`;
+
+  if(r.status==='separado' && !r.tipo_envio){
+    html+=`<div class="sechead" style="margin-top:16px"><h3 style="font-size:13px">🚚 Como este material vai ser entregue?</h3></div>
+    <p class="mp" style="font-size:12px">Decidindo agora, antes de embalar, pra já preparar tudo do jeito certo.</p>
+    <div style="display:flex;gap:16px;margin:6px 0 12px">
+      <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:500;margin:0"><input type="radio" name="tipoEnvioPre" value="despacho" checked style="width:auto"> Despacho (transportadora)</label>
+      <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:500;margin:0"><input type="radio" name="tipoEnvioPre" value="interna" style="width:auto"> Tramitação interna (retirada)</label></div>
+    <button class="btn primary sm" onclick="definirTipoEnvio(${r.id})">Confirmar e iniciar embalagem</button>`;
+  } else {
+
+  if(['separado','embalado'].includes(r.status)){
+    html+=`<div class="sechead" style="margin-top:16px"><h3 style="font-size:13px">📦 Embalagem</h3></div>`;
+    if(restante.length){
+      html+=`<div class="tbl-wrap" style="margin-bottom:10px"><table><thead><tr><th>Item</th><th class="num">Separado</th><th class="num">Embalado</th><th class="num">Falta embalar</th></tr></thead><tbody>${
+        restante.map(i=>`<tr><td>${esc(i.descricao)}</td><td class="num">${numf(i.quantidade_separada)}</td><td class="num">${numf(i.quantidade_embalada)}</td><td class="num">${numf(i.quantidade_separada-i.quantidade_embalada)}</td></tr>`).join('')
+      }</tbody></table></div>`;
+    }
+    html+=caixas.map(c=>{ const itsC=itensCaixa.filter(ic=>ic.caixa_id===c.id); const vazia=!itsC.length;
+      return `<div class="panel" style="margin-bottom:8px;padding:10px 14px">
+        <div style="display:flex;justify-content:space-between;align-items:center"><b>${esc(c.codigo)}</b><span class="pill ${c.status}">${caixaStatusLabel(c.status)}</span></div>
+        ${itsC.length?`<ul style="margin:6px 0 0;padding-left:18px;font-size:12.5px">${itsC.map(ic=>`<li>${esc(ic.descricao)} — ${numf(ic.quantidade)}</li>`).join('')}</ul>`:'<p class="muted" style="font-size:12px;margin:6px 0 0">Vazia</p>'}
+        ${c.status==='em_montagem'?`<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+            <select id="ecItem_${c.id}" style="flex:1;min-width:140px">${restante.length?restante.map(i=>`<option value="${i.id}">${esc(i.descricao)} (falta ${numf(i.quantidade_separada-i.quantidade_embalada)})</option>`).join(''):'<option value="">— nada disponível —</option>'}</select>
+            <input id="ecQtd_${c.id}" type="number" step="any" placeholder="Qtd" style="width:80px">
+            <button class="btn ghost sm" onclick="adicionarItemCaixa(${c.id})">+ Add</button>
+            <button class="btn primary sm" onclick="fecharCaixa(${c.id})">Fechar caixa</button>
+            ${vazia?`<button class="btn danger sm" onclick="excluirCaixa(${c.id})">Excluir</button>`:''}</div>`:''}
+        ${c.status==='fechada'?`<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+            <button class="btn ghost sm" onclick="reabrirCaixa(${c.id})">↩ Reabrir caixa</button>
+            ${vazia?`<button class="btn danger sm" onclick="excluirCaixa(${c.id})">Excluir</button>`:''}</div>`:''}</div>`; }).join('');
+    html+=`<button class="btn ghost sm" onclick="criarCaixa(${r.id})">+ Nova caixa</button>`;
+    const podeFechar=caixas.length>0 && !restante.length && caixas.every(c=>c.status!=='em_montagem');
+    if(podeFechar) html+=` <button class="btn primary sm" onclick="concluirEmbalamento(${r.id})">Concluir embalamento</button>`;
+  }
+
+  if(r.status==='embalado'){
+    html+=`<div class="sechead" style="margin-top:16px"><h3 style="font-size:13px">📋 Romaneio</h3></div>
+    <p class="mp" style="font-size:12px">Confirma que ${caixas.length} caixa(s) estão prontas e conferidas.</p>
+    <button class="btn primary sm" onclick="emitirRomaneio(${r.id})">Emitir romaneio</button>`;
+  }
+
+  if(r.status==='romaneio_emitido'){
+    html+=`<div class="sechead" style="margin-top:16px"><h3 style="font-size:13px">🧾 Nota Fiscal</h3></div>
+    <div class="row c2"><div class="field"><label>Número da NF</label><input id="nfNumero"></div><div class="field"><label>Chave de acesso</label><input id="nfChave"></div></div>
+    <div class="row c2"><div class="field"><label>Valor total (R$)</label><input id="nfValor" type="number" step="0.01"></div><div class="field"><label>Data de emissão</label><input id="nfData" type="date" value="${new Date().toISOString().slice(0,10)}"></div></div>
+    <button class="btn primary sm" onclick="emitirNF(${r.id})">Emitir NF</button>`;
+  } else if(nf && ['faturado','embarcado','retirado','recebido'].includes(r.status)){
+    html+=`<div class="sechead" style="margin-top:16px"><h3 style="font-size:13px">🧾 Nota Fiscal</h3></div><p class="mp" style="font-size:12.5px">NF ${esc(nf.numero_nf)} emitida em ${fmtDate(new Date(nf.data_emissao).getTime())}${nf.valor_total?' · '+money(nf.valor_total):''}</p>`;
+  }
+
+  if(r.status==='faturado'){
+    const pendentesEtq=caixas.filter(c=>c.status==='fechada');
+    if(pendentesEtq.length){
+      html+=`<div class="sechead" style="margin-top:16px"><h3 style="font-size:13px">🏷 Etiquetas de volume</h3></div>
+      ${pendentesEtq.map(c=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #eee"><span>${esc(c.codigo)}</span><button class="btn ghost sm" onclick="gerarEtiquetaCaixa(${c.id})">Gerar etiqueta</button></div>`).join('')}`;
+    }
+  }
+
+  const todasEtiquetadas=caixas.length>0 && caixas.every(c=>c.status!=='em_montagem'&&c.status!=='fechada');
+  if(r.status==='faturado' && todasEtiquetadas){
+    const pre=r.tipo_envio||'despacho';
+    html+=`<div class="sechead" style="margin-top:16px"><h3 style="font-size:13px">🚚 Informar envio</h3></div>
+    <div style="display:flex;gap:16px;margin:6px 0 10px">
+      <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:500;margin:0"><input type="radio" name="envioTipo" value="despacho" ${pre==='despacho'?'checked':''} onchange="toggleEnvioTipo()" style="width:auto"> Despacho (transportadora)</label>
+      <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:500;margin:0"><input type="radio" name="envioTipo" value="interna" ${pre==='interna'?'checked':''} onchange="toggleEnvioTipo()" style="width:auto"> Tramitação interna (retirada)</label></div>
+    <div id="envioDespacho" style="display:${pre==='despacho'?'':'none'}"><div class="row c2"><div class="field"><label>Transportadora</label><input id="envTransp"></div><div class="field"><label>Data prevista de entrega</label><input id="envPrevisao" type="date"></div></div></div>
+    <div id="envioInterna" style="display:${pre==='interna'?'':'none'}"><div class="row c2"><div class="field"><label>Colaborador que retirou</label><input id="envColab"></div><div class="field"><label>Documento (opcional)</label><input id="envColabDoc"></div></div></div>
+    <div class="field"><label>Observação</label><input id="envObs"></div>
+    <button class="btn primary sm" onclick="registrarEnvio(${r.id})">Confirmar</button>`;
+  } else if(r.status==='embarcado' && emb){
+    html+=`<div class="sechead" style="margin-top:16px"><h3 style="font-size:13px">🚚 Envio — Despacho</h3></div><p class="mp" style="font-size:12.5px">Transportadora: ${esc(emb.transportadora||'—')}${emb.data_prevista_entrega?' · previsão '+fmtDate(new Date(emb.data_prevista_entrega).getTime()):''}</p>`;
+  } else if(r.status==='retirado' && ret){
+    html+=`<div class="sechead" style="margin-top:16px"><h3 style="font-size:13px">🚚 Envio — Retirada interna</h3></div><p class="mp" style="font-size:12.5px">Retirado por ${esc(ret.colaborador_nome)} em ${fmtDate(new Date(ret.data_retirada).getTime())}</p>`;
+  }
+  }
+
+  html+=`<div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn ghost" onclick="closeModal()">Fechar</button></div>`;
+  modal(html);
+}
+function definirTipoEnvio(reqId){ const tipo=document.querySelector('input[name=tipoEnvioPre]:checked').value;
+  sb.from('requisicoes').update({tipo_envio:tipo}).eq('id',reqId).then(({error})=>{ if(error){toast('Erro: '+error.message,'err');return;} abrirExpedicao(reqId); }); }
+function voltarEtapa(reqId){
+  const {r,caixas}=window._expedCtx;
+  const map={embalado:'separado',romaneio_emitido:'embalado',faturado:'romaneio_emitido',embarcado:'faturado',retirado:'faturado'};
+  const prev=map[r.status]; if(!prev)return;
+  requireSupervisor('Voltar REQ-'+String(reqId).padStart(5,'0')+' para a etapa anterior ('+reqStatusLabel(prev)+')',async()=>{
+    if(r.status==='faturado'){
+      const {nf}=window._expedCtx; if(nf) await sb.from('notas_fiscais_saida').update({status:'cancelada'}).eq('id',nf.id);
+      const etiquetadas=caixas.filter(c=>c.status==='etiquetada'); if(etiquetadas.length) await sb.from('caixas').update({status:'fechada'}).in('id',etiquetadas.map(c=>c.id));
+    } else if(r.status==='embarcado'){ const {emb}=window._expedCtx; if(emb) await sb.from('embarques').delete().eq('id',emb.id); }
+    else if(r.status==='retirado'){ const {ret}=window._expedCtx; if(ret) await sb.from('retiradas_internas').delete().eq('id',ret.id); }
+    else if(r.status==='embalado'){
+      const fechadas=caixas.filter(c=>c.status==='fechada'); if(fechadas.length) await sb.from('caixas').update({status:'em_montagem',data_fechamento:null}).in('id',fechadas.map(c=>c.id));
+    }
+    const {error}=await sb.from('requisicoes').update({status:prev}).eq('id',reqId);
+    if(error){toast('Erro: '+error.message,'err');return;}
+    toast('Voltou para: '+reqStatusLabel(prev),'warn');
+    await abrirExpedicao(reqId); drawExpedicaoList(); refreshExpedBadge();
+  });
+}
+function toggleEnvioTipo(){ const v=document.querySelector('input[name=envioTipo]:checked').value; $('#envioDespacho').style.display=v==='despacho'?'':'none'; $('#envioInterna').style.display=v==='interna'?'':'none'; }
+async function criarCaixa(reqId){ const {caixas}=window._expedCtx; const codigo='CX-'+String(caixas.length+1).padStart(3,'0');
+  const {error}=await sb.from('caixas').insert({requisicao_id:reqId,codigo,status:'em_montagem'});
+  if(error){toast('Erro: '+error.message,'err');return;} await abrirExpedicao(reqId); }
+async function adicionarItemCaixa(caixaId){ const sel=$('#ecItem_'+caixaId),qtdEl=$('#ecQtd_'+caixaId);
+  const itemId=sel&&sel.value; const qtd=qtdEl&&parseFloat(qtdEl.value);
+  if(!itemId){toast('Selecione um item.','err');return;} if(!(qtd>0)){toast('Informe a quantidade.','err');return;}
+  const {itens,r}=window._expedCtx; const item=itens.find(i=>String(i.id)===String(itemId));
+  if(!item){toast('Item não encontrado.','err');return;}
+  const restante=item.quantidade_separada-item.quantidade_embalada;
+  if(qtd>restante+0.0001){toast('Quantidade maior que o disponível pra embalar.','err');return;}
+  const {error:e1}=await sb.from('itens_caixa').insert({caixa_id:caixaId,code:item.code,descricao:item.descricao,quantidade:qtd});
+  if(e1){toast('Erro: '+e1.message,'err');return;}
+  const {error:e2}=await sb.from('requisicao_itens_status').update({quantidade_embalada:item.quantidade_embalada+qtd}).eq('id',item.id);
+  if(e2){toast('Erro: '+e2.message,'err');return;}
+  await abrirExpedicao(r.id); }
+async function fecharCaixa(caixaId){ const {error}=await sb.from('caixas').update({status:'fechada',data_fechamento:new Date().toISOString()}).eq('id',caixaId);
+  if(error){toast('Erro: '+error.message,'err');return;} await abrirExpedicao(window._expedCtx.r.id); }
+async function reabrirCaixa(caixaId){ const {error}=await sb.from('caixas').update({status:'em_montagem',data_fechamento:null}).eq('id',caixaId);
+  if(error){toast('Erro: '+error.message,'err');return;} toast('Caixa reaberta.','ok'); await abrirExpedicao(window._expedCtx.r.id); }
+async function excluirCaixa(caixaId){
+  const {count}=await sb.from('itens_caixa').select('id',{count:'exact',head:true}).eq('caixa_id',caixaId);
+  if(count){toast('Essa caixa tem itens — não é possível excluir. Reabra e remova os itens primeiro.','err');return;}
+  const {error}=await sb.from('caixas').delete().eq('id',caixaId);
+  if(error){toast('Erro: '+error.message,'err');return;} toast('Caixa excluída.','warn'); await abrirExpedicao(window._expedCtx.r.id); }
+async function concluirEmbalamento(reqId){ const {error}=await sb.from('requisicoes').update({status:'embalado'}).eq('id',reqId);
+  if(error){toast('Erro: '+error.message,'err');return;} toast('Embalamento concluído.','ok'); await abrirExpedicao(reqId); drawExpedicaoList(); refreshExpedBadge(); }
+async function emitirRomaneio(reqId){ const {error}=await sb.from('requisicoes').update({status:'romaneio_emitido'}).eq('id',reqId);
+  if(error){toast('Erro: '+error.message,'err');return;} toast('Romaneio emitido.','ok'); await abrirExpedicao(reqId); drawExpedicaoList(); refreshExpedBadge(); }
+async function emitirNF(reqId){ const numero=$('#nfNumero').value.trim(); const chave=$('#nfChave').value.trim(); const valor=parseFloat($('#nfValor').value)||null; const data=$('#nfData').value||new Date().toISOString().slice(0,10);
+  if(!numero){toast('Informe o número da NF.','err');return;}
+  const {error:e1}=await sb.from('notas_fiscais_saida').insert({requisicao_id:reqId,numero_nf:numero,chave_acesso:chave||null,valor_total:valor,data_emissao:data,status:'emitida'});
+  if(e1){toast('Erro: '+e1.message,'err');return;}
+  const {error:e2}=await sb.from('requisicoes').update({status:'faturado'}).eq('id',reqId);
+  if(e2){toast('NF salva, mas houve erro ao atualizar a requisição: '+e2.message,'err');return;}
+  toast('NF emitida.','ok'); await abrirExpedicao(reqId); drawExpedicaoList(); refreshExpedBadge(); }
+async function gerarEtiquetaCaixa(caixaId){ const {r,itensCaixa,caixas}=window._expedCtx; const c=caixas.find(x=>x.id===caixaId); const itsC=itensCaixa.filter(ic=>ic.caixa_id===caixaId);
+  const w=window.open('','_blank'); if(!w){toast('Permita pop-ups.','err');return;}
+  const obraDestObj=state.obras.find(x=>x.id===r.obra_id);
+  const obraOrigId=curObra()==='__all'?(state.obras[0]&&state.obras[0].id):curObra();
+  const obraOrigObj=state.obras.find(x=>x.id===obraOrigId);
+  const empDest=obraDestObj&&obraDestObj.empresaId?state.empresas.find(x=>x.id===obraDestObj.empresaId):null;
+  const empOrig=obraOrigObj&&obraOrigObj.empresaId?state.empresas.find(x=>x.id===obraOrigObj.empresaId):null;
+  const partyBlock=(titulo,obraObj,empObj)=>`<div class="party"><div class="pt">${titulo}</div>
+    <div class="pn">${obraObj?esc(empObj?empObj.razaoSocial:obraObj.empresa||obraObj.nome):'—'}</div>
+    ${empObj&&empObj.cnpj?`<div class="pd">CNPJ: ${esc(empObj.cnpj)}</div>`:''}
+    ${empObj&&empObj.endereco?`<div class="pd">${esc(empObj.endereco)}</div>`:''}
+    <div class="pd">Obra: ${obraObj?esc(obraObj.nome):'—'}${obraObj&&obraObj.local?' · '+esc(obraObj.local):''}</div></div>`;
+  w.document.write(`<html><head><meta charset="utf-8"><title>Etiqueta ${esc(c.codigo)}</title><style>@page{size:auto;margin:8mm}body{font-family:sans-serif;margin:0}.lab{width:380px;padding:16px;border:2px solid #333}.lab h2{margin:0 0 4px;font-size:20px}.lab .sub{font-size:12px;color:#555;margin-bottom:10px}.lab ul{font-size:12px;margin:8px 0;padding-left:16px}.party{border-top:1px solid #ccc;padding-top:8px;margin-top:8px}.pt{font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:#888;font-weight:bold}.pn{font-size:13px;font-weight:bold;margin:2px 0}.pd{font-size:11px;color:#444}</style></head><body>
+    <div class="lab"><h2>${esc(c.codigo)}</h2><div class="sub">REQ-${String(r.id).padStart(5,'0')}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</div>
+    <ul>${itsC.map(i=>`<li>${esc(i.descricao)} — ${numf(i.quantidade)}</li>`).join('')}</ul>
+    ${partyBlock('Emitente',obraOrigObj,empOrig)}
+    ${partyBlock('Destinatário',obraDestObj,empDest)}
+    </div>
+    <script>setTimeout(()=>window.print(),300);<\/script></body></html>`);
+  w.document.close();
+  const {error}=await sb.from('caixas').update({status:'etiquetada'}).eq('id',caixaId);
+  if(error){toast('Etiqueta impressa, mas houve erro ao marcar: '+error.message,'err');return;}
+  await abrirExpedicao(r.id); drawExpedicaoList(); }
+async function registrarEnvio(reqId){ const tipo=document.querySelector('input[name=envioTipo]:checked').value; const obs=$('#envObs').value.trim()||null;
+  if(tipo==='despacho'){
+    const transp=$('#envTransp').value.trim(); const prev=$('#envPrevisao').value||null;
+    if(!transp){toast('Informe a transportadora.','err');return;}
+    const {nf}=window._expedCtx;
+    const {error:e1}=await sb.from('embarques').insert({requisicao_id:reqId,nota_fiscal_id:nf?nf.id:null,transportadora:transp,data_embarque:new Date().toISOString(),data_prevista_entrega:prev,status:'embarcado',observacoes:obs});
+    if(e1){toast('Erro: '+e1.message,'err');return;}
+    const {error:e2}=await sb.from('requisicoes').update({status:'embarcado'}).eq('id',reqId);
+    if(e2){toast('Embarque salvo, mas houve erro ao atualizar a requisição: '+e2.message,'err');return;}
+    toast('Envio (despacho) registrado.','ok');
+  } else {
+    const colab=$('#envColab').value.trim(); const doc2=$('#envColabDoc').value.trim()||null;
+    if(!colab){toast('Informe o colaborador que retirou.','err');return;}
+    const {error:e1}=await sb.from('retiradas_internas').insert({requisicao_id:reqId,colaborador_nome:colab,colaborador_documento:doc2,registrado_por:session.user.id,registrado_por_nome:profile.nome||profile.email,observacao:obs});
+    if(e1){toast('Erro: '+e1.message,'err');return;}
+    const {error:e2}=await sb.from('requisicoes').update({status:'retirado'}).eq('id',reqId);
+    if(e2){toast('Retirada salva, mas houve erro ao atualizar a requisição: '+e2.message,'err');return;}
+    toast('Retirada interna registrada.','ok');
+  }
+  await abrirExpedicao(reqId); drawExpedicaoList(); refreshExpedBadge(); }
 
 /* ===== AUDITORIA (encarregado / admin) ===== */
 let _auditRows=[];
@@ -3657,7 +4052,8 @@ function renderTransfer(){
   const cur=curObra()==='__all'?state.obras[0].id:curObra();
   $('#view').innerHTML=`
   <div class="panel"><h3>Transferir entre obras (romaneio)</h3><p class="desc">Selecione origem e destino, adicione vários itens e gere um romaneio único para assinatura.</p>
-    <div class="row c2"><div class="field"><label>Obra origem</label><select id="trOrig" onchange="drawTrCart()">${obraOptions(cur,false)}</select></div><div class="field"><label>Obra destino</label><select id="trDest">${obraOptions(state.obras.find(o=>o.id!==cur)?.id,false)}</select></div></div>
+    <div class="row c2"><div class="field"><label>Obra origem</label><select id="trOrig" onchange="drawTrCart();checkTrEmpresa()">${obraOptions(cur,false)}</select></div><div class="field"><label>Obra destino</label><select id="trDest" onchange="checkTrEmpresa()">${obraOptions(state.obras.find(o=>o.id!==cur)?.id,false)}</select></div></div>
+    <div id="trEmpresaWarn"></div>
     <div class="field" style="margin:0"><label>Produto (nome, código de barras ou auxiliar)</label><input id="trScan" placeholder="Leia o código ou digite para pesquisar"></div>
     <div id="trResults"></div>
     <div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Produto</th><th class="num">Saldo origem</th><th class="num">Qtd</th><th class="num">Valor</th><th></th></tr></thead><tbody id="trCartBody"></tbody></table></div>
@@ -3665,13 +4061,21 @@ function renderTransfer(){
     <div class="field" style="margin-top:10px"><label>Observação (opcional)</label><textarea id="trObs" rows="2" placeholder="Ex.: motivo, transportador... (Enter = nova linha)"></textarea></div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;flex-wrap:wrap;gap:10px">
       <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-weight:500;font-size:13px;margin:0;color:#1c1c1c"><input type="checkbox" id="trReport" checked style="width:auto"> Gerar romaneio para assinatura</label>
-      <button class="btn primary" onclick="confirmTransfer()">⇄ Transferir e gerar romaneio</button></div>
+      <button class="btn primary" id="trTransferBtn" onclick="confirmTransfer()">⇄ Transferir e gerar romaneio</button></div>
   </div>
   <div class="sechead" style="margin-top:24px"><h3>Últimas transferências</h3></div>
   <div class="tbl-wrap"><table><thead><tr><th>Data</th><th>Nº</th><th>De → Para</th><th>Produto</th><th class="num">Qtd</th><th class="num">Valor</th><th></th></tr></thead><tbody id="trHist"></tbody></table></div>`;
-  drawTrHist(); drawTrCart(); const inp=$('#trScan'); inp.focus();
+  drawTrHist(); drawTrCart(); checkTrEmpresa(); const inp=$('#trScan'); inp.focus();
   inp.oninput=e=>drawTrResults(e.target.value);
   inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault(); const ex=findByCodeOrAux(inp.value.trim()); if(ex){addTr(ex.code);return;} const list=searchProducts(inp.value); if(list.length===1)addTr(list[0].code); else if(!list.length)toast('Nada encontrado.','err'); }});
+}
+function checkTrEmpresa(){ const box=$('#trEmpresaWarn'); if(!box)return;
+  const orig=state.obras.find(o=>o.id===$('#trOrig').value), dest=state.obras.find(o=>o.id===$('#trDest').value);
+  const btn=$('#trTransferBtn'); const diverge=orig&&dest&&orig.empresa&&dest.empresa&&orig.empresa.trim().toLowerCase()!==dest.empresa.trim().toLowerCase();
+  if(diverge){
+    box.innerHTML=`<div style="background:#fdeaea;border:1px solid #e0a0a0;border-radius:8px;padding:10px 14px;margin:8px 0;font-size:12.5px;color:#a02525">⛔ <b>${esc(orig.nome)}</b> (${esc(orig.empresa)}) e <b>${esc(dest.nome)}</b> (${esc(dest.empresa)}) são de empresas diferentes. Transferência direta não é permitida entre empresas — faça a <b>baixa por consumo</b> na origem e registre o valor como <b>mútuo entre empresas</b> (aba Mútuo).</div>`;
+    if(btn){btn.disabled=true;btn.style.opacity='.5';btn.style.cursor='not-allowed';}
+  } else { box.innerHTML=''; if(btn){btn.disabled=false;btn.style.opacity='';btn.style.cursor='';} }
 }
 function trOrigId(){ return $('#trOrig')?$('#trOrig').value:(state.obras[0]&&state.obras[0].id); }
 function drawTrResults(q){ const box=$('#trResults'); if(!box)return; const orig=trOrigId(); const list=searchProducts(q).filter(p=>saldoOf(orig,p.code)>0).slice(0,8); if(!q){box.innerHTML='';return;} if(!list.length){box.innerHTML=`<div class="muted" style="font-size:12px;padding:8px 2px">Nenhum item com saldo na obra de origem.</div>`;return;}
@@ -3688,6 +4092,9 @@ function drawTrHist(){ const list=state.movements.filter(m=>m.tipo==='transferen
 function delTrMov(id){ const m=state.movements.find(x=>x.id===id&&x.tipo==='transferencia'); if(!m)return; requireSupervisor('Excluir transferência Nº '+seqf(m.seq),()=>{ addSaldo(m.obra,m.code,m.qty); addSaldo(m.obraDest,m.code,-m.qty); state.movements=state.movements.filter(x=>x.id!==id); save('Transferência Nº '+seqf(m.seq)+' excluída e estornada'); drawTrHist(); toast('Transferência excluída e estornada.','warn'); }); }
 function confirmTransfer(){ const orig=$('#trOrig').value, dest=$('#trDest').value;
   if(orig===dest){toast('Origem e destino devem ser diferentes.','err');return;}
+  const oOrig=state.obras.find(o=>o.id===orig), oDest=state.obras.find(o=>o.id===dest);
+  if(oOrig&&oDest&&oOrig.empresa&&oDest.empresa&&oOrig.empresa.trim().toLowerCase()!==oDest.empresa.trim().toLowerCase()){
+    toast('Empresas diferentes — transferência direta não é permitida. Faça baixa por consumo e registre o mútuo.','err'); return; }
   if(!trCart.length){toast('Adicione itens.','err');return;}
   const itens=trCart.filter(i=>i.qty>0); if(!itens.length){toast('Informe as quantidades.','err');return;}
   for(const i of itens){ const s=saldoOf(orig,i.code); if(i.qty>s){const p=findProduct(i.code); toast(`Saldo insuficiente: ${p.desc} (${numf(s)}).`,'err'); return;} }
@@ -3701,6 +4108,68 @@ function confirmTransfer(){ const orig=$('#trOrig').value, dest=$('#trDest').val
 function reportRomaneio(id){ const ms=state.movements.filter(m=>m.tipo==='transferencia'&&(m.romaneioId||m.id)===id); if(!ms.length)return; const m0=ms[0];
   const itens=ms.map(m=>{const p=findProduct(m.code); return {code:m.code,aux:p?p.aux:'',desc:m.desc,qty:m.qty,unit:p?p.unit:'',valor:m.valorUnit};});
   printSignReport({titulo:'Romaneio de Transferência de Estoque',numero:seqf(m0.seq),conferencia:true,recebimento:true,subtitulo:'Movimentação entre obras',data:fmtDate(m0.ts),obra:obraName(m0.obra),obraDest:obraName(m0.obraDest),obs:m0.obs,itens,assinaturas:['Responsável obra origem','Responsável obra destino','Transportador / Conferente']}); }
+
+/* ===== MÚTUO ENTRE EMPRESAS ===== */
+function periodoAtual(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+function periodoLabel(p){ const [y,m]=p.split('-'); const meses=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']; return meses[parseInt(m,10)-1]+'/'+y; }
+async function renderMutuo(){
+  $('#topActions').innerHTML=`<button class="btn primary sm" onclick="mutuoModal()">+ Registrar mútuo</button>`;
+  $('#view').innerHTML=`<div class="panel"><h3>💱 Mútuo entre empresas</h3><p class="desc">Quando um material sai do estoque de uma empresa e é usado por outra (obras de razões sociais diferentes), a transferência direta não é permitida — faça a baixa por consumo na origem e registre aqui o valor que uma empresa passa a dever à outra.</p></div>
+    <div id="mutuoAbertos"><div class="empty">Carregando...</div></div>
+    <div class="sechead" style="margin-top:24px"><h3>Períodos fechados</h3></div>
+    <div class="tbl-wrap" id="mutuoFechados"><div class="empty">Carregando...</div></div>`;
+  await drawMutuoAbertos(); await drawMutuoFechados();
+}
+async function drawMutuoAbertos(){ const box=$('#mutuoAbertos'); if(!box)return;
+  const {data,error}=await sb.from('mutuos_intercompany').select('*').eq('status','aberto').order('criado_em',{ascending:true});
+  if(error){box.innerHTML='<div class="tbl-wrap"><div class="empty">Erro: '+esc(error.message)+'</div></div>';return;}
+  if(!data||!data.length){box.innerHTML='<div class="tbl-wrap"><div class="empty">Nenhum mútuo em aberto.</div></div>';return;}
+  const groups={};
+  data.forEach(m=>{ const k=m.periodo+'|'+m.empresa_origem+'|'+m.empresa_destino; if(!groups[k])groups[k]={periodo:m.periodo,origem:m.empresa_origem,destino:m.empresa_destino,itens:[],total:0}; groups[k].itens.push(m); groups[k].total+=Number(m.valor); });
+  box.innerHTML=Object.values(groups).map(g=>`<div class="panel" style="margin-bottom:14px">
+    <div class="sechead" style="margin-bottom:8px"><h3 style="font-size:14px">${esc(g.origem)} → ${esc(g.destino)} · ${periodoLabel(g.periodo)}</h3><span class="pill aguardando_compra">${money(g.total)}</span></div>
+    <table><thead><tr><th>Data</th><th>Descrição</th><th>Obras</th><th class="num">Valor</th></tr></thead><tbody>${
+      g.itens.map(m=>`<tr><td class="muted" style="font-size:12px">${fmtDate(new Date(m.criado_em).getTime())}</td><td>${esc(m.descricao||'—')}</td><td class="muted" style="font-size:12px">${esc(m.obra_origem_nome||'')} → ${esc(m.obra_destino_nome||'')}</td><td class="num">${money(m.valor)}</td></tr>`).join('')
+    }</tbody></table>
+    ${isAdmin()?`<div style="text-align:right;margin-top:10px"><button class="btn primary sm" onclick="fecharPeriodoMutuo('${g.periodo}',${JSON.stringify(g.origem)},${JSON.stringify(g.destino)},${g.total})">🔒 Fechar período</button></div>`:''}
+  </div>`).join('');
+}
+async function drawMutuoFechados(){ const box=$('#mutuoFechados'); if(!box)return;
+  const {data,error}=await sb.from('mutuo_fechamentos').select('*').order('criado_em',{ascending:false}).limit(30);
+  if(error){box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>';return;}
+  box.innerHTML=`<table><thead><tr><th>Período</th><th>Empresas</th><th class="num">Total</th><th>Fechado por</th><th>Quando</th></tr></thead><tbody>${
+    (data||[]).map(f=>`<tr><td>${periodoLabel(f.periodo)}</td><td>${esc(f.empresa_origem)} → ${esc(f.empresa_destino)}</td><td class="num">${money(f.total_valor)}</td><td class="muted" style="font-size:12px">${esc(f.fechado_por_nome||'—')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(f.criado_em).getTime())}</td></tr>`).join('')||`<tr><td colspan="5" class="empty" style="padding:20px">Nenhum período fechado ainda.</td></tr>`}</tbody></table>`;
+}
+function mutuoModal(){
+  const empresas=[...new Set(state.obras.map(o=>o.empresa).filter(Boolean))];
+  modal(`<h3>Registrar mútuo entre empresas</h3><p class="mp">Use depois de fazer a baixa por consumo na obra de origem — isso aqui só registra o valor que uma empresa passa a dever à outra.</p>
+    <div class="row c2"><div class="field"><label>Empresa origem (que forneceu)</label><input id="muOrigem" list="muEmpresasList" placeholder="Razão social"></div><div class="field"><label>Empresa destino (que recebeu)</label><input id="muDestino" list="muEmpresasList" placeholder="Razão social"></div></div>
+    <datalist id="muEmpresasList">${empresas.map(e=>`<option value="${esc(e)}">`).join('')}</datalist>
+    <div class="row c2"><div class="field"><label>Obra origem (opcional)</label><input id="muObraOrigem" placeholder="Ex.: Obra 57"></div><div class="field"><label>Obra destino (opcional)</label><input id="muObraDestino" placeholder="Ex.: Obra 12"></div></div>
+    <div class="field"><label>Descrição / itens</label><input id="muDesc" placeholder="Ex.: 8 un ZL0371 DUPLO"></div>
+    <div class="field"><label>Valor (R$)</label><input id="muValor" type="number" step="0.01"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="salvarMutuo()">Registrar</button></div>`);
+}
+async function salvarMutuo(){
+  const origem=$('#muOrigem').value.trim(), destino=$('#muDestino').value.trim();
+  const obraOrigem=$('#muObraOrigem').value.trim(), obraDestino=$('#muObraDestino').value.trim();
+  const desc=$('#muDesc').value.trim(); const valor=parseFloat($('#muValor').value);
+  if(!origem||!destino){toast('Informe as duas empresas.','err');return;}
+  if(origem.trim().toLowerCase()===destino.trim().toLowerCase()){toast('As empresas devem ser diferentes.','err');return;}
+  if(!(valor>0)){toast('Informe um valor válido.','err');return;}
+  const {error}=await sb.from('mutuos_intercompany').insert({periodo:periodoAtual(),empresa_origem:origem,empresa_destino:destino,obra_origem_nome:obraOrigem||null,obra_destino_nome:obraDestino||null,descricao:desc||null,valor,registrado_por:session.user.id,registrado_por_nome:profile.nome||profile.email});
+  if(error){toast('Erro: '+error.message,'err');return;}
+  toast('Mútuo registrado.','ok'); closeModal(); drawMutuoAbertos();
+}
+function fecharPeriodoMutuo(periodo,origem,destino,total){
+  requireSupervisor('Fechar período de mútuo '+periodoLabel(periodo)+' ('+origem+' → '+destino+')',async()=>{
+    const {data:fech,error:e1}=await sb.from('mutuo_fechamentos').insert({periodo,empresa_origem:origem,empresa_destino:destino,total_valor:total,fechado_por:session.user.id,fechado_por_nome:profile.nome||profile.email}).select().maybeSingle();
+    if(e1){toast('Erro: '+e1.message,'err');return;}
+    const {error:e2}=await sb.from('mutuos_intercompany').update({status:'fechado',fechamento_id:fech.id}).eq('periodo',periodo).eq('empresa_origem',origem).eq('empresa_destino',destino).eq('status','aberto');
+    if(e2){toast('Fechamento criado, mas houve erro ao travar os lançamentos: '+e2.message,'err');return;}
+    toast('Período fechado.','ok'); drawMutuoAbertos(); drawMutuoFechados();
+  });
+}
 
 /* ===== CONSULTA ===== */
 function renderConsulta(){ $('#topActions').innerHTML=obraSelectorHTML(true);
@@ -3865,7 +4334,7 @@ async function onAuthReady(){
   if(!session){ profile=null; drawAuthView(); showGate(); return; }
   profile=await loadProfile();
   if(!profile||!profile.ativo){ showPending(); return; }
-  hideGate(); applyRoleNav(); await load(); await loadPhotos(); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshMinhasBadge(); refreshGlobalAlerts(); updateOfflineBadge(); go('painel');
+  hideGate(); applyRoleNav(); initNavGrps(); await load(); await loadPhotos(); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); refreshMinhasBadge(); refreshGlobalAlerts(); updateOfflineBadge(); go('painel');
   if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); }
 }
 sb.auth.onAuthStateChange((event,s)=>{ session=s; onAuthReady(); });
