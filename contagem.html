@@ -146,6 +146,11 @@ label.f{display:block;font-size:13px;color:var(--mu);margin:0 0 5px}
 .acoes .inp{width:110px;min-height:40px}
 .erro-box{padding:12px;border:1px solid var(--bad);border-radius:10px;color:var(--bad);font-size:14px}
 .barra-acoes{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.sug{margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(125,180,232,.13);color:var(--info);font-size:13px}
+.ex-box{margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--s1)}
+.ex-box .stack>*+*{margin-top:10px}
+.pickrow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid var(--line);cursor:pointer}
+.pickrow:active{background:var(--s2)}
 @media (prefers-reduced-motion:reduce){.bar i{transition:none}}
 @media (min-width:700px){.big{font-size:88px}}
 </style>
@@ -292,15 +297,18 @@ const ico = n => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICO[n]
 const S = {
   user:null, perfil:null, gestor:false, podeContar:false,
   tela:'login',
-  ciclos:[], ciclo:null, itens:[], meus:[], aba:'aContar', busca:'',
+  ciclos:[], ciclo:null, itens:[], meus:[], extras:[], aba:'aContar', busca:'',
   continuo: LS.get('contagem_continuo', true),
   folha:null,
   blob:null,
   nova:{ obraId:'', grupo:'', ordem:'antigos', qtd:'20', soSaldo:true, soMinimo:false, ignorarAbertas:true,
-         previa:[], nome:'', tol:'0', outro:true, obs:'', busca:'', obras:[], produtos:[], estado:'idle', erro:'' },
-  rev:{ ciclos:[], id:'', itens:[], filtro:'em_analise', carregando:false }
+         previa:[], nome:'', tol:'0', outro:true, obs:'', busca:'', obras:[], produtos:[], estado:'idle', erro:'',
+         modo:'itens', nomeLivre:'' },
+  rev:{ ciclos:[], id:'', itens:[], extras:[], form:{}, filtro:'em_analise', carregando:false }
 };
 const FILA_K = 'contagem_fila_v1', ERROS_K = 'contagem_erros_v1';
+const filaRegs = () => Fila.ler().filter(f => !f.tipo || f.tipo === 'registro');
+const filaExtras = () => Fila.ler().filter(f => f.tipo === 'extra');
 const Fila = { ler: () => LS.get(FILA_K, []), gravar(v){ if (!LS.set(FILA_K, v)) toast('Sem espaço no aparelho para guardar contagens. Envie a fila.', 'bad'); } };
 const cacheK = k => `contagem_cache_v1:${S.user ? S.user.id : 'anon'}:${k}`;
 const cacheSet = (k, v) => LS.set(cacheK(k), v);
@@ -414,7 +422,7 @@ function htmlHome(){
   const rows = S.ciclos.map(c => `<div class="row tap" data-act="abrir-ciclo" data-id="${esc(c.id)}">
       <div class="rmain"><div class="rdesc"><b>${esc(c.nome)}</b></div>
       <div class="sub">${esc(c.obra_nome || c.obra_id)} · criada em ${fmtData(c.criado_em)}${c.criado_por_nome ? ' por ' + esc(c.criado_por_nome) : ''}</div></div>
-      <div class="rside">${c.recontagem_outro_contador ? '<span class="chip">Recontagem por outro</span>' : ''}</div></div>`).join('');
+      <div class="rside">${c.livre ? '<span class="chip ac">Lista livre</span>' : c.recontagem_outro_contador ? '<span class="chip">Recontagem por outro</span>' : ''}</div></div>`).join('');
   return `<div class="pad">
     <div style="display:flex;align-items:center;justify-content:space-between"><h2>Listas para contar</h2>
     <button class="btn peq" data-act="recarregar-ciclos">${ico('refresh')} Atualizar</button></div>
@@ -423,12 +431,13 @@ function htmlHome(){
   </div>`;
 }
 async function carregarCiclos(){
+  const cols = 'id,obra_id,obra_nome,nome,status,tolerancia_pct,recontagem_outro_contador,criado_em,criado_por_nome';
   try {
-    const { data, error } = await sb.from('contagem_ciclos')
-      .select('id,obra_id,obra_nome,nome,status,tolerancia_pct,recontagem_outro_contador,criado_em,criado_por_nome')
-      .eq('status', 'em_contagem').order('criado_em', { ascending: false });
-    if (error) throw error;
-    S.ciclos = data; cacheSet('ciclos', data);
+    let r = await sb.from('contagem_ciclos').select(cols + ',livre').eq('status', 'em_contagem').order('criado_em', { ascending: false });
+    // banco ainda sem o contagem_v2_extras.sql: segue sem o campo "livre"
+    if (r.error && (r.error.code === '42703' || /livre/.test(r.error.message || ''))) r = await sb.from('contagem_ciclos').select(cols).eq('status', 'em_contagem').order('criado_em', { ascending: false });
+    if (r.error) throw r.error;
+    S.ciclos = r.data; cacheSet('ciclos', r.data);
   } catch (e) {
     S.ciclos = cacheGet('ciclos') || [];
     if (navigator.onLine) toast('Não consegui carregar as listas: ' + (e.message || e), 'bad');
@@ -439,8 +448,8 @@ async function carregarCiclos(){
 /* ---------- tela de contagem ---------- */
 async function abrirCiclo(id){
   S.ciclo = S.ciclos.find(c => c.id === id); if (!S.ciclo) return;
-  S.aba = 'aContar'; S.busca = ''; S.tela = 'ciclo';
-  S.itens = cacheGet('itens:' + id) || []; S.meus = cacheGet('meus:' + id) || [];
+  S.aba = S.ciclo.livre ? 'extras' : 'aContar'; S.busca = ''; S.tela = 'ciclo';
+  S.itens = cacheGet('itens:' + id) || []; S.meus = cacheGet('meus:' + id) || []; S.extras = cacheGet('extras:' + id) || [];
   render();
   await carregarItens();
 }
@@ -450,19 +459,25 @@ async function carregarItens(){
     const itens = await buscarTudo(() => sb.from('contagem_itens_cego').select('*').eq('ciclo_id', id).order('code'));
     const meus  = await buscarTudo(() => sb.from('contagem_registros').select('code,quantidade,rodada,criado_em')
                     .eq('ciclo_id', id).eq('contador', S.user.id).order('criado_em').order('id'));
+    let extras = [];
+    try { extras = await buscarTudo(() => sb.from('contagem_extras').select('id,code_lido,descricao,unidade,quantidade,obs,status,criado_em')
+                    .eq('ciclo_id', id).eq('contador', S.user.id).order('criado_em').order('id')); } catch { extras = S.extras || []; }
     if (!S.ciclo || S.ciclo.id !== id) return;
-    S.itens = itens; S.meus = meus; cacheSet('itens:' + id, itens); cacheSet('meus:' + id, meus);
+    S.itens = itens; S.meus = meus; S.extras = extras;
+    cacheSet('itens:' + id, itens); cacheSet('meus:' + id, meus); cacheSet('extras:' + id, extras);
   } catch (e) {
     if (!S.itens.length) toast('Sem dados desta lista. Conecte-se uma vez para baixá-la.', 'bad');
   }
   if (S.tela === 'ciclo') renderListaCiclo();
 }
 function htmlCiclo(){
+  const livre = !!S.ciclo.livre;
   return `<section class="pad">
-    <div class="prog"><span class="mu sm" id="progT"></span><b id="progN"></b></div>
-    <div class="bar"><i id="progB"></i></div>
+    ${livre ? `<div class="mu sm" style="margin-bottom:12px">Lista livre: registre os itens que você encontrar e que não estão no estoque. O encarregado analisa cada um antes de virar ajuste.</div>` :
+      `<div class="prog"><span class="mu sm" id="progT"></span><b id="progN"></b></div><div class="bar"><i id="progB"></i></div>`}
     <div style="margin:14px 0 10px"><button class="btn pri grande" data-act="scan">${ico('camera')} Escanear código</button></div>
-    <input id="busca" class="inp" type="search" placeholder="Buscar por código ou descrição" value="${esc(S.busca)}" autocomplete="off">
+    ${livre ? '' : `<input id="busca" class="inp" type="search" placeholder="Buscar por código ou descrição" value="${esc(S.busca)}" autocomplete="off">`}
+    <div style="margin-top:10px"><button class="btn" style="width:100%" data-act="extra-novo">${ico('plus')} Item fora da lista</button></div>
     <div class="abas" id="abas" role="tablist"></div>
     <div id="lista"></div>
   </section>`;
@@ -470,7 +485,7 @@ function htmlCiclo(){
 function calcEstados(){
   const idx = {};
   for (const r of S.meus) (idx[r.code] ??= []).push({ ...r, fila:false });
-  for (const f of Fila.ler()) if (f.row.ciclo_id === S.ciclo.id) (idx[f.row.code] ??= []).push({ ...f.row, fila:true });
+  for (const f of filaRegs()) if (f.row.ciclo_id === S.ciclo.id) (idx[f.row.code] ??= []).push({ ...f.row, fila:true });
   const out = { aContar:[], contados:[], espera:[] };
   for (const it of S.itens) {
     const regs = idx[it.code] || [];
@@ -486,16 +501,36 @@ function calcEstados(){
   }
   return out;
 }
+function listaExtras(){
+  const ids = new Set(S.extras.map(x => x.id));
+  const fila = filaExtras().filter(f => f.row.ciclo_id === S.ciclo.id && !ids.has(f.row.id)).map(f => ({ ...f.row, status:'fila', noFila:true }));
+  return fila.concat(S.extras.slice().reverse().map(x => ({ ...x, noFila:false })));
+}
+const chipEx = st => ({ fila:'<span class="chip ac">Na fila · toque p/ editar</span>', pendente:'<span class="chip info">Aguardando análise</span>',
+  aprovado:'<span class="chip ok">Aprovado</span>', rejeitado:'<span class="chip bad">Rejeitado</span>', ajustado:'<span class="chip ok">Lançado no estoque</span>' }[st] || '');
 function renderListaCiclo(){
   if (S.tela !== 'ciclo' || !S.ciclo) return;
-  const E = calcEstados(), total = S.itens.length;
-  const feitos = total - E.aContar.length;
-  $('#progT').textContent = total ? `${feitos} de ${total} itens contados` : 'Baixando itens…';
-  $('#progN').textContent = total ? Math.round(feitos / total * 100) + '%' : '';
-  $('#progB').style.width = total ? (feitos / total * 100) + '%' : '0';
-  const abas = [['aContar', 'A contar'], ['contados', 'Contados'], ['espera', 'Aguardando outro contador']]
-    .filter(a => a[0] !== 'espera' || E.espera.length);
-  $('#abas').innerHTML = abas.map(([k, l]) => `<button class="aba" role="tab" aria-selected="${S.aba === k}" data-act="aba" data-aba="${k}">${l} (${E[k].length})</button>`).join('');
+  const livre = !!S.ciclo.livre, E = calcEstados(), X = listaExtras();
+  if (!livre) {
+    const total = S.itens.length, feitos = total - E.aContar.length;
+    $('#progT').textContent = total ? `${feitos} de ${total} itens contados` : 'Baixando itens…';
+    $('#progN').textContent = total ? Math.round(feitos / total * 100) + '%' : '';
+    $('#progB').style.width = total ? (feitos / total * 100) + '%' : '0';
+  }
+  const abas = (livre ? [['extras', 'Fora da lista', X.length]] :
+    [['aContar', 'A contar', E.aContar.length], ['contados', 'Contados', E.contados.length], ['espera', 'Aguardando outro contador', E.espera.length], ['extras', 'Fora da lista', X.length]])
+    .filter(a => a[0] !== 'espera' || a[2]);
+  if (!abas.find(a => a[0] === S.aba)) S.aba = abas[0][0];
+  $('#abas').innerHTML = abas.map(([k, l, n]) => `<button class="aba" role="tab" aria-selected="${S.aba === k}" data-act="aba" data-aba="${k}">${l} (${n})</button>`).join('');
+  if (S.aba === 'extras') {
+    $('#lista').innerHTML = X.length ? `<div class="rows">${X.map(x => `<div class="row ${x.noFila ? 'tap' : ''}" data-act="extra-editar" data-id="${esc(x.id)}">
+      <div class="rmain"><div class="rdesc"><b>${esc(x.descricao)}</b></div>
+      <div class="sub">${x.code_lido ? 'Código lido: ' + esc(x.code_lido) : 'Sem código'}${x.obs ? ' · ' + esc(x.obs) : ''}</div></div>
+      <div class="rside"><span class="qtd">${fmt(x.quantidade)} <small class="mu" style="font:400 12px var(--f-body)">${esc(x.unidade || '')}</small></span>${chipEx(x.status)}</div></div>`).join('')}</div>`
+      : `<div class="vazio">Nenhum item fora da lista registrado. Escaneie um código que não está na lista, ou toque em <b>Item fora da lista</b>.</div>`;
+    return;
+  }
+  const total = S.itens.length;
   const q = S.busca.trim().toLowerCase();
   let lista = E[S.aba] || E.aContar;
   if (q) lista = lista.filter(({ it }) => [it.code, it.descricao, it.aux, it.ref].some(x => String(x || '').toLowerCase().includes(q)));
@@ -547,7 +582,7 @@ function tratarItem(it){
 /* ---------- folha de contagem ---------- */
 function abrirFolha(it){
   const f = $('#folha');
-  const naFila = Fila.ler().find(x => x.row.ciclo_id === S.ciclo.id && x.row.code === it.code && x.row.rodada === it.rodada_atual);
+  const naFila = filaRegs().find(x => x.row.ciclo_id === S.ciclo.id && x.row.code === it.code && x.row.rodada === it.rodada_atual);
   S.folha = { it, edit: !!naFila };
   f.innerHTML = `<div class="pn" role="dialog" aria-modal="true" aria-label="Registrar contagem">
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
@@ -573,7 +608,7 @@ function abrirFolha(it){
 }
 function atualizarPrev(){
   const p = $('#fprev'); if (!p || !S.folha) return;
-  const v = parseNum($('#fq').value), u = S.folha.it.unidade || '';
+  const v = parseNum($('#fq').value), u = S.folha.extra ? (($('#fx-unid') || {}).value || '') : (S.folha.it.unidade || '');
   p.textContent = $('#fq').value.trim() === '' ? '' : Number.isFinite(v) ? `${fmt(v)} ${u}` : 'Número inválido';
 }
 function fecharFolha(reabrir){
@@ -581,6 +616,7 @@ function fecharFolha(reabrir){
   if (reabrir && S.continuo && S.tela === 'ciclo') setTimeout(abrirScanner, 250);
 }
 function confirmarFolha(){
+  if (S.folha && S.folha.extra) return confirmarExtra();
   const it = S.folha.it, q = parseNum($('#fq').value);
   if (!Number.isFinite(q) || q < 0) { beep(false); return toast('Digite uma quantidade válida (use 0 se não há nada no local).', 'bad'); }
   const obs = $('#fobs').value.trim() || null;
@@ -591,6 +627,53 @@ function confirmarFolha(){
   if (i >= 0) { fila[i].row.quantidade = q; fila[i].row.obs = obs; } else fila.push({ row });
   Fila.gravar(fila);
   beep(true);
+  fecharFolha(true);
+  renderTopo(); renderListaCiclo();
+  sync();
+}
+
+/* ---------- item fora da lista ---------- */
+function abrirFolhaExtra(pref = {}){
+  const f = $('#folha');
+  S.folha = { extra:true, id: pref.id || null };
+  f.innerHTML = `<div class="pn" role="dialog" aria-modal="true" aria-label="Item fora da lista">
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><b class="fd">Item fora da lista</b>${pref.id ? '<span class="chip">Editando</span>' : ''}</div>
+    <div class="mu sm" style="margin-bottom:12px">Para material que está no local mas não aparece nesta lista nem no estoque. O encarregado analisa antes de lançar.</div>
+    <div class="stack">
+      <div><label class="f" for="fx-desc">Descrição do item</label><input id="fx-desc" class="inp" maxlength="120" placeholder="Ex.: Disco de corte 7 pol" autocomplete="off"></div>
+      <div class="grid2">
+        <div><label class="f" for="fx-code">Código de barras (se tiver)</label><input id="fx-code" class="inp mono" maxlength="60" autocomplete="off"></div>
+        <div><label class="f" for="fx-unid">Unidade</label><input id="fx-unid" class="inp" maxlength="10" value="UN" autocomplete="off"></div>
+      </div>
+    </div>
+    <input id="fq" class="big" type="text" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Quantidade encontrada">
+    <div class="prev" id="fprev"></div>
+    <div class="steps">
+      <button class="btn" data-act="step" data-d="-1">−1</button><button class="btn" data-act="step" data-d="1">+1</button>
+      <button class="btn" data-act="step" data-d="5">+5</button><button class="btn" data-act="step" data-d="10">+10</button>
+    </div>
+    <input id="fobs" class="inp" type="text" placeholder="Observação (opcional): onde está, estado, etc." maxlength="200" style="margin-bottom:12px">
+    <div class="grid2"><button class="btn" data-act="folha-cancelar">Cancelar</button><button class="btn pri" data-act="folha-ok">Registrar</button></div></div>`;
+  f.hidden = false; document.body.classList.add('noscroll');
+  $('#fx-desc').value = pref.descricao || ''; $('#fx-code').value = pref.code_lido || ''; $('#fx-unid').value = pref.unidade || 'UN';
+  $('#fq').value = pref.quantidade != null ? String(pref.quantidade).replace('.', ',') : ''; $('#fobs').value = pref.obs || '';
+  atualizarPrev();
+  setTimeout(() => { const alvo = pref.descricao ? $('#fq') : $('#fx-desc'); alvo.focus(); if (alvo.select) alvo.select(); }, 60);
+}
+function confirmarExtra(){
+  const desc = $('#fx-desc').value.trim(), q = parseNum($('#fq').value);
+  if (desc.length < 3) { beep(false); $('#fx-desc').focus(); return toast('Descreva o item (mínimo 3 letras).', 'bad'); }
+  if (!Number.isFinite(q) || q <= 0) { beep(false); return toast('Digite a quantidade encontrada (maior que zero).', 'bad'); }
+  const fila = Fila.ler();
+  const i = S.folha.id ? fila.findIndex(f => f.tipo === 'extra' && f.row.id === S.folha.id) : -1;
+  if (S.folha.id && i < 0) { fecharFolha(false); return toast('Esse registro já foi enviado e não pode mais ser editado.', 'bad'); }
+  const row = { id: S.folha.id || uuid(), ciclo_id: S.ciclo.id, code_lido: $('#fx-code').value.trim() || null, descricao: desc,
+    unidade: ($('#fx-unid').value.trim() || 'UN').toUpperCase(), quantidade: q, obs: $('#fobs').value.trim() || null,
+    contador: S.user.id, contador_nome: (S.perfil && S.perfil.nome) || S.user.email, device_id: deviceId,
+    criado_em: i >= 0 ? fila[i].row.criado_em : new Date().toISOString() };
+  if (i >= 0) fila[i].row = row; else fila.push({ tipo:'extra', row });
+  Fila.gravar(fila);
+  beep(true); S.aba = 'extras';
   fecharFolha(true);
   renderTopo(); renderListaCiclo();
   sync();
@@ -648,11 +731,7 @@ async function aoLer(txt){
   Scan.ultimo = txt; Scan.ultimoT = agora;
   await fecharScanner();
   const it = acharItem(txt);
-  if (!it) {
-    beep(false); toast(`O código ${String(txt).slice(0, 40)} não está nesta lista.`, 'bad');
-    if (S.continuo) setTimeout(abrirScanner, 900);
-    return;
-  }
+  if (!it) { beep(false); abrirFolhaExtra({ code_lido: String(txt).trim().slice(0, 60) }); return; }
   if (tratarItem(it) === false && S.continuo) setTimeout(abrirScanner, 1200);
 }
 
@@ -664,7 +743,7 @@ async function sync(){
   sincronizando = true;
   const feitos = new Set(); const novosErros = []; let enviados = 0;
   for (const f of fila) {
-    const { error } = await sb.from('contagem_registros').insert(f.row);
+    const { error } = await sb.from(f.tipo === 'extra' ? 'contagem_extras' : 'contagem_registros').insert(f.row);
     if (!error || error.code === '23505') { feitos.add(f.row.id); enviados++; continue; }
     const cod = error.code || '', msg = error.message || '';
     if ((!cod && /fetch|network|failed|load/i.test(msg)) || cod === 'PGRST301' || /JWT/i.test(msg)) break;
@@ -690,7 +769,7 @@ function popSync(){
     <div><b>${navigator.onLine ? 'Conectado' : 'Sem conexão'}</b><div class="mu sm">${fila.length ? `${fila.length} contagem(ns) aguardando envio` : 'Tudo enviado'}</div></div>
     ${fila.length && navigator.onLine ? `<button class="btn pri" data-act="sync-agora">Enviar agora</button>` : ''}
     ${erros.length ? `<div class="hr"></div><b style="color:var(--bad)">Não aceitas pelo servidor</b>` +
-      erros.map((e, i) => `<div class="sm"><span class="rcode">${esc(e.row.code)}</span> · ${fmt(e.row.quantidade)}<br><span class="mu">${esc(e.erro)}</span></div>`).join('') +
+      erros.map((e, i) => `<div class="sm"><span class="rcode">${esc(e.row.code || e.row.descricao)}</span> · ${fmt(e.row.quantidade)}<br><span class="mu">${esc(e.erro)}</span></div>`).join('') +
       `<button class="btn peq" data-act="erros-limpar">Descartar</button>` : ''}
     </div>`;
   p.hidden = false;
@@ -742,7 +821,19 @@ function htmlNova(){
   const ordOpts = [['antigos', 'Há mais tempo sem contar'], ['aleatorio', 'Aleatório'], ['codigo', 'Código']]
     .map(([v, l]) => `<option value="${v}" ${n.ordem === v ? 'selected' : ''}>${l}</option>`).join('');
   const previa = n.previa.length ? htmlPrevia() : '';
-  return `<div class="pad">
+  const seg = `<div class="abas" style="margin:0 0 12px" role="tablist">
+      <button class="aba" role="tab" aria-selected="${n.modo !== 'livre'}" data-act="nova-modo" data-modo="itens">Itens do cadastro</button>
+      <button class="aba" role="tab" aria-selected="${n.modo === 'livre'}" data-act="nova-modo" data-modo="livre">Lista livre</button></div>`;
+  if (n.modo === 'livre') return `<div class="pad">${seg}
+    <h2>Lista livre</h2>
+    <p class="mu sm" style="margin-top:0">Para contar o que não está no estoque hoje: saldo inicial, material sem cadastro, achados no galpão. Não há itens definidos: quem conta escaneia ou descreve o que encontrar, e cada registro passa pela sua análise antes de virar ajuste no estoque.</p>
+    <div class="stack">
+      <div><label class="f" for="n-obra">Obra</label><select id="n-obra" class="inp" data-bind="nova.obraId">${obraOpts}</select></div>
+      <div><label class="f" for="n-nomel">Nome da lista</label><input id="n-nomel" class="inp" value="${esc(n.nomeLivre || 'Levantamento ' + new Date().toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit' }))}" data-bind="nova.nomeLivre" maxlength="80"></div>
+      <div><label class="f" for="n-obs">Observação (opcional)</label><input id="n-obs" class="inp" value="${esc(n.obs)}" data-bind="nova.obs" maxlength="200"></div>
+      <button class="btn pri grande" data-act="nova-criar-livre">Criar lista livre</button>
+    </div></div>`;
+  return `<div class="pad">${seg}
     <h2>Escolher itens</h2>
     <div class="stack">
       <div><label class="f" for="n-obra">Obra</label><select id="n-obra" class="inp" data-bind="nova.obraId">${obraOpts}</select></div>
@@ -830,6 +921,17 @@ async function ultimasContagens(obraId){
     return Object.fromEntries(rows.map(r => [r.code, r.ultima]));
   } catch { return {}; }
 }
+async function criarListaLivre(){
+  const n = S.nova, obra = n.obras.find(o => o.id === n.obraId); if (!obra) return toast('Escolha a obra', 'bad');
+  const btn = $('[data-act="nova-criar-livre"]'); if (btn) { btn.disabled = true; btn.textContent = 'Criando…'; }
+  const nome = (n.nomeLivre || '').trim() || 'Levantamento ' + new Date().toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit' });
+  const { data, error } = await sb.rpc('contagem_criar_ciclo', {
+    p_ciclo: { obra_id: obra.id, obra_nome: obra.nome, nome, livre: true, tolerancia_pct: 0, recontagem_outro_contador: false, observacao: n.obs.trim() },
+    p_itens: [] });
+  if (error) { toast('Não foi possível criar a lista: ' + error.message, 'bad'); return render(); }
+  toast('Lista livre criada', 'ok'); n.nomeLivre = '';
+  await carregarCiclos(); S.rev.id = data; await irRevisao();
+}
 async function criarLista(){
   const n = S.nova, obra = n.obras.find(o => o.id === n.obraId), sel = n.previa.filter(p => p.sel);
   if (!obra || !sel.length) return;
@@ -869,9 +971,10 @@ async function irRevisao(){
 }
 async function carregarRevItens(){
   const r = S.rev; r.carregando = true;
-  if (!r.id) { r.itens = []; r.carregando = false; return render(); }
+  if (!r.id) { r.itens = []; r.extras = []; r.carregando = false; return render(); }
   try {
     r.itens = await buscarTudo(() => sb.from('contagem_itens').select('*').eq('ciclo_id', r.id).order('code'));
+    try { r.extras = await buscarTudo(() => sb.from('contagem_extras').select('*').eq('ciclo_id', r.id).order('criado_em').order('id')); } catch { r.extras = []; }
     try { await carregarBlob(); } catch { S.blob = null; }
     const cont = r.itens.reduce((a, i) => (a[i.status] = (a[i.status] || 0) + 1, a), {});
     if (!r._filtroManual) r.filtro = cont.em_analise ? 'em_analise' : 'todos';
@@ -896,24 +999,95 @@ function htmlRevisao(){
     .map(([v, l]) => `<option value="${v}" ${r.filtro === v ? 'selected' : ''}>${l}</option>`).join('');
   const lista = r.itens.filter(i => r.filtro === 'todos' || i.status === r.filtro);
   const semConf = r.itens.filter(i => i.status === 'em_analise' && !i.conflito).length;
-  const aprov = r.itens.filter(i => i.status === 'aprovado').length;
+  const ex = r.extras || [];
+  const exCont = ex.reduce((a, x) => (a[x.status] = (a[x.status] || 0) + 1, a), {});
+  const aguardaLancar = (cont.aprovado || 0) + (exCont.aprovado || 0);
+  const sumEx = [['pendente', 'Fora da lista a analisar', 'info'], ['aprovado', 'Fora da lista aprovados', 'ok'], ['rejeitado', 'Fora da lista rejeitados', 'bad'], ['ajustado', 'Fora da lista lançados', '']]
+    .filter(([k]) => exCont[k]).map(([k, l, c]) => `<span class="chip ${c}">${l}: ${exCont[k]}</span>`).join('');
   return `<div class="pad">
     <label class="f" for="rv-c">Lista</label>
     <select id="rv-c" class="inp" data-bind="rev.id" data-rerender="rev-carregar">${opts}</select>
     <div class="mu sm" style="margin-top:6px">${esc(c.obra_nome || c.obra_id)} · criada em ${fmtDataHora(c.criado_em)} · tolerância ${fmt(c.tolerancia_pct)}%${c.recontagem_outro_contador ? ' · recontagem por outro contador' : ''}</div>
-    <div class="sumario">${sumario || '<span class="chip">Sem itens</span>'}${acur !== null ? `<span class="chip ok">Acuracidade na 1ª contagem: ${acur}%</span>` : ''}</div>
+    <div class="sumario">${sumario || (c.livre ? '' : '<span class="chip">Sem itens</span>')}${sumEx}${acur !== null ? `<span class="chip ok">Acuracidade na 1ª contagem: ${acur}%</span>` : ''}${c.livre ? '<span class="chip ac">Lista livre</span>' : ''}</div>
+    ${aguardaLancar ? `<div class="aviso" style="margin:0 0 10px">${aguardaLancar} ajuste(s) aprovado(s) aguardando autorização no sistema de estoque, menu <b>Movimentação › Inventário</b>.</div>` : ''}
     <div class="barra-acoes">
       <button class="btn peq" data-act="rev-atualizar">${ico('refresh')} Atualizar</button>
       ${aberta && semConf ? `<button class="btn peq pri" data-act="rev-aprovar-todos">Aprovar ${semConf} sem conflito</button>` : ''}
       <button class="btn peq" data-act="rev-csv">Exportar ajustes (CSV)</button>
-      ${aberta && aprov ? `<button class="btn peq" data-act="rev-ajustados">Marcar ${aprov} aprovados como ajustados</button>` : ''}
       ${aberta ? `<button class="btn peq" data-act="rev-encerrar">Encerrar lista</button><button class="btn peq bad" data-act="rev-cancelar">Cancelar lista</button>` : ''}
     </div>
-    <label class="f" for="rv-f">Mostrar</label>
+    ${c.livre ? '' : `<label class="f" for="rv-f">Mostrar</label>
     <select id="rv-f" class="inp" data-bind="rev.filtro" data-rerender="rev-filtro">${filtros}</select>
     <div class="rows" style="margin-top:12px">${lista.map(i => htmlRevItem(i, aberta)).join('') || ''}</div>
-    ${lista.length ? '' : '<div class="vazio">Nenhum item neste filtro.</div>'}
+    ${lista.length ? '' : '<div class="vazio">Nenhum item neste filtro.</div>'}`}
+    ${htmlRevExtras()}
+    ${c.livre && !ex.length ? '<div class="vazio">Nada registrado ainda. Quando os contadores registrarem itens, eles aparecem aqui para análise.</div>' : ''}
   </div>`;
+}
+const normC = x => String(x ?? '').trim().toUpperCase();
+function formEx(x){
+  const f = S.rev.form;
+  if (!f[x.id]) {
+    const prods = S.blob ? lerProdutos(S.blob) : [], k = normC(x.code_lido);
+    const sug = k ? prods.find(p => normC(p.code) === k || (p.aux && normC(p.aux) === k)) : null;
+    f[x.id] = { decisao: sug ? 'vincular' : '', code: sug ? sug.code : '', modo: '', busca: '', ccode: x.code_lido || '', desc: x.descricao, unid: x.unidade || 'UN', custo: '', motivo: '' };
+    if (sug) f[x.id].modo = saldoNaObra(sug.code) > 0 ? '' : 'definir';
+  }
+  return f[x.id];
+}
+const saldoNaObra = code => { const c = cicloRev(); const v = S.blob && c ? lerSaldo(S.blob, c.obra_id, code) : null; return v === null ? 0 : v; };
+function htmlRevExtras(){
+  const ex = S.rev.extras || [];
+  if (!ex.length) return '';
+  const pend = ex.filter(x => x.status === 'pendente').length;
+  return `<h3>Itens fora da lista ou do cadastro${pend ? ` · ${pend} para analisar` : ''}</h3><div class="rows">${ex.map(htmlRevExtra).join('')}</div>`;
+}
+function htmlRevExtra(x){
+  const cab = `<div class="rv-h"><span class="rcode">${esc(x.code_lido || 'sem código')}</span>${chipEx(x.status)}<span class="rdesc"><b>${esc(x.descricao)}</b></span></div>
+    <div class="nums"><div><small>Quantidade encontrada</small><b>${fmt(x.quantidade)} ${esc(x.unidade || '')}</b></div>
+    <div><small>Contador</small><b style="font:500 15px var(--f-body)">${esc(x.contador_nome || '')}</b></div></div>
+    ${x.obs ? `<div class="mu sm" style="margin-top:6px">Obs.: ${esc(x.obs)}</div>` : ''}`;
+  if (x.status === 'aprovado' || x.status === 'ajustado')
+    return `<div class="rv">${cab}<div class="mu sm" style="margin-top:8px">${x.decisao === 'cadastrar' ? 'Novo produto' : 'Vinculado a'} <b>${esc(x.code_final || 'código gerado no lançamento')}</b> · ${esc(x.desc_final || '')} · ${x.modo === 'somar' ? 'soma ao saldo' : 'define o saldo'}${x.custo != null ? ' · custo ' + fmt(x.custo) : ''}</div></div>`;
+  if (x.status === 'rejeitado') return `<div class="rv">${cab}<div class="mu sm" style="margin-top:8px">Rejeitado: ${esc(x.motivo || '')}</div></div>`;
+  const f = formEx(x), prods = S.blob ? lerProdutos(S.blob) : [], id = esc(x.id);
+  const k = normC(x.code_lido), sug = k ? prods.find(p => normC(p.code) === k || (p.aux && normC(p.aux) === k)) : null;
+  const escolhido = f.code ? prods.find(p => p.code === f.code) : null;
+  let corpo = '';
+  if (f.decisao === 'vincular') {
+    const sa = escolhido ? saldoNaObra(escolhido.code) : 0;
+    corpo = `${escolhido ? `<div class="sm"><b>${esc(escolhido.code)}</b> · ${esc(escolhido.desc)}<br><span class="mu">Saldo atual nesta obra: ${fmt(sa)} ${esc(escolhido.unit || '')}</span></div>` : ''}
+      <div><label class="f" for="exb-${id}">${escolhido ? 'Trocar produto' : 'Buscar produto do cadastro'}</label>
+        <input id="exb-${id}" class="inp" type="search" placeholder="Código ou descrição" value="${esc(f.busca)}" autocomplete="off" data-exid="${id}"></div>
+      <div id="exr-${id}"></div>
+      ${escolhido ? `<div><label class="f" for="exm-${id}">Como lançar</label>
+        <select id="exm-${id}" class="inp" data-bind="rev.form.${x.id}.modo">
+          <option value="" ${f.modo === '' ? 'selected' : ''}>Escolha…</option>
+          <option value="definir" ${f.modo === 'definir' ? 'selected' : ''}>Definir o saldo como a quantidade encontrada (${fmt(x.quantidade)})</option>
+          <option value="somar" ${f.modo === 'somar' ? 'selected' : ''}>Somar ao saldo atual (${fmt(sa)} + ${fmt(x.quantidade)} = ${fmt(sa + Number(x.quantidade))})</option></select>
+        ${sa > 0 ? '<div class="mu sm" style="margin-top:4px">Este produto já tem saldo na obra. Confirme se o que foi contado é o total ou uma sobra a mais.</div>' : ''}</div>` : ''}`;
+  } else if (f.decisao === 'cadastrar') {
+    corpo = `<div class="grid2">
+        <div><label class="f" for="exc-${id}">Código do produto</label><input id="exc-${id}" class="inp mono" value="${esc(f.ccode)}" data-bind="rev.form.${x.id}.ccode" placeholder="em branco: o sistema gera"></div>
+        <div><label class="f" for="exu-${id}">Unidade</label><input id="exu-${id}" class="inp" value="${esc(f.unid)}" data-bind="rev.form.${x.id}.unid" maxlength="10"></div></div>
+      <div><label class="f" for="exd-${id}">Descrição no cadastro</label><input id="exd-${id}" class="inp" value="${esc(f.desc)}" data-bind="rev.form.${x.id}.desc" maxlength="120"></div>
+      <div><label class="f" for="exv-${id}">Custo unitário (opcional)</label><input id="exv-${id}" class="inp" inputmode="decimal" value="${esc(f.custo)}" data-bind="rev.form.${x.id}.custo" placeholder="ex.: 8,50"></div>
+      <div class="mu sm">O produto novo é criado no cadastro na hora do lançamento, com estoque mínimo e máximo zerados.</div>`;
+  } else if (f.decisao === 'rejeitar') {
+    corpo = `<div><label class="f" for="exj-${id}">Motivo</label><input id="exj-${id}" class="inp" value="${esc(f.motivo)}" data-bind="rev.form.${x.id}.motivo" maxlength="200" placeholder="ex.: material de consumo próprio, fora do estoque"></div>`;
+  }
+  return `<div class="rv">${cab}
+    ${sug ? `<div class="sug">Esse código já existe no cadastro: <b>${esc(sug.code)}</b> · ${esc(sug.desc)}. Vincule a ele em vez de criar um produto novo.</div>` : ''}
+    <div class="ex-box"><div class="stack">
+      <div><label class="f" for="exd0-${id}">O que fazer com este item</label>
+        <select id="exd0-${id}" class="inp" data-bind="rev.form.${x.id}.decisao" data-rerender="rev-render">
+          <option value="" ${f.decisao === '' ? 'selected' : ''}>Escolha…</option>
+          <option value="vincular" ${f.decisao === 'vincular' ? 'selected' : ''}>Vincular a um produto que já existe no cadastro</option>
+          <option value="cadastrar" ${f.decisao === 'cadastrar' ? 'selected' : ''}>Cadastrar como produto novo</option>
+          <option value="rejeitar" ${f.decisao === 'rejeitar' ? 'selected' : ''}>Rejeitar (não entra no estoque)</option></select></div>
+      ${corpo}
+      ${f.decisao ? `<button class="btn peq pri" data-act="ex-ok" data-id="${id}">${f.decisao === 'rejeitar' ? 'Rejeitar item' : 'Aprovar para lançamento'}</button>` : ''}
+    </div></div></div>`;
 }
 function htmlRevItem(i, aberta){
   const ref = i.status === 'aprovado' || i.status === 'ajustado' ? i.qtd_final : i.qtd_contada;
@@ -947,12 +1121,16 @@ async function atualizarItens(filtro, patch, okMsg){
 }
 function exportarCsv(){
   const c = cicloRev();
-  const rows = S.rev.itens.filter(i => ['aprovado', 'ajustado'].includes(i.status) && Number(i.qtd_final) !== Number(i.saldo_sistema));
-  if (!rows.length) return toast('Não há ajustes aprovados para exportar.', 'bad');
+  const rows = S.rev.itens.filter(i => ['aprovado', 'ajustado'].includes(i.status) && Number(i.qtd_final) !== Number(i.saldo_sistema))
+    .map(i => ['divergencia', i.code, i.descricao, i.unidade, i.saldo_sistema, i.qtd_final, Number(i.qtd_final) - Number(i.saldo_sistema), i.status]);
+  const ex = (S.rev.extras || []).filter(x => ['aprovado', 'ajustado'].includes(x.status))
+    .map(x => [x.decisao === 'cadastrar' ? 'fora_do_cadastro' : 'fora_da_lista', x.code_final || x.code_lido || '', x.desc_final || x.descricao, x.unid_final || x.unidade, '', x.quantidade, x.modo === 'somar' ? '+' + x.quantidade : 'definir', x.status]);
+  const todos = rows.concat(ex);
+  if (!todos.length) return toast('Não há ajustes aprovados para exportar.', 'bad');
   const cel = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const linhas = [['obra', 'lista', 'codigo', 'descricao', 'unidade', 'saldo_sistema', 'novo_saldo', 'diferenca', 'status'].join(';')]
-    .concat(rows.map(i => [c.obra_nome || c.obra_id, c.nome, i.code, i.descricao, i.unidade, i.saldo_sistema, i.qtd_final, Number(i.qtd_final) - Number(i.saldo_sistema), i.status]
-      .map((v, k) => k >= 5 && k <= 7 ? String(v).replace('.', ',') : cel(v)).join(';')));
+  const linhas = [['obra', 'lista', 'tipo', 'codigo', 'descricao', 'unidade', 'saldo_sistema', 'novo_saldo_ou_qtd', 'diferenca', 'status'].join(';')]
+    .concat(todos.map(t => [c.obra_nome || c.obra_id, c.nome, t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[7]]
+      .map((v, k) => k >= 6 && k <= 8 ? String(v ?? '').replace('.', ',') : cel(v)).join(';')));
   const blob = new Blob(['\ufeff' + linhas.join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
   a.download = `ajustes_${String(c.obra_nome || c.obra_id).replace(/[^\w]+/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`;
@@ -1017,14 +1195,51 @@ const ACT = {
       .eq('id', i.id).eq('status', 'em_analise').select('id')))
       .then(rs => { const ok = rs.filter(x => !x.error && x.data && x.data.length).length; toast(`${ok} de ${itens.length} aprovados`, ok === itens.length ? 'ok' : 'bad'); carregarRevItens(); });
   },
-  'rev-ajustados'(){
-    if (!confirm('Marcar os itens aprovados como ajustados? Faça isso depois de lançar os ajustes no sistema de estoque.')) return;
-    atualizarItens(b => b.eq('ciclo_id', S.rev.id).eq('status', 'aprovado'), { status: 'ajustado' }, '{n} itens marcados como ajustados');
-  },
   'rev-csv'(){ exportarCsv(); },
+  'rev-render'(){ render(); },
+  'nova-modo'(el){ S.nova.modo = el.dataset.modo; render(); },
+  'nova-criar-livre'(){ criarListaLivre(); },
+  'extra-novo'(){ abrirFolhaExtra(); },
+  'extra-editar'(el){
+    const x = listaExtras().find(e => e.id === el.dataset.id);
+    if (x && x.noFila) abrirFolhaExtra(x); else if (x) toast('Este registro já foi enviado. O encarregado vai analisar.', '');
+  },
+  'ex-pick'(el){
+    const f = S.rev.form[el.dataset.id]; if (!f) return; f.code = el.dataset.code; f.busca = '';
+    f.modo = saldoNaObra(f.code) > 0 ? '' : 'definir'; render();
+  },
+  async 'ex-ok'(el){
+    const x = (S.rev.extras || []).find(e => e.id === el.dataset.id); if (!x) return;
+    const f = formEx(x), prods = S.blob ? lerProdutos(S.blob) : [];
+    const base = { analisado_por: S.user.id, analisado_em: new Date().toISOString() };
+    let patch;
+    if (f.decisao !== 'rejeitar' && !S.blob) return toast('Não consegui ler o cadastro do estoque. Toque em Atualizar e tente de novo.', 'bad');
+    if (f.decisao === 'vincular') {
+      const pr = prods.find(q => q.code === f.code); if (!pr) return toast('Escolha o produto do cadastro.', 'bad');
+      if (!f.modo) return toast('Escolha como lançar: definir o saldo ou somar ao saldo atual.', 'bad');
+      patch = { status: 'aprovado', decisao: 'vincular', code_final: pr.code, desc_final: pr.desc, unid_final: pr.unit, modo: f.modo, ...base };
+    } else if (f.decisao === 'cadastrar') {
+      const desc = f.desc.trim(), code = f.ccode.trim();
+      if (desc.length < 3) return toast('Informe a descrição do produto.', 'bad');
+      if (code && prods.some(q => q.code === code)) return toast('Já existe produto com esse código. Use "Vincular a um produto que já existe".', 'bad');
+      const custo = String(f.custo).trim() === '' ? null : parseNum(f.custo);
+      if (custo !== null && !Number.isFinite(custo)) return toast('Custo inválido.', 'bad');
+      patch = { status: 'aprovado', decisao: 'cadastrar', code_final: code || null, desc_final: desc, unid_final: (f.unid.trim() || 'UN').toUpperCase(), modo: 'somar', custo, ...base };
+    } else if (f.decisao === 'rejeitar') {
+      if (!f.motivo.trim()) return toast('Explique o motivo da rejeição.', 'bad');
+      patch = { status: 'rejeitado', motivo: f.motivo.trim(), ...base };
+    } else return toast('Escolha o que fazer com o item.', 'bad');
+    const { data, error } = await sb.from('contagem_extras').update(patch).eq('id', x.id).eq('status', 'pendente').select('id');
+    if (error) return toast('Erro: ' + error.message, 'bad');
+    if (!data.length) toast('Nada foi alterado (o item mudou de estado ou você não tem permissão).', 'bad');
+    else toast(patch.status === 'rejeitado' ? 'Item rejeitado' : 'Aprovado. Falta autorizar o lançamento no sistema de estoque.', 'ok');
+    delete S.rev.form[x.id]; await carregarRevItens();
+  },
   async 'rev-encerrar'(){
     const abertos = S.rev.itens.filter(i => ['pendente', 'recontagem'].includes(i.status)).length;
-    if (!confirm(abertos ? `Ainda há ${abertos} itens sem contagem concluída. Encerrar mesmo assim?` : 'Encerrar esta lista?')) return;
+    const pend = (S.rev.extras || []).filter(x => x.status === 'pendente').length;
+    const aviso = [abertos ? `${abertos} itens sem contagem concluída` : '', pend ? `${pend} itens fora da lista ainda sem análise (podem ser analisados depois)` : ''].filter(Boolean).join(' e ');
+    if (!confirm(aviso ? `Ainda há ${aviso}. Encerrar mesmo assim?` : 'Encerrar esta lista?')) return;
     const { error } = await sb.from('contagem_ciclos').update({ status: 'fechada', fechado_em: new Date().toISOString() }).eq('id', S.rev.id);
     if (error) return toast('Erro: ' + error.message, 'bad');
     toast('Lista encerrada', 'ok'); irRevisao();
@@ -1052,6 +1267,15 @@ document.addEventListener('input', e => {
     $('#n-achados').innerHTML = htmlAchados(achados); return;
   }
   if (el.id === 'chkCont') { S.continuo = el.checked; LS.set('contagem_continuo', S.continuo); return; }
+  if (el.id === 'fx-unid') return atualizarPrev();
+  if (el.dataset.exid) {
+    const id = el.dataset.exid, f = S.rev.form[id]; if (!f) return; f.busca = el.value;
+    const q = el.value.trim().toLowerCase(), prods = S.blob ? lerProdutos(S.blob) : [];
+    const ach = q.length >= 2 ? prods.filter(p => [p.code, p.desc, p.aux].some(v => String(v || '').toLowerCase().includes(q))).slice(0, 6) : [];
+    $('#exr-' + id).innerHTML = ach.map(p => `<div class="pickrow" data-act="ex-pick" data-id="${esc(id)}" data-code="${esc(p.code)}">
+      <div><span class="rcode">${esc(p.code)}</span><div class="sm">${esc(p.desc)}</div></div><span class="chip ac">Escolher</span></div>`).join('');
+    return;
+  }
   if (el.dataset.bind) setPath(el.dataset.bind, el.type === 'checkbox' ? el.checked : el.value);
 });
 document.addEventListener('change', e => {
