@@ -556,8 +556,16 @@ function renderListaCiclo(){
 /* normalização para leitura de código de barras */
 const norm = s => String(s ?? '').trim().toUpperCase();
 const normNum = s => /^\d+$/.test(s) ? s.replace(/^0+/, '') : s;
+/* QR das etiquetas do sistema de estoque: texto em linhas ("CÓDIGO: 123", "AUXILIAR: ...", "DESCRIÇÃO: ...") */
+function lerEtiqueta(txt){
+  const t = String(txt || ''); if (!/C[ÓO]DIGO\s*:/i.test(t)) return null;
+  const g = re => { const m = t.match(re); return m ? m[1].trim() : ''; };
+  return { code: g(/^\s*C[ÓO]DIGO\s*:\s*(.+)$/im), aux: g(/^\s*AUXILIAR\s*:\s*(.+)$/im), ref: g(/^\s*REFER[ÊE]NCIA\s*:\s*(.+)$/im),
+           desc: g(/^\s*DESCRI[ÇC][ÃA]O\s*:\s*(.+)$/im), unit: g(/^\s*UNIDADE\s*:\s*(.+)$/im) };
+}
 function acharItem(txt){
-  const tokens = [txt];
+  const et = lerEtiqueta(txt);
+  const tokens = et ? [et.code, et.aux, et.ref, txt] : [txt];
   if (/^\s*\{/.test(txt)) { try { const j = JSON.parse(txt); tokens.push(j.code, j.codigo, j.cod); } catch {} }
   tokens.push(...String(txt).split(/[|;\r\n\t]+/));
   for (const tk of tokens.filter(Boolean)) {
@@ -642,7 +650,9 @@ function abrirFolhaExtra(pref = {}){
     <div class="stack">
       <div><label class="f" for="fx-desc">Descrição do item</label><input id="fx-desc" class="inp" maxlength="120" placeholder="Ex.: Disco de corte 7 pol" autocomplete="off"></div>
       <div class="grid2">
-        <div><label class="f" for="fx-code">Código de barras (se tiver)</label><input id="fx-code" class="inp mono" maxlength="60" autocomplete="off"></div>
+        <div><label class="f" for="fx-code">Código de barras (se tiver)</label>
+          <div style="display:flex;gap:8px"><input id="fx-code" class="inp mono" maxlength="60" autocomplete="off" inputmode="text">
+          <button type="button" class="ib" style="width:44px;height:44px;flex:none" data-act="extra-scan" aria-label="Ler código de barras pela câmera">${ico('camera')}</button></div></div>
         <div><label class="f" for="fx-unid">Unidade</label><input id="fx-unid" class="inp" maxlength="10" value="UN" autocomplete="off"></div>
       </div>
     </div>
@@ -680,13 +690,13 @@ function confirmarExtra(){
 }
 
 /* ---------- scanner ---------- */
-const Scan = { ativo:false, stream:null, det:null, timer:0, h5:null, ultimo:'', ultimoT:0 };
+const Scan = { alvo:null, ativo:false, stream:null, det:null, timer:0, h5:null, ultimo:'', ultimoT:0 };
 function carregarScript(src){
   return new Promise((ok, no) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => no(new Error('script')); document.head.appendChild(s); });
 }
-async function abrirScanner(){
+async function abrirScanner(alvo = null){
   if (Scan.ativo || S.tela !== 'ciclo') return;
-  Scan.ativo = true; $('#scanner').hidden = false; document.body.classList.add('noscroll');
+  Scan.alvo = alvo; Scan.ativo = true; $('#scanner').hidden = false; document.body.classList.add('noscroll');
   $('#scanVideo').hidden = false; $('#scanFb').hidden = true; $('#btnTorch').hidden = true;
   try {
     if ('BarcodeDetector' in window) {
@@ -704,7 +714,7 @@ async function abrirScanner(){
       await Scan.h5.start({ facingMode:'environment' }, { fps:10, qrbox:{ width:280, height:160 } }, txt => aoLer(txt), () => {});
     }
   } catch (e) {
-    await fecharScanner();
+    Scan.alvo = null; await fecharScanner();
     toast('Não consegui abrir a câmera. Permita o acesso nas configurações do navegador ou use a busca.', 'bad');
   }
 }
@@ -729,9 +739,28 @@ async function aoLer(txt){
   const agora = Date.now();
   if (txt === Scan.ultimo && agora - Scan.ultimoT < 1500) return;
   Scan.ultimo = txt; Scan.ultimoT = agora;
+  const alvo = Scan.alvo; Scan.alvo = null;
   await fecharScanner();
   const it = acharItem(txt);
-  if (!it) { beep(false); abrirFolhaExtra({ code_lido: String(txt).trim().slice(0, 60) }); return; }
+  if (alvo === 'campo') {                       // leitura pedida de dentro da folha "item fora da lista"
+    beep(true);
+    const et = lerEtiqueta(txt), cx = $('#fx-code');
+    if (cx) cx.value = (et && et.code ? et.code : String(txt).trim()).slice(0, 60);
+    if (et) {                                     // etiqueta do sistema: aproveita descrição e unidade se ainda estiverem vazias
+      const dx = $('#fx-desc'), ux = $('#fx-unid');
+      if (dx && !dx.value.trim() && et.desc) dx.value = et.desc.slice(0, 120);
+      if (ux && et.unit && (!ux.value.trim() || ux.value.trim().toUpperCase() === 'UN')) ux.value = et.unit.slice(0, 10);
+      atualizarPrev();
+    }
+    if (it) toast(`Atenção: esse código já está na lista (${it.descricao}). Conte por lá, sem usar "Item fora da lista".`, 'bad');
+    const prox = $('#fx-desc') && !$('#fx-desc').value.trim() ? $('#fx-desc') : $('#fq'); if (prox) prox.focus();
+    return;
+  }
+  if (!it) {
+    beep(false); const et = lerEtiqueta(txt);
+    abrirFolhaExtra({ code_lido: (et && et.code ? et.code : String(txt).trim()).slice(0, 60), descricao: et ? et.desc.slice(0, 120) : '', unidade: et && et.unit ? et.unit.slice(0, 10) : undefined });
+    return;
+  }
   if (tratarItem(it) === false && S.continuo) setTimeout(abrirScanner, 1200);
 }
 
@@ -1148,7 +1177,8 @@ const ACT = {
   'aba'(el){ S.aba = el.dataset.aba; renderListaCiclo(); },
   'abrir-item'(el){ const it = S.itens.find(i => i.code === el.dataset.code); if (it) tratarItem(it); },
   'scan'(){ abrirScanner(); },
-  'scan-fechar'(){ fecharScanner(); },
+  'scan-fechar'(){ Scan.alvo = null; fecharScanner(); },
+  'extra-scan'(){ if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); abrirScanner('campo'); },
   'scan-lanterna'(){ lanterna(); },
   'step'(el){ const inp = $('#fq'), v = parseNum(inp.value), base = Number.isFinite(v) ? v : 0;
     inp.value = String(Math.max(0, +(base + Number(el.dataset.d)).toFixed(6))).replace('.', ','); atualizarPrev(); inp.focus(); },
@@ -1285,6 +1315,7 @@ document.addEventListener('change', e => {
 });
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.id === 'fq') { e.preventDefault(); confirmarFolha(); }
+  if (e.key === 'Enter' && e.target.id === 'fx-code') { e.preventDefault(); ($('#fx-desc').value.trim() ? $('#fq') : $('#fx-desc')).focus(); }
   if (e.key === 'Enter' && e.target.id === 'busca') {
     e.preventDefault(); const it = acharItem(e.target.value);
     if (it) { e.target.value = ''; S.busca = ''; renderListaCiclo(); tratarItem(it); }
