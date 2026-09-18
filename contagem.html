@@ -744,61 +744,73 @@ function interpretarOcr(text, words = []){
     .replace(/\s+/g, ' ').trim();
   return { desc, cod, score };
 }
-function paraCanvas(bmp, graus, max = 1600){
-  const esc = Math.min(1, max / Math.max(bmp.width, bmp.height)), w = Math.round(bmp.width * esc), h = Math.round(bmp.height * esc);
+/* Memória: a foto do celular (12 MP ou mais) é decodificada uma única vez, reduzida para 1280 px e o original é fechado.
+   Todo o resto (código de barras, OCR nas 3 rotações) usa só essa versão pequena; cada canvas é liberado assim que
+   termina e o motor de OCR é encerrado ao fim de cada leitura, devolvendo a memória ao aparelho. */
+function paraCanvas(origem, graus, max = 1280, filtrar = false){
+  const esc = Math.min(1, max / Math.max(origem.width, origem.height));
+  const w = Math.max(1, Math.round(origem.width * esc)), h = Math.max(1, Math.round(origem.height * esc));
   const girar = graus === 90 || graus === 270, c = document.createElement('canvas');
   c.width = girar ? h : w; c.height = girar ? w : h;
-  const x = c.getContext('2d'); try { x.filter = 'grayscale(1) contrast(1.35)'; } catch {}
-  x.translate(c.width / 2, c.height / 2); x.rotate(graus * Math.PI / 180); x.drawImage(bmp, -w / 2, -h / 2, w, h);
+  const x = c.getContext('2d'); if (filtrar) { try { x.filter = 'grayscale(1) contrast(1.35)'; } catch {} }
+  x.translate(c.width / 2, c.height / 2); x.rotate(graus * Math.PI / 180); x.drawImage(origem, -w / 2, -h / 2, w, h);
   return c;
 }
+const liberarCanvas = c => { try { c.width = 0; c.height = 0; } catch {} };
 const TESS_SRC = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
 const H5_SRC = 'https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js';
-let ocrWorker = null;
+let ocrWorker = null, ocrOcupado = false;
 async function obterOcr(){
   if (!window.Tesseract) await carregarScript(TESS_SRC);
   if (!ocrWorker) ocrWorker = await window.Tesseract.createWorker('por');
   return ocrWorker;
 }
-async function barrasDoArquivo(file){
+async function liberarOcr(){ const w = ocrWorker; ocrWorker = null; if (w) { try { await w.terminate(); } catch {} } }
+async function barrasDoCanvas(cv){
   try {
     if (!window.Html5Qrcode) await carregarScript(H5_SRC);
+    const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.92)); if (!blob) return '';
     const h = new window.Html5Qrcode('scanFb');
-    try { return await h.scanFile(file, false); } finally { try { h.clear(); } catch {} }
+    try { return await h.scanFile(new File([blob], 'foto.jpg', { type: 'image/jpeg' }), false); } finally { try { h.clear(); } catch {} }
   } catch { return ''; }
 }
+const ehErroDeMemoria = e => /memory|mem[óo]ria|out of bounds|allocation|abort/i.test(String((e && e.message) || e || ''));
 async function lerEtiquetaFoto(file){
   if (!S.folha || !S.folha.extra) return;
+  if (ocrOcupado) return toast('Aguarde: a leitura anterior ainda está terminando.', 'bad');
+  ocrOcupado = true;
   const st = t => { const e = $('#fx-ocr-st'); if (e) e.textContent = t; };
-  let bmp;
-  try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
-  catch { try { bmp = await createImageBitmap(file); } catch { return toast('Não consegui abrir a foto.', 'bad'); } }
-  // 1) código de barras / QR da própria foto
-  st('Procurando o código de barras…');
-  let cod = '';
-  try { if ('BarcodeDetector' in window) { const r = await new BarcodeDetector().detect(bmp); if (r.length) cod = r[0].rawValue; } } catch {}
-  if (!cod) cod = await barrasDoArquivo(file);
-  if (cod) {
-    const et = lerEtiqueta(cod), cx = $('#fx-code');
-    if (cx && !cx.value.trim()) cx.value = (et && et.code ? et.code : String(cod).trim()).slice(0, 60);
-    if (cx && cx.value) await preencherPorCodigo(cx.value);
-  }
-  // 2) descrição pelo texto da etiqueta (só se ainda estiver vazia)
-  const dx = $('#fx-desc');
-  if (!dx || dx.value.trim()) { st(''); return; }
-  if (!navigator.onLine) { st(''); return toast('Sem internet para ler o texto da etiqueta (é preciso na primeira vez). Digite a descrição.', 'bad'); }
+  let base = null;
   try {
+    let bmp;
+    try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch { bmp = await createImageBitmap(file); }
+    base = paraCanvas(bmp, 0, 1280, true);
+    try { bmp.close(); } catch {}
+    // 1) código de barras / QR da própria foto
+    st('Procurando o código de barras…');
+    let cod = '';
+    try { if ('BarcodeDetector' in window) { const r = await new BarcodeDetector().detect(base); if (r.length) cod = r[0].rawValue; } } catch {}
+    if (!cod) cod = await barrasDoCanvas(base);
+    if (cod) {
+      const et = lerEtiqueta(cod), cx = $('#fx-code');
+      if (cx && !cx.value.trim()) cx.value = (et && et.code ? et.code : String(cod).trim()).slice(0, 60);
+      if (cx && cx.value) await preencherPorCodigo(cx.value);
+    }
+    // 2) descrição pelo texto da etiqueta (só se ainda estiver vazia)
+    const dx = $('#fx-desc');
+    if (!dx || dx.value.trim()) return;
+    if (!navigator.onLine) return toast('Sem internet para ler o texto da etiqueta (é preciso na primeira vez). Digite a descrição.', 'bad');
     st('Lendo o texto da etiqueta… pode levar alguns segundos.');
     const w = await obterOcr(); let melhor = null, n = 0;
     for (const g of [0, 90, 270]) {
       n++; if (n > 1) st(`Girando a foto e tentando de novo (${n} de 3)…`);
-      const { data } = await w.recognize(paraCanvas(bmp, g));
+      const c = paraCanvas(base, g, 1280, false);
+      let data; try { ({ data } = await w.recognize(c)); } finally { liberarCanvas(c); }
       const palavras = data.words || (data.blocks ? data.blocks.flatMap(b => b.paragraphs.flatMap(p => p.lines.flatMap(l => l.words))) : []);
       const r = interpretarOcr(data.text, palavras);
       if (!melhor || r.score > melhor.score) melhor = r;
       if (r.score >= 10) break;
     }
-    st('');
     if (!$('#fx-desc')) return;
     if (melhor && melhor.score >= 7 && melhor.desc.length >= 5) {
       if (!$('#fx-desc').value.trim()) $('#fx-desc').value = melhor.desc.slice(0, 120);
@@ -806,8 +818,21 @@ async function lerEtiquetaFoto(file){
       dica('Descrição lida da etiqueta pela câmera. Confira e corrija se precisar antes de registrar.');
       $('#fx-desc').focus();
     } else toast('Não consegui ler a descrição. Tire a foto mais de perto, sem reflexo, ou digite.', 'bad');
-  } catch { st(''); toast('A leitura do texto não funcionou agora. Digite a descrição.', 'bad'); }
+  } catch (e) {
+    toast(ehErroDeMemoria(e) ? 'Memória insuficiente no aparelho para ler a foto. Feche outros aplicativos e abas e tente de novo, ou digite a descrição.'
+                             : 'A leitura da foto não funcionou agora. Digite a descrição.', 'bad');
+  } finally {
+    if (base) liberarCanvas(base);
+    await liberarOcr();
+    ocrOcupado = false; st('');
+  }
 }
+// erro de memória em qualquer ponto: avisa em português e devolve o que estiver ocupado
+window.addEventListener('unhandledrejection', e => {
+  if (!ehErroDeMemoria(e.reason)) return;
+  e.preventDefault(); liberarOcr(); ocrOcupado = false;
+  toast('Memória insuficiente no aparelho. Feche outros aplicativos e abas e tente de novo.', 'bad');
+});
 
 /* ---------- scanner ---------- */
 const Scan = { alvo:null, ativo:false, stream:null, det:null, timer:0, h5:null, ultimo:'', ultimoT:0 };
@@ -848,6 +873,7 @@ async function fecharScanner(){
   Scan.ativo = false; clearTimeout(Scan.timer);
   if (Scan.stream) { Scan.stream.getTracks().forEach(t => t.stop()); Scan.stream = null; }
   if (Scan.h5) { try { await Scan.h5.stop(); Scan.h5.clear(); } catch {} Scan.h5 = null; }
+  Scan.det = null; try { $('#scanVideo').pause(); } catch {}
   $('#scanVideo').srcObject = null; $('#scanner').hidden = true;
   if (!S.folha) document.body.classList.remove('noscroll');
 }
@@ -950,7 +976,8 @@ async function irNova(){
   try {
     await carregarBlob();
     let obras = lerObras(S.blob);
-    if (S.perfil.papel !== 'admin') { const vinc = (S.perfil.obras_vinculadas || []).map(String); obras = obras.filter(o => vinc.includes(o.id)); }
+    const todasObras = S.perfil.papel === 'admin' || (S.perfil.papel === 'encarregado' && S.perfil.setor === 'almoxarifado');
+    if (!todasObras) { const vinc = (S.perfil.obras_vinculadas || []).map(String); obras = obras.filter(o => vinc.includes(o.id)); }
     n.obras = obras; n.produtos = lerProdutos(S.blob);
     if (!obras.find(o => o.id === n.obraId)) n.obraId = obras[0] ? obras[0].id : '';
     n.estado = obras.length && n.produtos.length ? 'pronto' : 'vazio';
