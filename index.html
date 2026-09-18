@@ -227,7 +227,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     <div class="navgrp-body" id="navgrpBody-consulta" style="display:none">
       <button data-tab="consulta"><span class="ic">⌕</span><span>Consulta</span></button>
       <button data-tab="relatorios"><span class="ic">▤</span><span>Relatórios</span></button>
-      <button data-tab="auditoria" data-role="encarregado"><span class="ic">🛡</span><span>Auditoria</span></button>
+      <button data-tab="auditoria" data-role="auditoria"><span class="ic">🛡</span><span>Auditoria</span></button>
     </div>
 
     <div class="navgrp-hd" data-grp-toggle="cad"><span class="navgrp-hd-l">Cadastros</span><span class="navgrp-chev">▸</span></div>
@@ -235,8 +235,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       <button data-tab="obras"><span class="ic">⌂</span><span>Obras</span></button>
       <button data-tab="aplic"><span class="ic">⚙</span><span>Aplicações</span></button>
       <button data-tab="produtos"><span class="ic">≣</span><span>Produtos &amp; Etiquetas</span></button>
-      <button data-tab="importar"><span class="ic">↥</span><span>Importar Planilha</span></button>
-      <button data-tab="empresas"><span class="ic">🏢</span><span>Empresas</span></button>
+      <button data-tab="importar" data-role="sem_encalmox"><span class="ic">↥</span><span>Importar Planilha</span></button>
+      <button data-tab="empresas" data-role="sem_encalmox"><span class="ic">🏢</span><span>Empresas</span></button>
     </div>
 
     <div class="navgrp-divider"></div>
@@ -279,10 +279,14 @@ async function ensureHtml5Qrcode(){ if(typeof Html5Qrcode!=='undefined')return; 
 let session=null, profile=null;
 function isAdmin(){ return !!profile && profile.papel==='admin' && profile.ativo; }
 function isEncarregado(){ return !!profile && (profile.papel==='admin'||profile.papel==='encarregado') && profile.ativo; }
+/* Encarregado do almoxarifado: acesso a todas as funções e obras, exceto Auditoria, Importar Planilha, Empresas e Administração */
+function isEncAlmox(){ return !!profile && profile.papel==='encarregado' && profile.setor==='almoxarifado' && profile.ativo; }
+function isAdminOuEncAlmox(){ return isAdmin()||isEncAlmox(); }
+const ABAS_BLOQUEADAS_ENCALMOX=['auditoria','importar','empresas','admin'];
 function isAlmoxarife(){ return !!profile && (profile.papel==='admin'||profile.setor==='almoxarifado') && profile.ativo; }
 function isCompras(){ return !!profile && (profile.papel==='admin'||profile.setor==='compras') && profile.ativo; }
 function isFrotas(){ return !!profile && (profile.papel==='admin'||profile.setor==='frotas') && profile.ativo; }
-function podeAprovarObra(obraId){ if(isAdmin())return true; if(!isEncarregado())return false;
+function podeAprovarObra(obraId){ if(isAdminOuEncAlmox())return true; if(!isEncarregado())return false;
   const vinc=Array.isArray(profile.obras_vinculadas)?profile.obras_vinculadas:[]; return vinc.includes(obraId); }
 function podeVerCompras(){ return isAlmoxarife()||isCompras()||isFrotas(); }
 function podeVerRetiradas(){ return isAlmoxarife()||isEncarregado(); }
@@ -481,7 +485,9 @@ const titles={ painel:['Painel','Visão por obra'],entrada:['Entrada / Nota Fisc
   transfer:['Transferência entre Obras','Mover saldo de uma obra para outra'],consulta:['Consulta','Buscar por nome, código ou equipamento'],
   obras:['Obras','Cadastro de obras'],aplic:['Aplicações','Equipamentos e veículos (placa/tag)'],produtos:['Produtos & Etiquetas','Catálogo e códigos de barras'],importar:['Importar Planilha','Carga inicial por obra'],empresas:['Empresas','Razão social, CNPJ e endereço'],admin:['Administração','Usuários e exclusões protegidas'],relatorios:['Relatórios','Consumo por aplicação, tipo, obra e produto'],auditoria:['Auditoria','Histórico de ações no sistema'] };
 let activeTab='painel';
-function go(tab){ activeTab=tab;
+function go(tab){
+  if(isEncAlmox()&&ABAS_BLOQUEADAS_ENCALMOX.includes(tab)){ toast('O perfil Encarregado do almoxarifado não tem acesso a esta área.','err'); return; }
+  activeTab=tab;
   document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
   const activeBtn=document.querySelector('#nav button[data-tab="'+tab+'"]'); const grpBody=activeBtn&&activeBtn.closest('.navgrp-body'); if(grpBody&&grpBody.style.display==='none')toggleNavGrp(grpBody.id.replace('navgrpBody-',''),true);
   $('#pageTitle').firstChild.textContent=titles[tab][0]+' '; $('#pageSub').textContent=titles[tab][1]; $('#topActions').innerHTML='';
@@ -511,7 +517,7 @@ function refreshFluxoGroupBadge(){ const ids=['navBadgeAprov','navBadgeSeparacao
 function applyRoleNav(){
   document.querySelectorAll('#nav button[data-role]').forEach(b=>{
     const need=b.dataset.role;
-    const ok=need==='admin'?isAdmin():need==='almoxarife'?isAlmoxarife():need==='compras'?isCompras():need==='separacao_acesso'?podeVerCompras():need==='retiradas_acesso'?podeVerRetiradas():isEncarregado();
+    const ok=need==='auditoria'?(isEncarregado()&&!isEncAlmox()):need==='sem_encalmox'?!isEncAlmox():need==='admin'?isAdmin():need==='almoxarife'?isAlmoxarife():need==='compras'?isCompras():need==='separacao_acesso'?podeVerCompras():need==='retiradas_acesso'?podeVerRetiradas():isEncarregado();
     b.style.display=ok?'':'none';
   });
   $('#uAvatar').textContent=(profile.nome||'?').trim().charAt(0).toUpperCase();
@@ -519,7 +525,7 @@ function applyRoleNav(){
 }
 async function refreshAprovBadge(){ if(!isEncarregado())return; const b=$('#navBadgeAprov'); if(!b)return;
   let count=0;
-  if(isAdmin()){ const r=await sb.from('requisicoes').select('id',{count:'exact',head:true}).eq('status','pendente'); count=r.count||0; }
+  if(isAdminOuEncAlmox()){ const r=await sb.from('requisicoes').select('id',{count:'exact',head:true}).eq('status','pendente'); count=r.count||0; }
   else{ const vinc=Array.isArray(profile.obras_vinculadas)?profile.obras_vinculadas:[]; if(vinc.length){ const r=await sb.from('requisicoes').select('id',{count:'exact',head:true}).eq('status','pendente').in('obra_id',vinc); count=r.count||0; } }
   if(count){b.textContent=count;b.style.display='';}else b.style.display='none'; refreshFluxoGroupBadge(); }
 async function refreshSeparacaoBadge(){ if(!isAlmoxarife())return; const b=$('#navBadgeSeparacao'); if(!b)return;
@@ -539,7 +545,7 @@ async function refreshGlobalAlerts(){
   const alerts=[];
   if(isEncarregado()){
     let c1=0;
-    if(isAdmin()){ const r=await sb.from('requisicoes').select('id',{count:'exact',head:true}).eq('status','pendente'); c1=r.count||0; }
+    if(isAdminOuEncAlmox()){ const r=await sb.from('requisicoes').select('id',{count:'exact',head:true}).eq('status','pendente'); c1=r.count||0; }
     else{ const vinc=Array.isArray(profile.obras_vinculadas)?profile.obras_vinculadas:[]; if(vinc.length){ const r=await sb.from('requisicoes').select('id',{count:'exact',head:true}).eq('status','pendente').in('obra_id',vinc); c1=r.count||0; } }
     if(c1)alerts.push({tab:'aprovacoes',tone:'warn',text:(c1===1?'1 requisição':c1+' requisições')+' aguardando sua aprovação.'});
   }
@@ -1436,15 +1442,15 @@ async function cancelarRequisicao(id){ const {error}=await sb.from('requisicoes'
 async function renderAprovacoes(){
   if(!isEncarregado()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito a encarregados/administradores.</div></div>'; return; }
   const vinc=Array.isArray(profile.obras_vinculadas)?profile.obras_vinculadas:[];
-  const aviso=(!isAdmin()&&!vinc.length)?`<div class="empty" style="padding:14px 18px;margin-bottom:18px;text-align:left;background:#fff3da;border-radius:10px">⚠ Você ainda não tem nenhuma obra (centro de custo) vinculada. Peça a um administrador para vincular suas obras em Administração → Usuários.</div>`:
-    (!isAdmin()?`<div class="muted" style="font-size:12px;margin-bottom:14px">Mostrando apenas requisições das obras vinculadas a você: ${vinc.map(id=>esc(obraName(id))).join(', ')}.</div>`:'');
+  const aviso=(!isAdminOuEncAlmox()&&!vinc.length)?`<div class="empty" style="padding:14px 18px;margin-bottom:18px;text-align:left;background:#fff3da;border-radius:10px">⚠ Você ainda não tem nenhuma obra (centro de custo) vinculada. Peça a um administrador para vincular suas obras em Administração → Usuários.</div>`:
+    (!isAdminOuEncAlmox()?`<div class="muted" style="font-size:12px;margin-bottom:14px">Mostrando apenas requisições das obras vinculadas a você: ${vinc.map(id=>esc(obraName(id))).join(', ')}.</div>`:'');
   $('#view').innerHTML=aviso+`<div class="sechead"><h3>Pendentes de aprovação</h3></div><div class="tbl-wrap" id="aprovPend" style="margin-bottom:26px"><div class="empty">Carregando...</div></div>
   <div class="sechead"><h3>Decididas recentemente</h3></div><div class="tbl-wrap" id="aprovHist"><div class="empty">Carregando...</div></div>`;
   await drawAprovPend(); await drawAprovHist();
 }
 async function drawAprovPend(){ const box=$('#aprovPend'); if(!box)return;
   let q=sb.from('requisicoes').select('*').eq('status','pendente').order('criado_em',{ascending:true});
-  if(!isAdmin()){
+  if(!isAdminOuEncAlmox()){
     const vinc=Array.isArray(profile.obras_vinculadas)?profile.obras_vinculadas:[];
     if(!vinc.length){ box.innerHTML=`<table><tbody><tr><td class="empty" style="padding:24px">Nenhuma obra vinculada — nada para aprovar.</td></tr></tbody></table>`; return; }
     q=q.in('obra_id',vinc);
@@ -1455,17 +1461,17 @@ async function drawAprovPend(){ const box=$('#aprovPend'); if(!box)return;
     (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(r.criado_em).getTime())}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${esc(r.aplicacao_nome||'—')}</td><td>${esc(r.solicitante_nome)}</td><td>${r.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td class="muted" style="font-size:12px">${esc(r.observacao||'—')}</td><td class="num" style="white-space:nowrap"><button class="btn primary sm" onclick="aprovarRequisicao(${r.id})">✔ Aprovar</button> <button class="btn danger sm" onclick="rejeitarRequisicao(${r.id})">✕ Rejeitar</button></td></tr>`).join('')||`<tr><td colspan="8" class="empty" style="padding:24px">Nenhum pedido pendente.</td></tr>`}</tbody></table>`; }
 async function drawAprovHist(){ const box=$('#aprovHist'); if(!box)return;
   let q=sb.from('requisicoes').select('*').neq('status','pendente').order('decidido_em',{ascending:false}).limit(40);
-  if(!isAdmin()){
+  if(!isAdminOuEncAlmox()){
     const vinc=Array.isArray(profile.obras_vinculadas)?profile.obras_vinculadas:[];
     if(!vinc.length){ box.innerHTML=`<table><tbody><tr><td class="empty" style="padding:24px">Nenhuma obra vinculada.</td></tr></tbody></table>`; return; }
     q=q.in('obra_id',vinc);
   }
   const {data,error}=await q;
   if(error){box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>';return;}
-  box.innerHTML=`<table><thead><tr><th>Nº</th><th>Obra / OS</th><th>Aplicação</th><th>Solicitante</th><th>Situação</th><th>Decidido por</th><th>Quando</th>${isAdmin()?'<th></th>':''}</tr></thead><tbody>${
-    (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${esc(r.aplicacao_nome||'—')}</td><td>${esc(r.solicitante_nome)}</td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${r.motivo_rejeicao?`<br><span class="muted" style="font-size:11px">${esc(r.motivo_rejeicao)}</span>`:''}</td><td>${esc(r.decidido_por_nome||'—')}</td><td class="muted" style="font-size:12px">${r.decidido_em?fmtDate(new Date(r.decidido_em).getTime()):'—'}</td>${isAdmin()?`<td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="excluirEventoSeparacao(${r.id})">Excluir separação</button> <button class="btn danger sm" onclick="excluirRequisicaoAdmin(${r.id})">Excluir REQ</button></td>`:''}</tr>`).join('')||`<tr><td colspan="${isAdmin()?8:7}" class="empty" style="padding:24px">Nenhuma decisão ainda.</td></tr>`}</tbody></table>`; }
+  box.innerHTML=`<table><thead><tr><th>Nº</th><th>Obra / OS</th><th>Aplicação</th><th>Solicitante</th><th>Situação</th><th>Decidido por</th><th>Quando</th>${isAdminOuEncAlmox()?'<th></th>':''}</tr></thead><tbody>${
+    (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${esc(r.aplicacao_nome||'—')}</td><td>${esc(r.solicitante_nome)}</td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${r.motivo_rejeicao?`<br><span class="muted" style="font-size:11px">${esc(r.motivo_rejeicao)}</span>`:''}</td><td>${esc(r.decidido_por_nome||'—')}</td><td class="muted" style="font-size:12px">${r.decidido_em?fmtDate(new Date(r.decidido_em).getTime()):'—'}</td>${isAdminOuEncAlmox()?`<td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="excluirEventoSeparacao(${r.id})">Excluir separação</button> <button class="btn danger sm" onclick="excluirRequisicaoAdmin(${r.id})">Excluir REQ</button></td>`:''}</tr>`).join('')||`<tr><td colspan="${isAdminOuEncAlmox()?8:7}" class="empty" style="padding:24px">Nenhuma decisão ainda.</td></tr>`}</tbody></table>`; }
 async function excluirEventoSeparacao(reqId){
-  if(!isAdmin()){toast('Apenas administradores podem excluir o evento de separação.','err');return;}
+  if(!isAdminOuEncAlmox()){toast('Apenas administradores podem excluir o evento de separação.','err');return;}
   requireSupervisor('Excluir separação da REQ-'+String(reqId).padStart(5,'0')+' (estorna o estoque separado)',async()=>{
     const {data:r,error:e1}=await sb.from('requisicoes').select('*').eq('id',reqId).maybeSingle();
     if(e1||!r){toast('Erro ao carregar requisição.','err');return;}
@@ -1490,7 +1496,7 @@ async function excluirEventoSeparacao(reqId){
   });
 }
 async function excluirRequisicaoAdmin(reqId){
-  if(!isAdmin()){toast('Apenas administradores podem excluir requisições.','err');return;}
+  if(!isAdminOuEncAlmox()){toast('Apenas administradores podem excluir requisições.','err');return;}
   const {data:itens,error:e1}=await sb.from('requisicao_itens_status').select('quantidade_separada').eq('requisicao_id',reqId);
   if(e1){toast('Erro: '+e1.message,'err');return;}
   const ativa=(itens||[]).some(i=>i.quantidade_separada>0);
@@ -1959,7 +1965,7 @@ async function drawRetiradaPendente(){ const box=$('#retList'); if(!box)return;
 
 let _auditRows=[];
 async function renderAuditoria(){
-  if(!isEncarregado()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito a encarregados/administradores.</div></div>'; return; }
+  if(!isEncarregado()||isEncAlmox()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito a encarregados/administradores.</div></div>'; return; }
   const d2=new Date(),d1=new Date(); d1.setDate(d1.getDate()-30);
   $('#view').innerHTML=`<div class="panel" style="margin-bottom:16px"><div class="row c4">
     <div class="field" style="margin:0"><label>De</label><input id="auFrom" type="date" value="${d1.toISOString().slice(0,10)}"></div>
@@ -2073,7 +2079,7 @@ async function drawMutuoAbertos(){ const box=$('#mutuoAbertos'); if(!box)return;
     <table><thead><tr><th>Data</th><th>Descrição</th><th>Obras</th><th class="num">Valor</th></tr></thead><tbody>${
       g.itens.map(m=>`<tr><td class="muted" style="font-size:12px">${fmtDate(new Date(m.criado_em).getTime())}</td><td>${esc(m.descricao||'—')}</td><td class="muted" style="font-size:12px">${esc(m.obra_origem_nome||'')} → ${esc(m.obra_destino_nome||'')}</td><td class="num">${money(m.valor)}</td></tr>`).join('')
     }</tbody></table>
-    ${isAdmin()?`<div style="text-align:right;margin-top:10px"><button class="btn primary sm" onclick="fecharPeriodoMutuo('${g.periodo}',${JSON.stringify(g.origem)},${JSON.stringify(g.destino)},${g.total})">🔒 Fechar período</button></div>`:''}
+    ${isAdminOuEncAlmox()?`<div style="text-align:right;margin-top:10px"><button class="btn primary sm" onclick="fecharPeriodoMutuo('${g.periodo}',${JSON.stringify(g.origem)},${JSON.stringify(g.destino)},${g.total})">🔒 Fechar período</button></div>`:''}
   </div>`).join('');
 }
 async function drawMutuoFechados(){ const box=$('#mutuoFechados'); if(!box)return;
