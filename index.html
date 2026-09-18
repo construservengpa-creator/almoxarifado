@@ -209,6 +209,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       <button data-tab="entrada"><span class="ic">⊕</span><span>Entrada / Nota Fiscal</span></button>
       <button data-tab="baixa"><span class="ic">⊖</span><span>Consumo de Estoque</span><span class="badge" id="navBadgeMinhas" style="display:none"></span></button>
       <button data-tab="ajuste" data-role="encarregado"><span class="ic">✎</span><span>Ajuste de Saldo</span></button>
+      <button data-tab="inventario" data-role="encarregado"><span class="ic">☑</span><span>Inventário</span><span class="badge" id="navBadgeInv" style="display:none"></span></button>
       <button data-tab="transfer"><span class="ic">⇄</span><span>Transferência entre Obras</span></button>
       <button data-tab="mutuo" data-role="encarregado"><span class="ic">💱</span><span>Mútuo entre Empresas</span></button>
     </div>
@@ -470,6 +471,7 @@ function closeCameraScanner(){ if(camScanner){ const c=camScanner; camScanner=nu
 /* ===== Roteamento ===== */
 const titles={ painel:['Painel','Visão por obra'],entrada:['Entrada / Nota Fiscal','XML, colado ou manual'],baixa:['Consumo de Estoque','Solicitação com aprovação do encarregado'],
   ajuste:['Ajuste de Saldo','Lançar ou corrigir saldo sem nota fiscal'],
+  inventario:['Inventário','Ajustes da contagem cíclica aguardando autorização'],
   aprovacoes:['Aprovações','Requisições pendentes de aprovação'],
   separacao:['Separação','Separação física dos itens disponíveis'],
   expedicao:['Expedição','Embalagem, romaneio, nota fiscal, etiquetas de volume e envio'],
@@ -483,7 +485,7 @@ function go(tab){ activeTab=tab;
   document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
   const activeBtn=document.querySelector('#nav button[data-tab="'+tab+'"]'); const grpBody=activeBtn&&activeBtn.closest('.navgrp-body'); if(grpBody&&grpBody.style.display==='none')toggleNavGrp(grpBody.id.replace('navgrpBody-',''),true);
   $('#pageTitle').firstChild.textContent=titles[tab][0]+' '; $('#pageSub').textContent=titles[tab][1]; $('#topActions').innerHTML='';
-  ({painel:renderPainel,entrada:renderEntrada,baixa:renderBaixa,ajuste:renderAjuste,aprovacoes:renderAprovacoes,separacao:renderSeparacao,expedicao:renderExpedicao,retiradas:renderRetiradaPendente,compras:renderCompras,transfer:renderTransfer,mutuo:renderMutuo,consulta:renderConsulta,obras:renderObras,aplic:renderAplic,produtos:renderProdutos,importar:renderImportar,empresas:renderEmpresas,admin:renderAdmin,relatorios:renderRelatorios,auditoria:renderAuditoria}[tab])();
+  ({painel:renderPainel,entrada:renderEntrada,baixa:renderBaixa,ajuste:renderAjuste,inventario:renderInventario,aprovacoes:renderAprovacoes,separacao:renderSeparacao,expedicao:renderExpedicao,retiradas:renderRetiradaPendente,compras:renderCompras,transfer:renderTransfer,mutuo:renderMutuo,consulta:renderConsulta,obras:renderObras,aplic:renderAplic,produtos:renderProdutos,importar:renderImportar,empresas:renderEmpresas,admin:renderAdmin,relatorios:renderRelatorios,auditoria:renderAuditoria}[tab])();
 }
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>go(b.dataset.tab));
 function toggleNavGrp(key,forceOpen){
@@ -1282,6 +1284,150 @@ function aplicarAjuste(code){ const p=findProduct(code); if(!p)return; const obr
     toast('Salvando...','warn');
     await save('Ajuste de saldo: '+p.desc+' em '+obraName(obra)+' ('+(delta>0?'+':'')+numf(delta)+') · '+motivo);
     toast('Saldo ajustado e salvo.','ok'); renderAjuste(); }); }
+
+/* ===== INVENTÁRIO: ajustes aprovados na contagem (contagem.html) aguardando autorização ===== */
+/* Lê contagem_itens (divergências) e contagem_extras (itens fora da lista/cadastro) com status 'aprovado',
+   mostra o efeito no saldo e, ao autorizar, lança tudo de uma vez: saldo + movimento 'ajuste' + produto novo,
+   com uma única gravação do estado (mesma rotina do "Ajuste de Saldo"). Depois marca as linhas como 'ajustado'.
+   Cada movimento leva um invId; se a marcação falhar, repetir a ação não lança em duplicidade. */
+let invRows=[], invSel={}, invModo={};
+async function invCarregar(){
+  const ri=await sb.from('contagem_itens').select('*').eq('status','aprovado').limit(1000); if(ri.error)throw ri.error;
+  const re=await sb.from('contagem_extras').select('*').eq('status','aprovado').limit(1000); if(re.error)throw re.error;
+  const ids=[...new Set(ri.data.map(x=>x.ciclo_id).concat(re.data.map(x=>x.ciclo_id)))]; const ciclos={};
+  if(ids.length){ const rc=await sb.from('contagem_ciclos').select('id,obra_id,obra_nome,nome').in('id',ids); if(rc.error)throw rc.error; rc.data.forEach(c=>ciclos[c.id]=c); }
+  const rows=[];
+  ri.data.forEach(i=>{ const c=ciclos[i.ciclo_id]; if(!c)return;
+    rows.push({key:'inv:item:'+i.id,tipo:'item',rowId:i.id,ciclo:c,obra:c.obra_id,code:i.code,desc:i.descricao||'',unit:i.unidade||'',snapshot:Number(i.saldo_sistema),contado:Number(i.qtd_final),lista:c.nome}); });
+  re.data.forEach(x=>{ const c=ciclos[x.ciclo_id]; if(!c)return;
+    rows.push({key:'inv:extra:'+x.id,tipo:'extra',rowId:x.id,ciclo:c,obra:c.obra_id,decisao:x.decisao,code:x.code_final||'',desc:x.desc_final||x.descricao||'',unit:x.unid_final||x.unidade||'UN',contado:Number(x.quantidade),modo:x.modo,custo:x.custo==null?null:Number(x.custo),lista:c.nome,lido:x.code_lido||''}); });
+  return rows;
+}
+/* calcula o efeito das linhas sobre o estado atual, em sequência (várias linhas do mesmo produto se somam);
+   não altera nada. Só entram no acumulado as linhas marcadas. */
+function invCalcUma(r,run){
+  const o={...r,erro:'',criar:false}; const p=r.code?findProduct(r.code):null;
+  const rk=r.obra+'|'+(r.code||('#'+r.key)); o.rk=rk;
+  o.jaLancado=state.movements.some(m=>m.invId===r.key);
+  if(!state.obras.some(ob=>ob.id===r.obra)){ o.erro='Obra não existe mais'; return o; }
+  const real=p?saldoOf(r.obra,r.code):0;
+  o.atual=run[rk]!==undefined?run[rk]:real;
+  if(r.tipo==='item'){
+    if(!p){ o.erro='Produto não existe mais no cadastro'; return o; }
+    o.mudou=real!==r.snapshot;
+    o.modoEf=o.mudou?(invModo[r.key]||'diferenca'):'definir';
+    o.novo=o.modoEf==='diferenca'?o.atual+(r.contado-r.snapshot):r.contado;
+  } else {
+    if(r.decisao==='vincular'&&!p){ o.erro='O produto vinculado não existe mais'; return o; }
+    if(r.decisao!=='vincular'&&r.decisao!=='cadastrar'){ o.erro='Item sem decisão'; return o; }
+    o.criar=!p&&run[rk]===undefined; o.modoEf=r.modo;
+    o.novo=r.modo==='somar'?o.atual+r.contado:r.contado;
+  }
+  if(o.jaLancado){ o.novo=o.atual; o.delta=0; return o; }
+  if(!(o.novo>=0))o.erro='O saldo ficaria negativo';
+  o.delta=o.novo-o.atual; return o;
+}
+function invCalcLote(rows){
+  const run={};
+  return rows.map(r=>{ const o=invCalcUma(r,run); if(!o.erro&&invSel[r.key]!==false&&!o.jaLancado)run[o.rk]=o.novo; return o; });
+}
+/* aplica as linhas no state em memória (mesma regra do aplicarAjuste); devolve o que precisa ser marcado */
+function invAplicar(linhas){
+  const marcas=[];
+  for(const L of linhas){
+    const ja=state.movements.find(m=>m.invId===L.key);
+    if(ja){ marcas.push({...L,ja:true,mov:ja.id,code:L.code||ja.code,novo:ja.saldo,modoEf:ja.invModo||L.modoEf}); continue; }
+    let p=L.code?findProduct(L.code):null;
+    if(!p){ if(!L.code)L.code=genCode(); p={code:L.code,desc:L.desc,unit:L.unit||'UN',aux:'',min:0,max:0,custo:0,preco:0,ref:''}; state.products.push(p); }
+    const atual=saldoOf(L.obra,L.code), delta=L.novo-atual;
+    if(delta===0){ marcas.push({...L,semMov:true}); continue; }
+    let custoFinal=p.custo||0; const ci=L.custo;
+    if(delta>0&&ci!=null&&ci>0){ custoFinal=L.novo>0?(((atual*(p.custo||0))+(delta*ci))/L.novo):ci; }
+    addSaldo(L.obra,L.code,delta); p.custo=custoFinal;
+    const mid=uid();
+    state.movements.unshift({id:mid,ts:Date.now(),tipo:'ajuste',obra:L.obra,code:L.code,desc:p.desc,qty:delta,valorUnit:custoFinal,valorTotal:delta*custoFinal,doc:'Ajuste de inventário: '+L.lista+(L.tipo==='extra'?' · item fora da lista':''),saldo:saldoOf(L.obra,L.code),invId:L.key,invModo:L.modoEf});
+    marcas.push({...L,mov:mid});
+  }
+  return marcas;
+}
+async function invSalvar(label){
+  const {error}=await sb.rpc('save_estado',{p_key:KEY,p_value:state,p_label:label});
+  if(error){ console.error(error); toast('Erro ao salvar: '+error.message,'err'); return false; }
+  cacheState(); refreshBadge(); return true;
+}
+async function refreshInvBadge(){ if(!isEncarregado())return; const b=$('#navBadgeInv'); if(!b)return;
+  try{ const a=await sb.from('contagem_itens').select('id',{count:'exact',head:true}).eq('status','aprovado');
+    const e=await sb.from('contagem_extras').select('id',{count:'exact',head:true}).eq('status','aprovado');
+    const n=(a.count||0)+(e.count||0); if(n){b.textContent=n;b.style.display='';}else b.style.display='none';
+  }catch(x){ b.style.display='none'; } }
+async function renderInventario(){
+  if(!isEncarregado()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito a encarregados/administradores.</div></div>'; return; }
+  $('#view').innerHTML='<div class="panel"><div class="muted">Carregando ajustes da contagem...</div></div>';
+  try{ invRows=await invCarregar(); }
+  catch(e){ $('#view').innerHTML='<div class="panel"><h3>Inventário</h3><p class="desc">Não consegui ler as tabelas da contagem ('+esc(e.message)+'). Confira se os arquivos SQL da contagem cíclica foram executados neste projeto.</p></div>'; return; }
+  invDraw(); refreshInvBadge();
+}
+function invDraw(){
+  const linhas=invCalcLote(invRows.filter(r=>podeAprovarObra(r.obra)));
+  if(!linhas.length){ $('#view').innerHTML='<div class="panel"><h3>Inventário</h3><p class="desc">Nenhum ajuste aguardando autorização. Os ajustes aparecem aqui depois que o encarregado aprova as divergências e os itens fora da lista na tela de <b>Revisão</b> da contagem.</p><button class="btn ghost sm" onclick="renderInventario()">Atualizar</button></div>'; return; }
+  const grupos={}; linhas.forEach(l=>(grupos[l.ciclo.id]=grupos[l.ciclo.id]||[]).push(l));
+  const marcados=linhas.filter(l=>!l.erro&&invSel[l.key]!==false);
+  const mono="font-family:'IBM Plex Mono',monospace";
+  let h='<div class="panel"><h3>Inventário · autorizar e lançar</h3><p class="desc">Ajustes aprovados na contagem cíclica. Ao autorizar, o saldo é alterado, cada linha vira um movimento de <b>ajuste</b> na auditoria e os produtos novos são cadastrados. Confira o <b>saldo atual</b>: se ele mudou desde a contagem, escolha como aplicar.</p>'
+    +'<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><button class="btn primary" onclick="invLancar()"'+(marcados.length?'':' disabled')+'>Autorizar e lançar '+marcados.length+' selecionado(s)</button><button class="btn ghost sm" onclick="renderInventario()">Atualizar</button></div></div>';
+  Object.values(grupos).forEach(g=>{
+    const c=g[0].ciclo;
+    h+='<div class="panel" style="padding:0;overflow:hidden"><div style="padding:14px 18px;border-bottom:1px solid #e4dfd4"><b>'+esc(c.nome)+'</b> <span class="muted">· '+esc(c.obra_nome||obraName(c.obra_id))+'</span></div><div class="tbl-wrap" style="border:none;border-radius:0"><table><thead><tr><th></th><th>Tipo</th><th>Código</th><th>Descrição</th><th class="num">Na contagem</th><th class="num">Agora</th><th class="num">Contado</th><th class="num">Novo saldo</th><th class="num">Diferença</th><th>Observação</th></tr></thead><tbody>';
+    g.forEach(l=>{
+      const ok=!l.erro, marc=ok&&invSel[l.key]!==false, k=esc(l.key);
+      const tipo=l.tipo==='item'?'Divergência':(l.criar?'Produto novo':'Fora da lista');
+      let obs='';
+      if(l.erro)obs='<span class="pill low">'+esc(l.erro)+'</span>';
+      else{
+        if(l.jaLancado)obs+='<span class="pill tr">Já lançado antes; só falta marcar</span> ';
+        if(l.criar)obs+='<span class="pill tr">Será cadastrado'+(l.code?'':' (código gerado)')+'</span> ';
+        if(l.tipo==='item'&&l.mudou)obs+='<div class="pill high" style="margin-bottom:4px">Saldo mudou desde a contagem ('+numf(l.snapshot)+' → '+numf(l.atual)+')</div><br><select onchange="invSetModo(\''+k+'\',this.value)" style="max-width:260px"><option value="diferenca"'+(l.modoEf==='diferenca'?' selected':'')+'>Aplicar a diferença contada ('+((l.contado-l.snapshot)>0?'+':'')+numf(l.contado-l.snapshot)+') ao saldo atual</option><option value="definir"'+(l.modoEf==='definir'?' selected':'')+'>Definir o saldo como '+numf(l.contado)+'</option></select>';
+        if(l.tipo==='extra')obs+='<span class="muted" style="font-size:12px">'+(l.modoEf==='somar'?'soma ao saldo':'define o saldo')+'</span>';
+      }
+      const dcls=!ok||!l.delta?'':(l.delta<0?'neg':'pos');
+      h+='<tr><td><input type="checkbox" '+(marc?'checked ':'')+(ok?'':'disabled ')+'onchange="invToggle(\''+k+'\',this.checked)"></td><td>'+tipo+'</td><td style="'+mono+'">'+esc(l.code||'(a gerar)')+'</td><td>'+esc(l.desc)+'</td>'
+        +'<td class="num">'+(l.tipo==='item'?numf(l.snapshot):'—')+'</td><td class="num">'+(ok||l.atual!=null?numf(l.atual):'—')+'</td><td class="num">'+numf(l.contado)+' '+esc(l.unit)+'</td>'
+        +'<td class="num"><b>'+(ok?numf(l.novo):'—')+'</b></td><td class="num '+dcls+'">'+(ok?((l.delta>0?'+':'')+numf(l.delta)):'—')+'</td><td>'+obs+'</td></tr>';
+    });
+    h+='</tbody></table></div></div>';
+  });
+  $('#view').innerHTML=h;
+}
+function invToggle(key,v){ invSel[key]=!!v; invDraw(); }
+function invSetModo(key,v){ invModo[key]=v; invDraw(); }
+function invLancar(){
+  const linhas=invCalcLote(invRows.filter(r=>podeAprovarObra(r.obra)&&invSel[r.key]!==false)).filter(l=>!l.erro);
+  if(!linhas.length){ toast('Nenhum ajuste selecionado.','err'); return; }
+  const novos=linhas.filter(l=>l.criar).length;
+  requireSupervisor('Autorizar e lançar '+linhas.length+' ajuste(s) de inventário no estoque'+(novos?' ('+novos+' produto(s) novo(s))':''),async()=>{
+    const bak=JSON.stringify(state);
+    // recalcula no momento da confirmação (o estado pode ter mudado enquanto o aviso estava aberto)
+    const atuais=invCalcLote(linhas).filter(l=>!l.erro);
+    const marcas=invAplicar(atuais);
+    const mudouEstado=marcas.some(m=>!m.ja&&!m.semMov);
+    if(mudouEstado){
+      toast('Salvando...','warn');
+      const ok=await invSalvar('Ajuste de inventário: '+marcas.length+' item(ns) · '+[...new Set(atuais.map(l=>l.lista))].join(', '));
+      if(!ok){ state=JSON.parse(bak); toast('O estoque não foi alterado. Tente novamente.','err'); invDraw(); return; }
+    }
+    const agora=new Date().toISOString(); let falhas=0;
+    for(const m of marcas){
+      const patch={status:'ajustado',ajustado_por:session.user.id,ajustado_em:agora,mov_id:m.mov||null}; let tab;
+      if(m.tipo==='item'){ tab='contagem_itens'; patch.novo_saldo=m.novo; patch.modo_ajuste=m.modoEf; }
+      else{ tab='contagem_extras'; if(m.code)patch.code_final=m.code; }
+      const {data,error}=await sb.from(tab).update(patch).eq('id',m.rowId).eq('status','aprovado').select('id');
+      if(error||!data||!data.length)falhas++;
+    }
+    if(falhas)toast('Estoque ajustado, mas '+falhas+' linha(s) não foram marcadas como lançadas. Abra o Inventário e repita: nada será lançado em duplicidade.','warn');
+    else toast('Ajustes de inventário lançados e salvos.','ok');
+    await renderInventario();
+  });
+}
 
 function reqStatusLabel(s){ return {pendente:'Pendente',aprovada:'Aprovada',rejeitada:'Rejeitada',cancelada:'Cancelada',em_separacao:'Em separação',aguardando_compra:'Aguardando compra',separado:'Separado',embalado:'Embalado',romaneio_emitido:'Romaneio emitido',faturado:'Faturado',embarcado:'Embarcado (despacho)',retirado:'Retirado (interna)',recebido:'Recebido'}[s]||s; }
 async function cancelarRequisicao(id){ const {error}=await sb.from('requisicoes').update({status:'cancelada'}).eq('id',id); if(error){toast('Erro: '+error.message,'err');return;} toast('Requisição cancelada.','warn'); if(activeTab==='baixa')drawMinhasFrotasPendentes(); refreshAprovBadge(); refreshGlobalAlerts(); }
@@ -2152,7 +2298,7 @@ async function onAuthReady(){
   if(!session){ profile=null; drawAuthView(); showGate(); return; }
   profile=await loadProfile();
   if(!profile||!profile.ativo){ showPending(); return; }
-  hideGate(); applyRoleNav(); initNavGrps(); await load(); await loadPhotos(); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); refreshRetiradasBadge(); refreshMinhasBadge(); refreshGlobalAlerts(); updateOfflineBadge(); go('painel');
+  hideGate(); applyRoleNav(); initNavGrps(); await load(); await loadPhotos(); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); refreshRetiradasBadge(); refreshMinhasBadge(); refreshInvBadge(); refreshGlobalAlerts(); updateOfflineBadge(); go('painel');
   if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); }
 }
 sb.auth.onAuthStateChange((event,s)=>{ session=s; onAuthReady(); });
