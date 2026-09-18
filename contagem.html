@@ -1,0 +1,1080 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1E2024">
+<title>Contagem cíclica · AMETA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&family=Oswald:wght@500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --bg:#1E2024; --s1:#272A30; --s2:#30343B; --line:#3B4048; --tx:#ECEDEF; --mu:#9AA1AC;
+  --ac:#F5C433; --ac-ink:#1E2024; --ok:#62C48F; --bad:#F26D5B; --info:#7DB4E8;
+  --f-head:'Oswald','Arial Narrow',sans-serif;
+  --f-body:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --f-mono:'JetBrains Mono',ui-monospace,Consolas,monospace;
+  --nav-h:62px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.45 var(--f-body)}
+body{min-height:100dvh}
+body.has-nav{padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom))}
+body.noscroll{overflow:hidden}
+button{font:inherit;color:inherit;cursor:pointer}
+[hidden]{display:none!important}
+:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+/* topo */
+.top{position:sticky;top:0;z-index:20;background:var(--bg);border-bottom:1px solid var(--line);
+  padding:calc(10px + env(safe-area-inset-top)) 14px 10px;display:flex;align-items:center;gap:10px}
+.tt{flex:1;min-width:0}
+.tt h1{margin:0;font:600 20px/1.1 var(--f-head);letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sub{color:var(--mu);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ib{width:40px;height:40px;border-radius:10px;border:1px solid var(--line);background:var(--s1);display:grid;place-items:center}
+.sync{display:flex;align-items:center;gap:7px;height:40px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:var(--s1);font-size:13px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+.dot.w{background:var(--ac)} .dot.b{background:var(--bad)}
+
+/* estrutura */
+.pad{padding:14px 14px 24px;max-width:760px;margin:0 auto}
+h2{font:600 22px/1.15 var(--f-head);margin:6px 0 10px}
+h3{font:600 16px/1.2 var(--f-head);margin:18px 0 8px;color:var(--tx)}
+.mu{color:var(--mu)} .mono{font-family:var(--f-mono)} .sm{font-size:13px}
+.stack>*+*{margin-top:12px}
+.hr{height:1px;background:var(--line);margin:16px 0}
+
+/* botões e campos */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 16px;border-radius:10px;
+  border:1px solid var(--line);background:var(--s2);font-weight:500}
+.btn:active{filter:brightness(1.15)}
+.btn.pri{background:var(--ac);border-color:var(--ac);color:var(--ac-ink);font-weight:600}
+.btn.bad{border-color:var(--bad);color:var(--bad);background:transparent}
+.btn.grande{width:100%;min-height:56px;font-size:17px}
+.btn.peq{min-height:36px;padding:0 12px;font-size:13.5px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.inp,select.inp,textarea.inp{width:100%;min-height:44px;padding:9px 12px;border-radius:10px;border:1px solid var(--line);
+  background:var(--s1);color:var(--tx);font:inherit}
+.inp::placeholder{color:#737a86}
+label.f{display:block;font-size:13px;color:var(--mu);margin:0 0 5px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.chk{display:flex;align-items:center;gap:10px;min-height:38px}
+.chk input{width:20px;height:20px;accent-color:var(--ac)}
+
+/* chips */
+.chip{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:500;
+  background:var(--s2);color:var(--mu);white-space:nowrap}
+.chip.ok{color:var(--ok)} .chip.ac{color:var(--ac)} .chip.info{color:var(--info)} .chip.bad{color:var(--bad)}
+
+/* progresso */
+.prog{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+.prog b{font:600 22px/1 var(--f-head)}
+.bar{height:6px;border-radius:99px;background:var(--s2);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--ac);width:0;transition:width .3s}
+
+/* abas */
+.abas{display:flex;gap:6px;margin:14px 0 4px;overflow-x:auto}
+.aba{min-height:38px;padding:0 14px;border-radius:99px;border:1px solid var(--line);background:transparent;white-space:nowrap;font-size:14px}
+.aba[aria-selected=true]{background:var(--ac);border-color:var(--ac);color:var(--ac-ink);font-weight:600}
+
+/* linhas de lista */
+.rows{border-top:1px solid var(--line)}
+.row{display:flex;align-items:center;gap:12px;padding:12px 2px;border-bottom:1px solid var(--line)}
+.row.tap{cursor:pointer}
+.row.tap:active{background:var(--s1)}
+.rmain{flex:1;min-width:0}
+.rcode{font:500 13px/1.2 var(--f-mono);color:var(--ac)}
+.rdesc{font-size:15px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.rside{text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.qtd{font:600 20px/1 var(--f-head)}
+.vazio{padding:28px 6px;text-align:center;color:var(--mu)}
+
+/* folha de contagem */
+.folha{position:fixed;inset:0;z-index:50;display:flex;align-items:flex-end;background:rgba(0,0,0,.6)}
+.folha .pn{width:100%;max-height:92dvh;overflow:auto;background:var(--s1);border-radius:18px 18px 0 0;border-top:1px solid var(--line);
+  padding:18px 16px calc(16px + env(safe-area-inset-bottom));max-width:560px;margin:0 auto}
+.folha .fd{font-size:17px;font-weight:600;line-height:1.3}
+.big{width:100%;background:transparent;border:0;border-bottom:3px solid var(--ac);color:var(--tx);text-align:center;
+  font:600 72px/1.1 var(--f-head);padding:6px 0;margin:10px 0 2px;border-radius:0}
+.big:focus{outline:none;border-bottom-color:#fff}
+.prev{text-align:center;color:var(--mu);min-height:20px;font-size:13px}
+.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}
+.steps .btn{min-height:48px;font-size:17px;font-weight:600}
+
+/* scanner */
+.scan{position:fixed;inset:0;z-index:60;background:#000}
+.scan video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#scanFb{position:absolute;inset:0;display:grid;place-items:center}
+.ret{position:absolute;left:50%;top:44%;width:min(78vw,420px);height:min(34vw,190px);transform:translate(-50%,-50%);
+  border:2px solid var(--ac);border-radius:14px;box-shadow:0 0 0 100vmax rgba(0,0,0,.45);pointer-events:none}
+.scan .bt{position:absolute;top:calc(14px + env(safe-area-inset-top));left:14px;right:14px;display:flex;justify-content:space-between}
+.scan .ib{background:rgba(30,32,36,.85)}
+.scan .dica{position:absolute;bottom:calc(28px + env(safe-area-inset-bottom));left:0;right:0;text-align:center;color:#fff;font-size:14px;padding:0 24px}
+
+/* nav inferior */
+.nav{position:fixed;left:0;right:0;bottom:0;z-index:20;height:calc(var(--nav-h) + env(safe-area-inset-bottom));
+  padding-bottom:env(safe-area-inset-bottom);background:var(--s1);border-top:1px solid var(--line);display:flex}
+.nav button{flex:1;border:0;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  color:var(--mu);font-size:12px}
+.nav button[aria-current=page]{color:var(--ac);font-weight:600}
+
+/* popover e toast */
+.pop{position:fixed;z-index:70;top:calc(58px + env(safe-area-inset-top));right:12px;width:min(340px,calc(100vw - 24px));max-height:70dvh;overflow:auto;
+  background:var(--s1);border:1px solid var(--line);border-radius:12px;padding:14px;box-shadow:0 12px 40px rgba(0,0,0,.5)}
+.toast{position:fixed;z-index:80;left:50%;transform:translateX(-50%);bottom:calc(var(--nav-h) + 18px + env(safe-area-inset-bottom));
+  max-width:min(92vw,520px);padding:11px 16px;border-radius:10px;background:#fff;color:#1E2024;font-weight:500;font-size:14px;
+  box-shadow:0 8px 30px rgba(0,0,0,.5)}
+.toast.bad{background:var(--bad);color:#1b0c09}
+.toast.ok{background:var(--ok);color:#0b1f14}
+
+/* revisão */
+.sumario{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.sumario .chip{font-size:13px;padding:4px 11px}
+.rv{padding:14px 2px;border-bottom:1px solid var(--line)}
+.rv-h{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-bottom:8px}
+.rv-h .rdesc{flex-basis:100%;-webkit-line-clamp:3}
+.nums{display:flex;flex-wrap:wrap;gap:6px 22px}
+.nums div{min-width:64px}
+.nums small{display:block;color:var(--mu);font-size:12px}
+.nums b{font:600 19px/1.2 var(--f-head)}
+.neg{color:var(--bad)} .pos{color:var(--info)}
+.aviso{margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(245,196,51,.12);color:var(--ac);font-size:13px}
+.acoes{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
+.acoes .inp{width:110px;min-height:40px}
+.erro-box{padding:12px;border:1px solid var(--bad);border-radius:10px;color:var(--bad);font-size:14px}
+.barra-acoes{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+@media (prefers-reduced-motion:reduce){.bar i{transition:none}}
+@media (min-width:700px){.big{font-size:88px}}
+</style>
+</head>
+<body>
+<header id="top" class="top" hidden></header>
+<main id="view"></main>
+<nav id="nav" class="nav" hidden></nav>
+
+<div id="folha" class="folha" hidden></div>
+<div id="scanner" class="scan" hidden>
+  <video id="scanVideo" playsinline muted></video>
+  <div id="scanFb"></div>
+  <div class="ret"></div>
+  <div class="bt">
+    <button class="ib" data-act="scan-fechar" aria-label="Fechar câmera"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    <button class="ib" id="btnTorch" data-act="scan-lanterna" aria-label="Lanterna" hidden><svg class="i" viewBox="0 0 24 24"><path d="M13 2L5 14h6l-1 8 8-12h-6z"/></svg></button>
+  </div>
+  <div class="dica">Aponte para o código de barras ou QR da etiqueta</div>
+</div>
+<div id="pop" class="pop" hidden></div>
+<div id="toast" class="toast" hidden></div>
+
+<script>
+'use strict';
+
+/* =====================================================================
+   CONFIGURAÇÃO
+   ===================================================================== */
+const SUPABASE_URL = 'https://qjmqburjyqlgwjihvlgp.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqbXFidXJqeXFsZ3dqaWh2bGdwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4NzU0NzIsImV4cCI6MjEwNDQ1MTQ3Mn0.cOdmVw3W0HCilACqZIVFMCwsr6zxA0g_3CreKIuk9kw';  // anon key (pública) do projeto "Estoque"; a proteção real é o RLS
+const APP_KV_KEY   = 'controle-estoque-obras-v1';      // linha de app_kv com o estado do almoxarifado
+
+/* =====================================================================
+   ADAPTADOR DO ESTADO DO ALMOXARIFADO (app_kv)
+   Único ponto que conhece o formato do JSON do sistema de estoque.
+   Se o formato for diferente do esperado, o botão "Copiar diagnóstico"
+   (tela Nova lista) gera um resumo para ajustar só estas funções.
+   ===================================================================== */
+function lerObras(v){
+  const o = v && v.obras; let arr = [];
+  if (Array.isArray(o)) arr = o;
+  else if (o && typeof o === 'object') arr = Object.entries(o).map(([k,x]) => ({ id:k, ...(x||{}) }));
+  return arr.map(x => ({ id:String(x.id ?? x.codigo ?? x.cod ?? ''), nome:String(x.nome ?? x.name ?? x.desc ?? x.id ?? '') }))
+            .filter(x => x.id);
+}
+function lerProdutos(v){
+  const p = v && v.products; let arr = [];
+  if (Array.isArray(p)) arr = p;
+  else if (p && typeof p === 'object') arr = Object.entries(p).map(([k,x]) => ({ code:k, ...(x||{}) }));
+  return arr.filter(x => x && x.ativo !== false && x.inativo !== true).map(x => ({
+    code : String(x.code ?? x.codigo ?? '').trim(),
+    desc : String(x.desc ?? x.descricao ?? x.nome ?? ''),
+    unit : String(x.unit ?? x.un ?? x.unidade ?? ''),
+    aux  : String(x.aux ?? '').trim(),
+    ref  : String(x.ref ?? '').trim(),
+    min  : Number(x.min) || 0,
+    grupo: String(x.grupo ?? x.group ?? x.categoria ?? x.cat ?? '').trim()
+  })).filter(x => x.code);
+}
+/* retorna número, ou null se o item não existe no estoque da obra */
+function lerSaldo(v, obraId, code){
+  const e = v && v.estoque; if (!e || typeof e !== 'object') return null;
+  let x;
+  if (Array.isArray(e)) {
+    x = e.find(r => String(r.obra ?? r.obraId ?? r.obra_id) === String(obraId) && String(r.code ?? r.codigo) === String(code));
+  } else if (e[obraId] && typeof e[obraId] === 'object' && code in e[obraId]) {
+    x = e[obraId][code];
+  } else if (e[code] && typeof e[code] === 'object' && obraId in e[code]) {
+    x = e[code][obraId];
+  } else return null;
+  if (x && typeof x === 'object') x = x.saldo ?? x.qty ?? x.qtd ?? x.quantidade ?? x.q;
+  const n = Number(x);
+  return Number.isFinite(n) ? n : null;
+}
+
+/* =====================================================================
+   UTILITÁRIOS
+   ===================================================================== */
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const nf = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 3 });
+const fmt = n => (n === null || n === undefined || n === '') ? '—' : nf.format(Number(n));
+const fmtDif = n => n > 0 ? '+' + nf.format(n) : nf.format(n);
+const fmtData = iso => iso ? new Date(iso).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit' }) : '';
+const fmtDataHora = iso => iso ? new Date(iso).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : '';
+const uuid = () => (crypto.randomUUID ? crypto.randomUUID() :
+  'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random()*16|0; return (c === 'x' ? r : (r&3|8)).toString(16); }));
+function parseNum(s){
+  s = String(s ?? '').trim().replace(/\s/g, '');
+  if (!s) return NaN;
+  if (s.includes(',') && s.includes('.')) s = s.replace(/\./g, '').replace(',', '.'); else s = s.replace(',', '.');
+  return /^\d*\.?\d+$/.test(s) ? Number(s) : NaN;
+}
+const LS = {
+  get(k, d = null){ try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } }
+};
+function setPath(path, val){
+  const p = path.split('.'); let o = S;
+  for (let i = 0; i < p.length - 1; i++) o = (o[p[i]] ??= {});
+  o[p[p.length - 1]] = val;
+}
+function shuffle(a){ for (let i = a.length - 1; i > 0; i--) { const j = Math.random()*(i+1)|0; [a[i], a[j]] = [a[j], a[i]]; } return a; }
+async function buscarTudo(mk){
+  const out = []; const step = 1000;
+  for (let from = 0; ; from += step) {
+    const { data, error } = await mk().range(from, from + step - 1);
+    if (error) throw error;
+    out.push(...data);
+    if (data.length < step) break;
+  }
+  return out;
+}
+let toastT;
+function toast(msg, tipo = ''){
+  const t = $('#toast'); t.textContent = msg; t.className = 'toast ' + tipo; t.hidden = false;
+  clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, tipo === 'bad' ? 5000 : 2800);
+}
+let actx;
+function beep(ok = true){
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.frequency.value = ok ? 1040 : 260; g.gain.value = 0.08;
+    o.connect(g); g.connect(actx.destination); o.start(); o.stop(actx.currentTime + (ok ? 0.09 : 0.25));
+  } catch {}
+  try { navigator.vibrate && navigator.vibrate(ok ? 40 : [60, 40, 60]); } catch {}
+}
+const ICO = {
+  camera:'<path d="M4 8h3l2-2h6l2 2h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/>',
+  contar:'<path d="M9 4h6v3H9z"/><path d="M7 5H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2"/><path d="M8 13l3 3 5-6"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  rev:'<path d="M4 6h10M4 12h10M4 18h6"/><path d="M16 17l2 2 4-5"/>',
+  back:'<path d="M15 5l-7 7 7 7"/>',
+  user:'<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/>',
+  refresh:'<path d="M20 11a8 8 0 0 0-14-4M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14 4M20 20v-4h-4"/>'
+};
+const ico = n => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICO[n]}</svg>`;
+
+/* =====================================================================
+   ESTADO
+   ===================================================================== */
+const S = {
+  user:null, perfil:null, gestor:false, podeContar:false,
+  tela:'login',
+  ciclos:[], ciclo:null, itens:[], meus:[], aba:'aContar', busca:'',
+  continuo: LS.get('contagem_continuo', true),
+  folha:null,
+  blob:null,
+  nova:{ obraId:'', grupo:'', ordem:'antigos', qtd:'20', soSaldo:true, soMinimo:false, ignorarAbertas:true,
+         previa:[], nome:'', tol:'0', outro:true, obs:'', busca:'', obras:[], produtos:[], estado:'idle', erro:'' },
+  rev:{ ciclos:[], id:'', itens:[], filtro:'em_analise', carregando:false }
+};
+const FILA_K = 'contagem_fila_v1', ERROS_K = 'contagem_erros_v1';
+const Fila = { ler: () => LS.get(FILA_K, []), gravar(v){ if (!LS.set(FILA_K, v)) toast('Sem espaço no aparelho para guardar contagens. Envie a fila.', 'bad'); } };
+const cacheK = k => `contagem_cache_v1:${S.user ? S.user.id : 'anon'}:${k}`;
+const cacheSet = (k, v) => LS.set(cacheK(k), v);
+const cacheGet = k => LS.get(cacheK(k));
+const deviceId = (() => { let d = LS.get('contagem_device'); if (!d) { d = uuid().slice(0, 8); LS.set('contagem_device', d); } return d; })();
+
+const ST = { pendente:['Pendente',''], recontagem:['Recontagem','ac'], conferido:['Conferido','ok'],
+             em_analise:['Em análise','info'], aprovado:['Aprovado','ok'], ajustado:['Ajustado',''] };
+const chipSt = s => { const [l, c] = ST[s] || [s, '']; return `<span class="chip ${c}">${l}</span>`; };
+
+let sb = null;
+
+/* =====================================================================
+   INÍCIO / LOGIN
+   ===================================================================== */
+async function boot(){
+  if (SUPABASE_KEY.startsWith('COLE_AQUI')) { S.tela = 'config'; return render(); }
+  if (!window.supabase) { S.tela = 'semlib'; return render(); }
+  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  sb.auth.onAuthStateChange(ev => { if (ev === 'SIGNED_OUT') { S.user = null; S.tela = 'login'; render(); } });
+  const { data } = await sb.auth.getSession();
+  if (data && data.session) await iniciarSessao(data.session.user); else render();
+}
+async function iniciarSessao(user){
+  S.user = user;
+  let perfil = null;
+  try {
+    const { data, error } = await sb.from('profiles').select('id,nome,email,papel,ativo,setor,obras_vinculadas').eq('id', user.id).single();
+    if (error) throw error;
+    perfil = data; cacheSet('perfil', data);
+  } catch { perfil = cacheGet('perfil'); }
+  if (!perfil) { toast('Não foi possível carregar seu perfil. Verifique a conexão.', 'bad'); await sb.auth.signOut(); return; }
+  if (perfil.ativo === false) { toast('Usuário desativado. Fale com o administrador.', 'bad'); await sb.auth.signOut(); return; }
+  S.perfil = perfil;
+  S.gestor = ['admin', 'encarregado'].includes(perfil.papel);
+  S.podeContar = S.gestor || perfil.setor === 'almoxarifado';
+  S.tela = 'contar';
+  render();
+  await carregarCiclos();
+  sync();
+}
+async function entrar(email, senha){
+  const btn = $('#btnEntrar'); btn.disabled = true; btn.textContent = 'Entrando…';
+  const { data, error } = await sb.auth.signInWithPassword({ email, password: senha });
+  if (error) { btn.disabled = false; btn.textContent = 'Entrar'; return toast('E-mail ou senha incorretos', 'bad'); }
+  await iniciarSessao(data.user);
+}
+async function sair(){
+  const pend = Fila.ler().length;
+  if (pend && !confirm(`Há ${pend} contagem(ns) que ainda não foram enviadas. Sair mesmo assim? Elas continuam guardadas neste aparelho.`)) return;
+  $('#pop').hidden = true;
+  await sb.auth.signOut();
+}
+
+/* =====================================================================
+   RENDER
+   ===================================================================== */
+function render(){
+  renderTopo();
+  const v = $('#view');
+  switch (S.tela) {
+    case 'config': v.innerHTML = `<div class="pad"><h2>Falta configurar</h2><p class="mu">Abra o arquivo <span class="mono">contagem.html</span> e preencha <span class="mono">SUPABASE_KEY</span> com a anon key do projeto Estoque.</p></div>`; break;
+    case 'semlib': v.innerHTML = `<div class="pad"><h2>Sem conexão com o servidor de scripts</h2><p class="mu">Não consegui carregar a biblioteca do Supabase. Verifique a internet e recarregue a página.</p></div>`; break;
+    case 'login':  v.innerHTML = htmlLogin(); break;
+    case 'contar': v.innerHTML = htmlHome(); break;
+    case 'ciclo':  v.innerHTML = htmlCiclo(); renderListaCiclo(); break;
+    case 'nova':   v.innerHTML = htmlNova(); break;
+    case 'revisao':v.innerHTML = htmlRevisao(); break;
+  }
+  renderNav();
+}
+function renderTopo(){
+  const t = $('#top');
+  if (!S.user || ['login', 'config', 'semlib'].includes(S.tela)) { t.hidden = true; return; }
+  t.hidden = false;
+  const pend = Fila.ler().length, err = LS.get(ERROS_K, []).length;
+  let titulo = 'Contagem cíclica', sub = S.perfil ? S.perfil.nome || S.user.email : '';
+  if (S.tela === 'ciclo' && S.ciclo) { titulo = S.ciclo.nome; sub = S.ciclo.obra_nome || S.ciclo.obra_id; }
+  if (S.tela === 'nova') titulo = 'Nova lista';
+  if (S.tela === 'revisao') titulo = 'Revisão';
+  const on = navigator.onLine;
+  const chip = !on ? ['b', 'Sem conexão'] : err ? ['b', `${err} com erro`] : pend ? ['w', `${pend} na fila`] : ['', 'Sincronizado'];
+  t.innerHTML = `${S.tela === 'ciclo' ? `<button class="ib" data-act="voltar" aria-label="Voltar">${ico('back')}</button>` : ''}
+    <div class="tt"><h1>${esc(titulo)}</h1><div class="sub">${esc(sub)}</div></div>
+    <button class="sync" data-act="pop-sync" aria-label="Estado da sincronização"><span class="dot ${chip[0]}"></span>${chip[1]}</button>
+    <button class="ib" data-act="pop-user" aria-label="Usuário">${ico('user')}</button>`;
+}
+function renderNav(){
+  const n = $('#nav');
+  const mostrar = S.user && S.gestor && ['contar', 'ciclo', 'nova', 'revisao'].includes(S.tela);
+  n.hidden = !mostrar; document.body.classList.toggle('has-nav', !!mostrar);
+  if (!mostrar) return;
+  const cur = S.tela === 'ciclo' ? 'contar' : S.tela;
+  const b = (id, ic, l) => `<button data-act="nav" data-to="${id}" ${cur === id ? 'aria-current="page"' : ''}>${ico(ic)}<span>${l}</span></button>`;
+  n.innerHTML = b('contar', 'contar', 'Contar') + b('nova', 'plus', 'Nova lista') + b('revisao', 'rev', 'Revisão');
+}
+
+/* ---------- login / home ---------- */
+function htmlLogin(){
+  return `<div class="pad" style="padding-top:12vh">
+    <h2 style="font-size:30px">Contagem cíclica</h2>
+    <p class="mu" style="margin-top:0">Entre com o mesmo usuário do sistema de estoque.</p>
+    <form id="formLogin" class="stack" autocomplete="on">
+      <div><label class="f" for="lg-e">E-mail</label><input class="inp" id="lg-e" type="email" autocomplete="username" required></div>
+      <div><label class="f" for="lg-s">Senha</label><input class="inp" id="lg-s" type="password" autocomplete="current-password" required></div>
+      <button class="btn pri grande" id="btnEntrar" type="submit">Entrar</button>
+    </form></div>`;
+}
+function htmlHome(){
+  if (!S.podeContar) return `<div class="pad"><h2>Sem permissão para contar</h2><p class="mu">Seu usuário precisa ser do setor almoxarifado ou ter papel de encarregado/admin. Fale com o administrador do sistema.</p></div>`;
+  const rows = S.ciclos.map(c => `<div class="row tap" data-act="abrir-ciclo" data-id="${esc(c.id)}">
+      <div class="rmain"><div class="rdesc"><b>${esc(c.nome)}</b></div>
+      <div class="sub">${esc(c.obra_nome || c.obra_id)} · criada em ${fmtData(c.criado_em)}${c.criado_por_nome ? ' por ' + esc(c.criado_por_nome) : ''}</div></div>
+      <div class="rside">${c.recontagem_outro_contador ? '<span class="chip">Recontagem por outro</span>' : ''}</div></div>`).join('');
+  return `<div class="pad">
+    <div style="display:flex;align-items:center;justify-content:space-between"><h2>Listas para contar</h2>
+    <button class="btn peq" data-act="recarregar-ciclos">${ico('refresh')} Atualizar</button></div>
+    ${rows ? `<div class="rows">${rows}</div>` :
+      `<div class="vazio">Nenhuma lista aberta no momento.${S.gestor ? '<br>Crie uma em <b>Nova lista</b>.' : '<br>Peça ao encarregado para criar uma lista de contagem.'}</div>`}
+  </div>`;
+}
+async function carregarCiclos(){
+  try {
+    const { data, error } = await sb.from('contagem_ciclos')
+      .select('id,obra_id,obra_nome,nome,status,tolerancia_pct,recontagem_outro_contador,criado_em,criado_por_nome')
+      .eq('status', 'em_contagem').order('criado_em', { ascending: false });
+    if (error) throw error;
+    S.ciclos = data; cacheSet('ciclos', data);
+  } catch (e) {
+    S.ciclos = cacheGet('ciclos') || [];
+    if (navigator.onLine) toast('Não consegui carregar as listas: ' + (e.message || e), 'bad');
+  }
+  if (S.tela === 'contar') render();
+}
+
+/* ---------- tela de contagem ---------- */
+async function abrirCiclo(id){
+  S.ciclo = S.ciclos.find(c => c.id === id); if (!S.ciclo) return;
+  S.aba = 'aContar'; S.busca = ''; S.tela = 'ciclo';
+  S.itens = cacheGet('itens:' + id) || []; S.meus = cacheGet('meus:' + id) || [];
+  render();
+  await carregarItens();
+}
+async function carregarItens(){
+  const id = S.ciclo && S.ciclo.id; if (!id) return;
+  try {
+    const itens = await buscarTudo(() => sb.from('contagem_itens_cego').select('*').eq('ciclo_id', id).order('code'));
+    const meus  = await buscarTudo(() => sb.from('contagem_registros').select('code,quantidade,rodada,criado_em')
+                    .eq('ciclo_id', id).eq('contador', S.user.id).order('criado_em').order('id'));
+    if (!S.ciclo || S.ciclo.id !== id) return;
+    S.itens = itens; S.meus = meus; cacheSet('itens:' + id, itens); cacheSet('meus:' + id, meus);
+  } catch (e) {
+    if (!S.itens.length) toast('Sem dados desta lista. Conecte-se uma vez para baixá-la.', 'bad');
+  }
+  if (S.tela === 'ciclo') renderListaCiclo();
+}
+function htmlCiclo(){
+  return `<section class="pad">
+    <div class="prog"><span class="mu sm" id="progT"></span><b id="progN"></b></div>
+    <div class="bar"><i id="progB"></i></div>
+    <div style="margin:14px 0 10px"><button class="btn pri grande" data-act="scan">${ico('camera')} Escanear código</button></div>
+    <input id="busca" class="inp" type="search" placeholder="Buscar por código ou descrição" value="${esc(S.busca)}" autocomplete="off">
+    <div class="abas" id="abas" role="tablist"></div>
+    <div id="lista"></div>
+  </section>`;
+}
+function calcEstados(){
+  const idx = {};
+  for (const r of S.meus) (idx[r.code] ??= []).push({ ...r, fila:false });
+  for (const f of Fila.ler()) if (f.row.ciclo_id === S.ciclo.id) (idx[f.row.code] ??= []).push({ ...f.row, fila:true });
+  const out = { aContar:[], contados:[], espera:[] };
+  for (const it of S.itens) {
+    const regs = idx[it.code] || [];
+    const aberto = it.status === 'pendente' || it.status === 'recontagem';
+    const atual = regs.find(r => r.rodada === it.rodada_atual);
+    const anterior = regs.some(r => r.rodada < it.rodada_atual);
+    let est;
+    if (!aberto || atual) est = 'contados';
+    else if (S.ciclo.recontagem_outro_contador && anterior) est = 'espera';
+    else est = 'aContar';
+    const ultimo = regs.slice().sort((a, b) => String(a.criado_em).localeCompare(String(b.criado_em))).pop();
+    out[est].push({ it, ultimo, noFila: regs.some(r => r.fila && r.rodada === it.rodada_atual) });
+  }
+  return out;
+}
+function renderListaCiclo(){
+  if (S.tela !== 'ciclo' || !S.ciclo) return;
+  const E = calcEstados(), total = S.itens.length;
+  const feitos = total - E.aContar.length;
+  $('#progT').textContent = total ? `${feitos} de ${total} itens contados` : 'Baixando itens…';
+  $('#progN').textContent = total ? Math.round(feitos / total * 100) + '%' : '';
+  $('#progB').style.width = total ? (feitos / total * 100) + '%' : '0';
+  const abas = [['aContar', 'A contar'], ['contados', 'Contados'], ['espera', 'Aguardando outro contador']]
+    .filter(a => a[0] !== 'espera' || E.espera.length);
+  $('#abas').innerHTML = abas.map(([k, l]) => `<button class="aba" role="tab" aria-selected="${S.aba === k}" data-act="aba" data-aba="${k}">${l} (${E[k].length})</button>`).join('');
+  const q = S.busca.trim().toLowerCase();
+  let lista = E[S.aba] || E.aContar;
+  if (q) lista = lista.filter(({ it }) => [it.code, it.descricao, it.aux, it.ref].some(x => String(x || '').toLowerCase().includes(q)));
+  const MAX = 150, corte = lista.length > MAX;
+  const html = lista.slice(0, MAX).map(({ it, ultimo, noFila }) => {
+    const unid = esc(it.unidade || '');
+    let lado = '';
+    if (S.aba === 'aContar') lado = it.status === 'recontagem' ? '<span class="chip ac">Recontagem</span>' : '';
+    else if (S.aba === 'contados') lado = ultimo
+      ? `<span class="qtd">${fmt(ultimo.quantidade)} <small class="mu" style="font:400 12px var(--f-body)">${unid}</small></span>` +
+        (noFila ? '<span class="chip ac">Na fila · toque p/ editar</span>' : '<span class="chip ok">Enviado</span>')
+      : '<span class="chip">Concluído por outro</span>';
+    else lado = '<span class="chip">Outro contador</span>';
+    const tap = S.aba === 'aContar' || noFila || S.aba === 'espera';
+    return `<div class="row ${tap ? 'tap' : ''}" data-act="abrir-item" data-code="${esc(it.code)}">
+      <div class="rmain"><div class="rcode">${esc(it.code)}</div><div class="rdesc">${esc(it.descricao)}</div></div>
+      <div class="rside">${lado}</div></div>`;
+  }).join('');
+  $('#lista').innerHTML = html
+    ? `<div class="rows">${html}</div>${corte ? `<div class="vazio">Mostrando ${MAX} de ${lista.length}. Use a busca para achar o resto.</div>` : ''}`
+    : `<div class="vazio">${!total ? '' : q ? 'Nada encontrado com essa busca.' : S.aba === 'aContar' ? 'Tudo contado por você nesta lista.' : 'Nada por aqui ainda.'}</div>`;
+}
+/* normalização para leitura de código de barras */
+const norm = s => String(s ?? '').trim().toUpperCase();
+const normNum = s => /^\d+$/.test(s) ? s.replace(/^0+/, '') : s;
+function acharItem(txt){
+  const tokens = [txt];
+  if (/^\s*\{/.test(txt)) { try { const j = JSON.parse(txt); tokens.push(j.code, j.codigo, j.cod); } catch {} }
+  tokens.push(...String(txt).split(/[|;\r\n\t]+/));
+  for (const tk of tokens.filter(Boolean)) {
+    const k = normNum(norm(tk));
+    const it = S.itens.find(i => [i.code, i.aux, i.ref].some(x => x && normNum(norm(x)) === k));
+    if (it) return it;
+  }
+  return null;
+}
+function tratarItem(it){
+  const E = calcEstados();
+  const e = E.aContar.find(x => x.it.code === it.code) ? 'aContar'
+          : E.espera.find(x => x.it.code === it.code) ? 'espera'
+          : (E.contados.find(x => x.it.code === it.code) || {}).noFila ? 'editar' : 'contado';
+  if (e === 'aContar' || e === 'editar') return abrirFolha(it);
+  beep(false);
+  if (e === 'espera') toast('Esta recontagem precisa ser feita por outro contador.', 'bad');
+  else toast('Este item já foi contado. Se precisar corrigir, peça uma recontagem ao encarregado.', 'bad');
+  return false;
+}
+
+/* ---------- folha de contagem ---------- */
+function abrirFolha(it){
+  const f = $('#folha');
+  const naFila = Fila.ler().find(x => x.row.ciclo_id === S.ciclo.id && x.row.code === it.code && x.row.rodada === it.rodada_atual);
+  S.folha = { it, edit: !!naFila };
+  f.innerHTML = `<div class="pn" role="dialog" aria-modal="true" aria-label="Registrar contagem">
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+      <span class="rcode">${esc(it.code)}</span>
+      ${it.rodada_atual > 1 ? '<span class="chip ac">Recontagem</span>' : ''}${naFila ? '<span class="chip">Editando</span>' : ''}
+      <span class="mu sm" style="margin-left:auto">${esc(it.unidade || '')}</span></div>
+    <div class="fd">${esc(it.descricao)}</div>
+    ${it.rodada_atual > 1 ? '<div class="mu sm" style="margin-top:6px">Conte de novo, do zero, sem se basear na contagem anterior.</div>' : ''}
+    <input id="fq" class="big" type="text" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Quantidade contada">
+    <div class="prev" id="fprev"></div>
+    <div class="steps">
+      <button class="btn" data-act="step" data-d="-1">−1</button><button class="btn" data-act="step" data-d="1">+1</button>
+      <button class="btn" data-act="step" data-d="5">+5</button><button class="btn" data-act="step" data-d="10">+10</button>
+    </div>
+    <input id="fobs" class="inp" type="text" placeholder="Observação (opcional): avaria, local, etc." maxlength="200" style="margin-bottom:12px">
+    <div class="grid2"><button class="btn" data-act="folha-cancelar">Cancelar</button>
+    <button class="btn pri" data-act="folha-ok">Confirmar</button></div></div>`;
+  f.hidden = false; document.body.classList.add('noscroll');
+  const inp = $('#fq');
+  if (naFila) { inp.value = String(naFila.row.quantidade).replace('.', ','); $('#fobs').value = naFila.row.obs || ''; }
+  atualizarPrev();
+  setTimeout(() => { inp.focus(); inp.select(); }, 60);
+}
+function atualizarPrev(){
+  const p = $('#fprev'); if (!p || !S.folha) return;
+  const v = parseNum($('#fq').value), u = S.folha.it.unidade || '';
+  p.textContent = $('#fq').value.trim() === '' ? '' : Number.isFinite(v) ? `${fmt(v)} ${u}` : 'Número inválido';
+}
+function fecharFolha(reabrir){
+  $('#folha').hidden = true; document.body.classList.remove('noscroll'); S.folha = null;
+  if (reabrir && S.continuo && S.tela === 'ciclo') setTimeout(abrirScanner, 250);
+}
+function confirmarFolha(){
+  const it = S.folha.it, q = parseNum($('#fq').value);
+  if (!Number.isFinite(q) || q < 0) { beep(false); return toast('Digite uma quantidade válida (use 0 se não há nada no local).', 'bad'); }
+  const obs = $('#fobs').value.trim() || null;
+  const row = { id: uuid(), ciclo_id: S.ciclo.id, code: it.code, quantidade: q, rodada: it.rodada_atual,
+    contador: S.user.id, contador_nome: (S.perfil && S.perfil.nome) || S.user.email, obs, device_id: deviceId, criado_em: new Date().toISOString() };
+  const fila = Fila.ler();
+  const i = fila.findIndex(f => f.row.ciclo_id === row.ciclo_id && f.row.code === row.code && f.row.rodada === row.rodada);
+  if (i >= 0) { fila[i].row.quantidade = q; fila[i].row.obs = obs; } else fila.push({ row });
+  Fila.gravar(fila);
+  beep(true);
+  fecharFolha(true);
+  renderTopo(); renderListaCiclo();
+  sync();
+}
+
+/* ---------- scanner ---------- */
+const Scan = { ativo:false, stream:null, det:null, timer:0, h5:null, ultimo:'', ultimoT:0 };
+function carregarScript(src){
+  return new Promise((ok, no) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => no(new Error('script')); document.head.appendChild(s); });
+}
+async function abrirScanner(){
+  if (Scan.ativo || S.tela !== 'ciclo') return;
+  Scan.ativo = true; $('#scanner').hidden = false; document.body.classList.add('noscroll');
+  $('#scanVideo').hidden = false; $('#scanFb').hidden = true; $('#btnTorch').hidden = true;
+  try {
+    if ('BarcodeDetector' in window) {
+      let formats = ['ean_13', 'ean_8', 'code_128', 'code_39', 'code_93', 'itf', 'upc_a', 'upc_e', 'codabar', 'qr_code', 'data_matrix'];
+      try { const sup = await BarcodeDetector.getSupportedFormats(); formats = formats.filter(f => sup.includes(f)); } catch {}
+      Scan.det = new BarcodeDetector({ formats });
+      Scan.stream = await navigator.mediaDevices.getUserMedia({ audio:false, video:{ facingMode:{ ideal:'environment' }, width:{ ideal:1280 }, height:{ ideal:720 } } });
+      const v = $('#scanVideo'); v.srcObject = Scan.stream; await v.play();
+      try { const cap = Scan.stream.getVideoTracks()[0].getCapabilities(); if (cap && cap.torch) $('#btnTorch').hidden = false; } catch {}
+      loopDetect();
+    } else {
+      $('#scanVideo').hidden = true; $('#scanFb').hidden = false;
+      await carregarScript('https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js');
+      Scan.h5 = new Html5Qrcode('scanFb');
+      await Scan.h5.start({ facingMode:'environment' }, { fps:10, qrbox:{ width:280, height:160 } }, txt => aoLer(txt), () => {});
+    }
+  } catch (e) {
+    await fecharScanner();
+    toast('Não consegui abrir a câmera. Permita o acesso nas configurações do navegador ou use a busca.', 'bad');
+  }
+}
+async function loopDetect(){
+  if (!Scan.ativo || !Scan.det) return;
+  const v = $('#scanVideo');
+  try { if (v.readyState >= 2) { const r = await Scan.det.detect(v); if (r.length) { aoLer(r[0].rawValue); return; } } } catch {}
+  Scan.timer = setTimeout(loopDetect, 120);
+}
+async function fecharScanner(){
+  Scan.ativo = false; clearTimeout(Scan.timer);
+  if (Scan.stream) { Scan.stream.getTracks().forEach(t => t.stop()); Scan.stream = null; }
+  if (Scan.h5) { try { await Scan.h5.stop(); Scan.h5.clear(); } catch {} Scan.h5 = null; }
+  $('#scanVideo').srcObject = null; $('#scanner').hidden = true;
+  if (!S.folha) document.body.classList.remove('noscroll');
+}
+let torchOn = false;
+async function lanterna(){
+  try { torchOn = !torchOn; await Scan.stream.getVideoTracks()[0].applyConstraints({ advanced:[{ torch:torchOn }] }); } catch { toast('Lanterna indisponível neste aparelho.'); }
+}
+async function aoLer(txt){
+  const agora = Date.now();
+  if (txt === Scan.ultimo && agora - Scan.ultimoT < 1500) return;
+  Scan.ultimo = txt; Scan.ultimoT = agora;
+  await fecharScanner();
+  const it = acharItem(txt);
+  if (!it) {
+    beep(false); toast(`O código ${String(txt).slice(0, 40)} não está nesta lista.`, 'bad');
+    if (S.continuo) setTimeout(abrirScanner, 900);
+    return;
+  }
+  if (tratarItem(it) === false && S.continuo) setTimeout(abrirScanner, 1200);
+}
+
+/* ---------- fila offline e sincronização ---------- */
+let sincronizando = false;
+async function sync(){
+  if (sincronizando || !navigator.onLine || !S.user || !sb) return;
+  const fila = Fila.ler(); if (!fila.length) return;
+  sincronizando = true;
+  const feitos = new Set(); const novosErros = []; let enviados = 0;
+  for (const f of fila) {
+    const { error } = await sb.from('contagem_registros').insert(f.row);
+    if (!error || error.code === '23505') { feitos.add(f.row.id); enviados++; continue; }
+    const cod = error.code || '', msg = error.message || '';
+    if ((!cod && /fetch|network|failed|load/i.test(msg)) || cod === 'PGRST301' || /JWT/i.test(msg)) break;
+    feitos.add(f.row.id);
+    novosErros.push({ ...f, codigo: cod, erro: cod === '42501' ? 'Lista encerrada ou sem permissão' : cod === '23503' ? 'Item não existe mais na lista' : msg, em: new Date().toISOString() });
+  }
+  Fila.gravar(Fila.ler().filter(f => !feitos.has(f.row.id)));
+  if (novosErros.length) LS.set(ERROS_K, LS.get(ERROS_K, []).concat(novosErros));
+  sincronizando = false;
+  if (enviados) toast(`${enviados} contagem(ns) enviada(s)`, 'ok');
+  if (novosErros.length) toast(`${novosErros.length} contagem(ns) não foram aceitas. Toque no aviso no topo.`, 'bad');
+  if (enviados && S.ciclo && S.tela === 'ciclo') await carregarItens();
+  renderTopo();
+  if (S.tela === 'ciclo') renderListaCiclo();
+}
+
+/* ---------- popovers ---------- */
+function popSync(){
+  const p = $('#pop'); if (!p.hidden && p.dataset.k === 'sync') { p.hidden = true; return; }
+  const fila = Fila.ler(), erros = LS.get(ERROS_K, []);
+  p.dataset.k = 'sync';
+  p.innerHTML = `<div class="stack">
+    <div><b>${navigator.onLine ? 'Conectado' : 'Sem conexão'}</b><div class="mu sm">${fila.length ? `${fila.length} contagem(ns) aguardando envio` : 'Tudo enviado'}</div></div>
+    ${fila.length && navigator.onLine ? `<button class="btn pri" data-act="sync-agora">Enviar agora</button>` : ''}
+    ${erros.length ? `<div class="hr"></div><b style="color:var(--bad)">Não aceitas pelo servidor</b>` +
+      erros.map((e, i) => `<div class="sm"><span class="rcode">${esc(e.row.code)}</span> · ${fmt(e.row.quantidade)}<br><span class="mu">${esc(e.erro)}</span></div>`).join('') +
+      `<button class="btn peq" data-act="erros-limpar">Descartar</button>` : ''}
+    </div>`;
+  p.hidden = false;
+}
+function popUser(){
+  const p = $('#pop'); if (!p.hidden && p.dataset.k === 'user') { p.hidden = true; return; }
+  p.dataset.k = 'user';
+  const pf = S.perfil || {};
+  p.innerHTML = `<div class="stack"><div><b>${esc(pf.nome || S.user.email)}</b>
+    <div class="mu sm">${esc(pf.papel || '')}${pf.setor ? ' · ' + esc(pf.setor) : ''}</div></div>
+    <label class="chk"><input type="checkbox" id="chkCont" ${S.continuo ? 'checked' : ''}> Leitura contínua (reabre a câmera após cada item)</label>
+    <button class="btn bad" data-act="sair">Sair</button></div>`;
+  p.hidden = false;
+}
+
+/* =====================================================================
+   GESTOR · NOVA LISTA
+   ===================================================================== */
+async function carregarBlob(){
+  const { data, error } = await sb.from('app_kv').select('value').eq('key', APP_KV_KEY).maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error('Estado do almoxarifado não encontrado em app_kv');
+  let v = data.value; if (typeof v === 'string') v = JSON.parse(v);
+  S.blob = v; return v;
+}
+async function irNova(){
+  S.tela = 'nova'; const n = S.nova; n.estado = 'carregando'; n.erro = ''; render();
+  try {
+    await carregarBlob();
+    let obras = lerObras(S.blob);
+    if (S.perfil.papel !== 'admin') { const vinc = (S.perfil.obras_vinculadas || []).map(String); obras = obras.filter(o => vinc.includes(o.id)); }
+    n.obras = obras; n.produtos = lerProdutos(S.blob);
+    if (!obras.find(o => o.id === n.obraId)) n.obraId = obras[0] ? obras[0].id : '';
+    n.estado = obras.length && n.produtos.length ? 'pronto' : 'vazio';
+    if (n.estado === 'vazio') n.erro = !obras.length ? 'Nenhuma obra liberada para o seu usuário (ou o formato de obras não foi reconhecido).' : 'Nenhum produto reconhecido no estado do almoxarifado.';
+    if (!n.nome) n.nome = nomePadrao();
+  } catch (e) { n.estado = 'erro'; n.erro = e.message || String(e); }
+  if (S.tela === 'nova') render();
+}
+const nomePadrao = () => 'Ciclo ' + new Date().toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit' });
+function htmlNova(){
+  const n = S.nova;
+  if (n.estado === 'carregando') return `<div class="pad"><div class="vazio">Carregando dados do almoxarifado…</div></div>`;
+  if (n.estado === 'erro' || n.estado === 'vazio') return `<div class="pad stack"><div class="erro-box">${esc(n.erro)}</div>
+    <button class="btn" data-act="nova-recarregar">Tentar de novo</button>
+    <button class="btn" data-act="diag">Copiar diagnóstico do formato dos dados</button></div>`;
+  const grupos = [...new Set(n.produtos.map(p => p.grupo).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const obraOpts = n.obras.map(o => `<option value="${esc(o.id)}" ${o.id === n.obraId ? 'selected' : ''}>${esc(o.nome)}</option>`).join('');
+  const ordOpts = [['antigos', 'Há mais tempo sem contar'], ['aleatorio', 'Aleatório'], ['codigo', 'Código']]
+    .map(([v, l]) => `<option value="${v}" ${n.ordem === v ? 'selected' : ''}>${l}</option>`).join('');
+  const previa = n.previa.length ? htmlPrevia() : '';
+  return `<div class="pad">
+    <h2>Escolher itens</h2>
+    <div class="stack">
+      <div><label class="f" for="n-obra">Obra</label><select id="n-obra" class="inp" data-bind="nova.obraId">${obraOpts}</select></div>
+      ${grupos.length ? `<div><label class="f" for="n-grupo">Grupo</label><select id="n-grupo" class="inp" data-bind="nova.grupo">
+        <option value="">Todos os grupos</option>${grupos.map(g => `<option ${g === n.grupo ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></div>` : ''}
+      <div class="grid2">
+        <div><label class="f" for="n-ord">Prioridade</label><select id="n-ord" class="inp" data-bind="nova.ordem">${ordOpts}</select></div>
+        <div><label class="f" for="n-qtd">Quantos itens</label><input id="n-qtd" class="inp" type="number" min="1" max="500" inputmode="numeric" value="${esc(n.qtd)}" data-bind="nova.qtd"></div>
+      </div>
+      <label class="chk"><input type="checkbox" data-bind="nova.soSaldo" ${n.soSaldo ? 'checked' : ''}> Somente itens com saldo maior que zero</label>
+      <label class="chk"><input type="checkbox" data-bind="nova.soMinimo" ${n.soMinimo ? 'checked' : ''}> Somente itens abaixo do estoque mínimo</label>
+      <label class="chk"><input type="checkbox" data-bind="nova.ignorarAbertas" ${n.ignorarAbertas ? 'checked' : ''}> Pular itens que já estão em outra lista aberta</label>
+      <button class="btn pri grande" data-act="nova-previa" ${n.estado === 'gerando' ? 'disabled' : ''}>${n.estado === 'gerando' ? 'Montando…' : 'Montar prévia'}</button>
+    </div>
+    ${previa}
+  </div>`;
+}
+function htmlPrevia(){
+  const n = S.nova, sel = n.previa.filter(p => p.sel).length;
+  const rows = n.previa.map(p => `<label class="row" style="cursor:pointer">
+      <input type="checkbox" style="width:22px;height:22px;accent-color:var(--ac)" data-act="nova-sel" data-code="${esc(p.code)}" ${p.sel ? 'checked' : ''}>
+      <div class="rmain"><div class="rcode">${esc(p.code)}</div><div class="rdesc">${esc(p.desc)}</div></div>
+      <div class="rside"><span class="qtd">${fmt(p.saldo)}</span><span class="sub">${p.ultima ? 'contado em ' + fmtData(p.ultima) : 'nunca contado'}</span></div></label>`).join('');
+  const q = n.busca.trim().toLowerCase();
+  const naPrevia = new Set(n.previa.map(p => p.code));
+  const achados = q.length >= 2 ? n.produtos.filter(p => !naPrevia.has(p.code) && [p.code, p.desc, p.aux].some(x => String(x).toLowerCase().includes(q))).slice(0, 6) : [];
+  return `<div class="hr"></div><h2>Prévia da lista</h2>
+    <div class="mu sm">Saldo do sistema neste momento. Desmarque o que não quiser contar.</div>
+    <div class="rows" style="margin-top:8px">${rows}</div>
+    <h3>Adicionar item</h3>
+    <input id="n-busca" class="inp" type="search" placeholder="Código ou descrição" value="${esc(n.busca)}" autocomplete="off">
+    <div id="n-achados">${htmlAchados(achados)}</div>
+    <div class="hr"></div>
+    <div class="stack">
+      <div><label class="f" for="n-nome">Nome da lista</label><input id="n-nome" class="inp" value="${esc(n.nome)}" data-bind="nova.nome" maxlength="80"></div>
+      <div><label class="f" for="n-tol">Tolerância de diferença (%)</label>
+        <input id="n-tol" class="inp" type="number" min="0" step="0.5" inputmode="decimal" value="${esc(n.tol)}" data-bind="nova.tol">
+        <div class="mu sm" style="margin-top:4px">Com 0, qualquer diferença gera recontagem. Com 5, diferenças de até 5% vão direto para sua análise.</div></div>
+      <label class="chk"><input type="checkbox" data-bind="nova.outro" ${n.outro ? 'checked' : ''}> A recontagem deve ser feita por outro contador</label>
+      <div><label class="f" for="n-obs">Observação (opcional)</label><input id="n-obs" class="inp" value="${esc(n.obs)}" data-bind="nova.obs" maxlength="200"></div>
+      <button class="btn pri grande" data-act="nova-criar" ${sel ? '' : 'disabled'}>Criar lista com ${sel} ${sel === 1 ? 'item' : 'itens'}</button>
+    </div>`;
+}
+const htmlAchados = a => a.map(p => `<div class="row tap" data-act="nova-add" data-code="${esc(p.code)}">
+  <div class="rmain"><div class="rcode">${esc(p.code)}</div><div class="rdesc">${esc(p.desc)}</div></div><div class="rside"><span class="chip ac">Adicionar</span></div></div>`).join('');
+
+async function gerarPrevia(){
+  const n = S.nova, obra = n.obras.find(o => o.id === n.obraId);
+  if (!obra) return toast('Escolha a obra', 'bad');
+  const qtd = Math.max(1, Math.min(500, parseInt(n.qtd) || 20));
+  n.estado = 'gerando'; render();
+  try {
+    await carregarBlob(); n.produtos = lerProdutos(S.blob);
+    let cand = n.produtos.map(p => ({ ...p, saldo: lerSaldo(S.blob, obra.id, p.code) }));
+    if (cand.length && cand.every(c => c.saldo === null)) {
+      n.estado = 'erro'; n.erro = 'Não consegui ler os saldos no estado do almoxarifado (formato de "estoque" não reconhecido). Use o diagnóstico abaixo para ajustar o adaptador.';
+      return render();
+    }
+    cand.forEach(c => { if (c.saldo === null) c.saldo = 0; });
+    if (n.grupo) cand = cand.filter(c => c.grupo === n.grupo);
+    if (n.soSaldo) cand = cand.filter(c => c.saldo > 0);
+    if (n.soMinimo) cand = cand.filter(c => c.min > 0 && c.saldo < c.min);
+    if (n.ignorarAbertas) { const ab = await itensEmListasAbertas(obra.id); cand = cand.filter(c => !ab.has(c.code)); }
+    const ult = await ultimasContagens(obra.id);
+    cand.forEach(c => { c.ultima = ult[c.code] || null; });
+    if (n.ordem === 'codigo') cand.sort((a, b) => a.code.localeCompare(b.code, 'pt-BR', { numeric:true }));
+    else { shuffle(cand); if (n.ordem === 'antigos') cand.sort((a, b) => (a.ultima ? Date.parse(a.ultima) : 0) - (b.ultima ? Date.parse(b.ultima) : 0)); }
+    n.previa = cand.slice(0, qtd).map(c => ({ ...c, sel: true }));
+    n.estado = 'pronto'; n.busca = '';
+    if (!n.previa.length) toast('Nenhum item atende aos filtros escolhidos.', 'bad');
+  } catch (e) { n.estado = 'pronto'; toast('Erro ao montar a prévia: ' + (e.message || e), 'bad'); }
+  render();
+}
+async function itensEmListasAbertas(obraId){
+  const { data, error } = await sb.from('contagem_ciclos').select('id').eq('obra_id', obraId).eq('status', 'em_contagem');
+  if (error) throw error;
+  if (!data.length) return new Set();
+  const ids = data.map(c => c.id);
+  const itens = await buscarTudo(() => sb.from('contagem_itens').select('code').in('ciclo_id', ids).order('id'));
+  return new Set(itens.map(i => i.code));
+}
+async function ultimasContagens(obraId){
+  try {
+    const rows = await buscarTudo(() => sb.from('contagem_ultima').select('code,ultima').eq('obra_id', obraId).order('code'));
+    return Object.fromEntries(rows.map(r => [r.code, r.ultima]));
+  } catch { return {}; }
+}
+async function criarLista(){
+  const n = S.nova, obra = n.obras.find(o => o.id === n.obraId), sel = n.previa.filter(p => p.sel);
+  if (!obra || !sel.length) return;
+  const tol = parseNum(n.tol); if (n.tol !== '' && !Number.isFinite(tol)) return toast('Tolerância inválida', 'bad');
+  const btn = $('[data-act="nova-criar"]'); if (btn) { btn.disabled = true; btn.textContent = 'Criando…'; }
+  const { data, error } = await sb.rpc('contagem_criar_ciclo', {
+    p_ciclo: { obra_id: obra.id, obra_nome: obra.nome, nome: n.nome.trim() || nomePadrao(), tolerancia_pct: Number.isFinite(tol) ? tol : 0,
+               recontagem_outro_contador: !!n.outro, observacao: n.obs.trim() },
+    p_itens: sel.map(p => ({ code: p.code, descricao: p.desc, unidade: p.unit, aux: p.aux, ref: p.ref, saldo_sistema: p.saldo }))
+  });
+  if (error) { toast('Não foi possível criar a lista: ' + error.message, 'bad'); return render(); }
+  toast(`Lista criada com ${sel.length} itens`, 'ok');
+  n.previa = []; n.nome = ''; n.busca = '';
+  await carregarCiclos();
+  S.rev.id = data; await irRevisao();
+}
+async function diagnostico(){
+  const v = S.blob; if (!v) { try { await carregarBlob(); } catch (e) { return toast('Não consegui ler app_kv: ' + e.message, 'bad'); } }
+  const am = x => { try { const arr = Array.isArray(x) ? x.slice(0, 2) : Object.entries(x || {}).slice(0, 2); return JSON.stringify(arr).slice(0, 700); } catch { return String(x); } };
+  const txt = `DIAGNÓSTICO contagem.html\nchaves: ${Object.keys(S.blob || {}).join(', ')}\nobras: ${am(S.blob.obras)}\nproducts: ${am(S.blob.products)}\nestoque: ${am(S.blob.estoque)}`;
+  try { await navigator.clipboard.writeText(txt); toast('Diagnóstico copiado. Cole na conversa.', 'ok'); }
+  catch { prompt('Copie o texto abaixo:', txt); }
+}
+
+/* =====================================================================
+   GESTOR · REVISÃO
+   ===================================================================== */
+async function irRevisao(){
+  S.tela = 'revisao'; S.rev.carregando = true; render();
+  try {
+    const { data, error } = await sb.from('contagem_ciclos').select('*').order('criado_em', { ascending:false }).limit(40);
+    if (error) throw error;
+    S.rev.ciclos = data;
+    if (!data.find(c => c.id === S.rev.id)) S.rev.id = data[0] ? data[0].id : '';
+  } catch (e) { toast('Erro ao carregar listas: ' + (e.message || e), 'bad'); }
+  await carregarRevItens();
+}
+async function carregarRevItens(){
+  const r = S.rev; r.carregando = true;
+  if (!r.id) { r.itens = []; r.carregando = false; return render(); }
+  try {
+    r.itens = await buscarTudo(() => sb.from('contagem_itens').select('*').eq('ciclo_id', r.id).order('code'));
+    try { await carregarBlob(); } catch { S.blob = null; }
+    const cont = r.itens.reduce((a, i) => (a[i.status] = (a[i.status] || 0) + 1, a), {});
+    if (!r._filtroManual) r.filtro = cont.em_analise ? 'em_analise' : 'todos';
+  } catch (e) { toast('Erro ao carregar itens: ' + (e.message || e), 'bad'); }
+  r.carregando = false; if (S.tela === 'revisao') render();
+}
+const cicloRev = () => S.rev.ciclos.find(c => c.id === S.rev.id);
+const labelCiclo = s => ({ em_contagem:'em contagem', fechada:'encerrada', cancelada:'cancelada' }[s] || s);
+function htmlRevisao(){
+  const r = S.rev, c = cicloRev();
+  const opts = r.ciclos.map(x => `<option value="${esc(x.id)}" ${x.id === r.id ? 'selected' : ''}>${esc(x.nome)} · ${esc(x.obra_nome || x.obra_id)} · ${labelCiclo(x.status)}</option>`).join('');
+  if (r.carregando && !r.itens.length) return `<div class="pad"><div class="vazio">Carregando…</div></div>`;
+  if (!c) return `<div class="pad"><h2>Revisão</h2><div class="vazio">Nenhuma lista encontrada. Crie uma em <b>Nova lista</b>.</div></div>`;
+  const cont = r.itens.reduce((a, i) => (a[i.status] = (a[i.status] || 0) + 1, a), {});
+  const total = r.itens.length, contadosR1 = total - (cont.pendente || 0);
+  const confR1 = r.itens.filter(i => i.status === 'conferido' && i.rodada_atual === 1).length;
+  const acur = contadosR1 ? Math.round(confR1 / contadosR1 * 100) : null;
+  const aberta = c.status === 'em_contagem';
+  const sumario = ['pendente', 'recontagem', 'em_analise', 'conferido', 'aprovado', 'ajustado']
+    .filter(s => cont[s]).map(s => `<span class="chip ${ST[s][1]}">${ST[s][0]}: ${cont[s]}</span>`).join('');
+  const filtros = [['todos', 'Todos'], ['em_analise', 'Em análise'], ['recontagem', 'Recontagem'], ['pendente', 'Pendentes'], ['conferido', 'Conferidos'], ['aprovado', 'Aprovados'], ['ajustado', 'Ajustados']]
+    .map(([v, l]) => `<option value="${v}" ${r.filtro === v ? 'selected' : ''}>${l}</option>`).join('');
+  const lista = r.itens.filter(i => r.filtro === 'todos' || i.status === r.filtro);
+  const semConf = r.itens.filter(i => i.status === 'em_analise' && !i.conflito).length;
+  const aprov = r.itens.filter(i => i.status === 'aprovado').length;
+  return `<div class="pad">
+    <label class="f" for="rv-c">Lista</label>
+    <select id="rv-c" class="inp" data-bind="rev.id" data-rerender="rev-carregar">${opts}</select>
+    <div class="mu sm" style="margin-top:6px">${esc(c.obra_nome || c.obra_id)} · criada em ${fmtDataHora(c.criado_em)} · tolerância ${fmt(c.tolerancia_pct)}%${c.recontagem_outro_contador ? ' · recontagem por outro contador' : ''}</div>
+    <div class="sumario">${sumario || '<span class="chip">Sem itens</span>'}${acur !== null ? `<span class="chip ok">Acuracidade na 1ª contagem: ${acur}%</span>` : ''}</div>
+    <div class="barra-acoes">
+      <button class="btn peq" data-act="rev-atualizar">${ico('refresh')} Atualizar</button>
+      ${aberta && semConf ? `<button class="btn peq pri" data-act="rev-aprovar-todos">Aprovar ${semConf} sem conflito</button>` : ''}
+      <button class="btn peq" data-act="rev-csv">Exportar ajustes (CSV)</button>
+      ${aberta && aprov ? `<button class="btn peq" data-act="rev-ajustados">Marcar ${aprov} aprovados como ajustados</button>` : ''}
+      ${aberta ? `<button class="btn peq" data-act="rev-encerrar">Encerrar lista</button><button class="btn peq bad" data-act="rev-cancelar">Cancelar lista</button>` : ''}
+    </div>
+    <label class="f" for="rv-f">Mostrar</label>
+    <select id="rv-f" class="inp" data-bind="rev.filtro" data-rerender="rev-filtro">${filtros}</select>
+    <div class="rows" style="margin-top:12px">${lista.map(i => htmlRevItem(i, aberta)).join('') || ''}</div>
+    ${lista.length ? '' : '<div class="vazio">Nenhum item neste filtro.</div>'}
+  </div>`;
+}
+function htmlRevItem(i, aberta){
+  const ref = i.status === 'aprovado' || i.status === 'ajustado' ? i.qtd_final : i.qtd_contada;
+  const dif = ref === null || ref === undefined ? null : Number(ref) - Number(i.saldo_sistema);
+  const atual = S.blob ? lerSaldo(S.blob, cicloRev().obra_id, i.code) : null;
+  const mudou = atual !== null && Math.abs(atual - Number(i.saldo_sistema)) > 1e-9;
+  return `<div class="rv">
+    <div class="rv-h"><span class="rcode">${esc(i.code)}</span>${chipSt(i.status)}
+      ${i.rodada_atual > 1 ? `<span class="chip">${i.rodada_atual}ª rodada</span>` : ''}
+      ${i.conflito ? '<span class="chip bad">Contagens conflitantes</span>' : ''}
+      <span class="rdesc">${esc(i.descricao)}</span></div>
+    <div class="nums">
+      <div><small>Sistema</small><b>${fmt(i.saldo_sistema)}</b></div>
+      ${i.qtd_anterior !== null && i.qtd_anterior !== undefined && i.status !== 'conferido' ? `<div><small>Contagem anterior</small><b>${fmt(i.qtd_anterior)}</b></div>` : ''}
+      <div><small>${i.status === 'aprovado' || i.status === 'ajustado' ? 'Aprovado' : 'Contado'}</small><b>${fmt(ref)}</b></div>
+      ${dif !== null ? `<div><small>Diferença</small><b class="${dif < 0 ? 'neg' : dif > 0 ? 'pos' : ''}">${dif === 0 ? '0' : fmtDif(dif)}</b></div>` : ''}
+    </div>
+    ${mudou && i.status !== 'ajustado' ? `<div class="aviso">O saldo do sistema mudou desde a abertura da lista: era ${fmt(i.saldo_sistema)}, agora é ${fmt(atual)}. Confira se houve baixa ou entrada durante a contagem.</div>` : ''}
+    ${aberta && i.status === 'em_analise' ? `<div class="acoes">
+      <input class="inp" id="qf-${esc(i.id)}" inputmode="decimal" value="${esc(String(i.qtd_contada ?? '').replace('.', ','))}" aria-label="Quantidade final">
+      <button class="btn peq pri" data-act="rev-aprovar" data-id="${esc(i.id)}">Aprovar</button>
+      <button class="btn peq" data-act="rev-recontar" data-id="${esc(i.id)}">Pedir recontagem</button></div>` : ''}
+  </div>`;
+}
+async function atualizarItens(filtro, patch, okMsg){
+  const { data, error } = await filtro(sb.from('contagem_itens').update(patch)).select('id');
+  if (error) return toast('Erro: ' + error.message, 'bad');
+  if (!data.length) toast('Nada foi alterado (o item mudou de estado ou você não tem permissão).', 'bad');
+  else if (okMsg) toast(okMsg.replace('{n}', data.length), 'ok');
+  await carregarRevItens();
+}
+function exportarCsv(){
+  const c = cicloRev();
+  const rows = S.rev.itens.filter(i => ['aprovado', 'ajustado'].includes(i.status) && Number(i.qtd_final) !== Number(i.saldo_sistema));
+  if (!rows.length) return toast('Não há ajustes aprovados para exportar.', 'bad');
+  const cel = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const linhas = [['obra', 'lista', 'codigo', 'descricao', 'unidade', 'saldo_sistema', 'novo_saldo', 'diferenca', 'status'].join(';')]
+    .concat(rows.map(i => [c.obra_nome || c.obra_id, c.nome, i.code, i.descricao, i.unidade, i.saldo_sistema, i.qtd_final, Number(i.qtd_final) - Number(i.saldo_sistema), i.status]
+      .map((v, k) => k >= 5 && k <= 7 ? String(v).replace('.', ',') : cel(v)).join(';')));
+  const blob = new Blob(['\ufeff' + linhas.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `ajustes_${String(c.obra_nome || c.obra_id).replace(/[^\w]+/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+/* =====================================================================
+   AÇÕES (delegação de eventos)
+   ===================================================================== */
+const ACT = {
+  'nav'(el){ const to = el.dataset.to; if (to === 'contar') { S.tela = 'contar'; render(); carregarCiclos(); } else if (to === 'nova') irNova(); else irRevisao(); },
+  'voltar'(){ fecharScanner(); S.tela = 'contar'; S.ciclo = null; render(); carregarCiclos(); },
+  'recarregar-ciclos'(){ carregarCiclos(); },
+  'abrir-ciclo'(el){ abrirCiclo(el.dataset.id); },
+  'aba'(el){ S.aba = el.dataset.aba; renderListaCiclo(); },
+  'abrir-item'(el){ const it = S.itens.find(i => i.code === el.dataset.code); if (it) tratarItem(it); },
+  'scan'(){ abrirScanner(); },
+  'scan-fechar'(){ fecharScanner(); },
+  'scan-lanterna'(){ lanterna(); },
+  'step'(el){ const inp = $('#fq'), v = parseNum(inp.value), base = Number.isFinite(v) ? v : 0;
+    inp.value = String(Math.max(0, +(base + Number(el.dataset.d)).toFixed(6))).replace('.', ','); atualizarPrev(); inp.focus(); },
+  'folha-ok'(){ confirmarFolha(); },
+  'folha-cancelar'(){ fecharFolha(true); },
+  'pop-sync'(){ popSync(); },
+  'pop-user'(){ popUser(); },
+  'sync-agora'(){ $('#pop').hidden = true; sync(); },
+  'erros-limpar'(){ LS.set(ERROS_K, []); $('#pop').hidden = true; renderTopo(); },
+  'sair'(){ sair(); },
+  'nova-recarregar'(){ irNova(); },
+  'diag'(){ diagnostico(); },
+  'nova-previa'(){ gerarPrevia(); },
+  'nova-sel'(el){ const p = S.nova.previa.find(x => x.code === el.dataset.code); if (p) { p.sel = el.checked; render(); } },
+  'nova-add'(el){
+    const n = S.nova, p = n.produtos.find(x => x.code === el.dataset.code), obra = n.obras.find(o => o.id === n.obraId);
+    if (!p || !obra) return;
+    const s = lerSaldo(S.blob, obra.id, p.code);
+    n.previa.push({ ...p, saldo: s === null ? 0 : s, ultima: null, sel: true }); n.busca = ''; render();
+  },
+  'nova-criar'(){ criarLista(); },
+  'rev-carregar'(){ S.rev._filtroManual = false; carregarRevItens(); },
+  'rev-filtro'(){ S.rev._filtroManual = true; render(); },
+  'rev-atualizar'(){ carregarRevItens(); },
+  'rev-aprovar'(el){
+    const it = S.rev.itens.find(i => i.id === el.dataset.id), q = parseNum(($('#qf-' + CSS.escape(el.dataset.id)) || {}).value);
+    if (!it || !Number.isFinite(q) || q < 0) return toast('Informe a quantidade final.', 'bad');
+    atualizarItens(b => b.eq('id', it.id).eq('status', 'em_analise'),
+      { status: 'aprovado', qtd_final: q, aprovado_por: S.user.id, aprovado_em: new Date().toISOString() },
+      'Item aprovado');
+  },
+  'rev-recontar'(el){
+    const it = S.rev.itens.find(i => i.id === el.dataset.id); if (!it) return;
+    atualizarItens(b => b.eq('id', it.id).eq('status', 'em_analise'),
+      { status: 'recontagem', rodada_atual: it.rodada_atual + 1, qtd_anterior: it.qtd_contada, conflito: false, qtd_final: null },
+      'Recontagem solicitada');
+  },
+  'rev-aprovar-todos'(){
+    const itens = S.rev.itens.filter(i => i.status === 'em_analise' && !i.conflito);
+    if (!confirm(`Aprovar ${itens.length} itens usando a quantidade contada de cada um?`)) return;
+    // um update por item (a quantidade final é a contada de cada item)
+    Promise.all(itens.map(i => sb.from('contagem_itens')
+      .update({ status: 'aprovado', qtd_final: i.qtd_contada, aprovado_por: S.user.id, aprovado_em: new Date().toISOString() })
+      .eq('id', i.id).eq('status', 'em_analise').select('id')))
+      .then(rs => { const ok = rs.filter(x => !x.error && x.data && x.data.length).length; toast(`${ok} de ${itens.length} aprovados`, ok === itens.length ? 'ok' : 'bad'); carregarRevItens(); });
+  },
+  'rev-ajustados'(){
+    if (!confirm('Marcar os itens aprovados como ajustados? Faça isso depois de lançar os ajustes no sistema de estoque.')) return;
+    atualizarItens(b => b.eq('ciclo_id', S.rev.id).eq('status', 'aprovado'), { status: 'ajustado' }, '{n} itens marcados como ajustados');
+  },
+  'rev-csv'(){ exportarCsv(); },
+  async 'rev-encerrar'(){
+    const abertos = S.rev.itens.filter(i => ['pendente', 'recontagem'].includes(i.status)).length;
+    if (!confirm(abertos ? `Ainda há ${abertos} itens sem contagem concluída. Encerrar mesmo assim?` : 'Encerrar esta lista?')) return;
+    const { error } = await sb.from('contagem_ciclos').update({ status: 'fechada', fechado_em: new Date().toISOString() }).eq('id', S.rev.id);
+    if (error) return toast('Erro: ' + error.message, 'bad');
+    toast('Lista encerrada', 'ok'); irRevisao();
+  },
+  async 'rev-cancelar'(){
+    if (!confirm('Cancelar esta lista? As contagens feitas deixam de valer.')) return;
+    const { error } = await sb.from('contagem_ciclos').update({ status: 'cancelada', fechado_em: new Date().toISOString() }).eq('id', S.rev.id);
+    if (error) return toast('Erro: ' + error.message, 'bad');
+    toast('Lista cancelada', 'ok'); irRevisao();
+  }
+};
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-act]');
+  if (el && el.tagName !== 'LABEL' && !(el.type === 'checkbox' && e.target !== el)) { const fn = ACT[el.dataset.act]; if (fn) fn(el, e); }
+  const pop = $('#pop');
+  if (!pop.hidden && !e.target.closest('#pop') && !e.target.closest('[data-act^="pop-"]')) pop.hidden = true;
+});
+document.addEventListener('input', e => {
+  const el = e.target;
+  if (el.id === 'fq') return atualizarPrev();
+  if (el.id === 'busca') { S.busca = el.value; return renderListaCiclo(); }
+  if (el.id === 'n-busca') {
+    S.nova.busca = el.value; const q = el.value.trim().toLowerCase(), naPrevia = new Set(S.nova.previa.map(p => p.code));
+    const achados = q.length >= 2 ? S.nova.produtos.filter(p => !naPrevia.has(p.code) && [p.code, p.desc, p.aux].some(x => String(x).toLowerCase().includes(q))).slice(0, 6) : [];
+    $('#n-achados').innerHTML = htmlAchados(achados); return;
+  }
+  if (el.id === 'chkCont') { S.continuo = el.checked; LS.set('contagem_continuo', S.continuo); return; }
+  if (el.dataset.bind) setPath(el.dataset.bind, el.type === 'checkbox' ? el.checked : el.value);
+});
+document.addEventListener('change', e => {
+  const el = e.target;
+  if (el.id === 'chkCont') { S.continuo = el.checked; LS.set('contagem_continuo', S.continuo); return; }
+  if (el.dataset.bind) { setPath(el.dataset.bind, el.type === 'checkbox' ? el.checked : el.value); if (el.dataset.rerender) ACT[el.dataset.rerender](el); }
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.id === 'fq') { e.preventDefault(); confirmarFolha(); }
+  if (e.key === 'Enter' && e.target.id === 'busca') {
+    e.preventDefault(); const it = acharItem(e.target.value);
+    if (it) { e.target.value = ''; S.busca = ''; renderListaCiclo(); tratarItem(it); }
+  }
+  if (e.key === 'Escape') { if (S.folha) fecharFolha(false); else if (Scan.ativo) fecharScanner(); else $('#pop').hidden = true; }
+});
+document.addEventListener('submit', e => {
+  if (e.target.id === 'formLogin') { e.preventDefault(); entrar($('#lg-e').value.trim(), $('#lg-s').value); }
+});
+window.addEventListener('online', () => { renderTopo(); sync(); });
+window.addEventListener('offline', renderTopo);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) sync(); });
+setInterval(sync, 25000);
+boot();
+</script>
+</body>
+</html>
