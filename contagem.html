@@ -648,7 +648,11 @@ function abrirFolhaExtra(pref = {}){
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><b class="fd">Item fora da lista</b>${pref.id ? '<span class="chip">Editando</span>' : ''}</div>
     <div class="mu sm" style="margin-bottom:12px">Para material que está no local mas não aparece nesta lista nem no estoque. O encarregado analisa antes de lançar.</div>
     <div class="stack">
-      <div><label class="f" for="fx-desc">Descrição do item</label><input id="fx-desc" class="inp" maxlength="120" placeholder="Ex.: Disco de corte 7 pol" autocomplete="off"></div>
+      <div><label class="f" for="fx-desc">Descrição do item</label><input id="fx-desc" class="inp" maxlength="120" placeholder="Ex.: Disco de corte 7 pol" autocomplete="off">
+        <div style="display:flex;gap:10px;align-items:center;margin-top:8px;flex-wrap:wrap">
+          <button type="button" class="btn peq" data-act="extra-ocr">${ico('camera')} Ler da etiqueta (foto)</button>
+          <span class="mu sm" id="fx-ocr-st" role="status"></span></div>
+        <input id="fx-foto" type="file" accept="image/*" capture="environment" hidden></div>
       <div class="grid2">
         <div><label class="f" for="fx-code">Código de barras (se tiver)</label>
           <div style="display:flex;gap:8px"><input id="fx-code" class="inp mono" maxlength="60" autocomplete="off" inputmode="text">
@@ -656,6 +660,7 @@ function abrirFolhaExtra(pref = {}){
         <div><label class="f" for="fx-unid">Unidade</label><input id="fx-unid" class="inp" maxlength="10" value="UN" autocomplete="off"></div>
       </div>
     </div>
+    <div id="fx-dica" class="sug" style="margin-top:10px" hidden></div>
     <input id="fq" class="big" type="text" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Quantidade encontrada">
     <div class="prev" id="fprev"></div>
     <div class="steps">
@@ -669,6 +674,7 @@ function abrirFolhaExtra(pref = {}){
   $('#fq').value = pref.quantidade != null ? String(pref.quantidade).replace('.', ',') : ''; $('#fobs').value = pref.obs || '';
   atualizarPrev();
   setTimeout(() => { const alvo = pref.descricao ? $('#fq') : $('#fx-desc'); alvo.focus(); if (alvo.select) alvo.select(); }, 60);
+  if (pref.code_lido) preencherPorCodigo(pref.code_lido);
 }
 function confirmarExtra(){
   const desc = $('#fx-desc').value.trim(), q = parseNum($('#fq').value);
@@ -687,6 +693,120 @@ function confirmarExtra(){
   fecharFolha(true);
   renderTopo(); renderListaCiclo();
   sync();
+}
+
+/* ---------- descrição automática: código -> cadastro / contagens anteriores; etiqueta por foto (OCR) ---------- */
+const DESC_K = 'contagem_desc_cache_v1';
+function dica(msg){ const d = $('#fx-dica'); if (!d) return; d.textContent = msg || ''; d.hidden = !msg; }
+async function preencherPorCodigo(code){
+  code = String(code || '').trim();
+  if (!code || !S.folha || !S.folha.extra) return;
+  const cache = LS.get(DESC_K, {});
+  let r = cache[code];
+  if (!r && navigator.onLine && sb) {
+    try {
+      const { data, error } = await sb.rpc('contagem_descricao_por_codigo', { p_code: code });
+      if (!error && data) {
+        r = data; cache[code] = data;
+        const ks = Object.keys(cache); if (ks.length > 300) delete cache[ks[0]];
+        LS.set(DESC_K, cache);
+      }
+    } catch {}
+  }
+  const cx = $('#fx-code');
+  if (!r || !cx || cx.value.trim() !== code) return;          // sem resposta, ou o usuário já trocou o código
+  const dx = $('#fx-desc'), ux = $('#fx-unid');
+  if (dx && !dx.value.trim() && r.desc) dx.value = String(r.desc).slice(0, 120);
+  if (ux && r.unit && (!ux.value.trim() || ux.value.trim().toUpperCase() === 'UN')) ux.value = String(r.unit).slice(0, 10);
+  dica(r.origem === 'cadastro'
+    ? `Este código já existe no cadastro do estoque (${r.code}). A descrição foi preenchida; o encarregado vai vincular ao produto.`
+    : 'Descrição preenchida a partir de uma contagem anterior com este código.');
+  atualizarPrev();
+}
+const STOP_MIN = new Set(['de', 'da', 'do', 'dos', 'das', 'e', 'em', 'na', 'no', 'com', 'sem', 'por', 'para', 'a', 'o', 'ou', 'ao']);
+/* texto do OCR -> { desc, cod, score }. "words" = palavras com confiança (Tesseract); só palavras seguras contam. */
+function interpretarOcr(text, words = []){
+  const seguras = words.filter(w => w.confidence >= 70 && (String(w.text).match(/[A-Za-zÀ-ÿ]/g) || []).length >= 3).map(w => String(w.text));
+  const score = seguras.reduce((n, t) => n + (t.match(/[A-Za-zÀ-ÿ]/g) || []).length, 0);
+  const linhas = String(text || '').split(/\r?\n/).map(l => l.replace(/[|_~=*<>{}\[\]]+/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const boas = []; let cod = '';
+  for (const l of linhas) {
+    const m = l.match(/\b(\d{3,7})\s*[-–]\s*(\d)\b/);
+    if (m) { if (!cod) cod = m[1] + '-' + m[2]; if (boas.length) break; continue; }   // "13813-7": código do insumo
+    const letras = (l.match(/[A-Za-zÀ-ÿ]/g) || []).length, tot = l.replace(/\s/g, '').length;
+    const temSegura = !words.length || seguras.some(t => l.includes(t));
+    if (tot >= 5 && letras / tot >= 0.6 && /[A-Za-zÀ-ÿ]{3,}/.test(l) && temSegura) boas.push(l);
+    else if (boas.length) break;
+  }
+  let desc = boas.slice(0, 3).join(' ')
+    .replace(/([A-Za-z0-9])[!|](?=\s|$)/g, '$1l')                                  // "gl5!" -> "gl5l"
+    .replace(/(^|\s)([a-zà-ÿ]{1,2})(?=\s|$)/g, (mm, sp, w) => STOP_MIN.has(w) ? mm : sp)   // ruído solto ("ns")
+    .replace(/\s+/g, ' ').trim();
+  return { desc, cod, score };
+}
+function paraCanvas(bmp, graus, max = 1600){
+  const esc = Math.min(1, max / Math.max(bmp.width, bmp.height)), w = Math.round(bmp.width * esc), h = Math.round(bmp.height * esc);
+  const girar = graus === 90 || graus === 270, c = document.createElement('canvas');
+  c.width = girar ? h : w; c.height = girar ? w : h;
+  const x = c.getContext('2d'); try { x.filter = 'grayscale(1) contrast(1.35)'; } catch {}
+  x.translate(c.width / 2, c.height / 2); x.rotate(graus * Math.PI / 180); x.drawImage(bmp, -w / 2, -h / 2, w, h);
+  return c;
+}
+const TESS_SRC = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+const H5_SRC = 'https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js';
+let ocrWorker = null;
+async function obterOcr(){
+  if (!window.Tesseract) await carregarScript(TESS_SRC);
+  if (!ocrWorker) ocrWorker = await window.Tesseract.createWorker('por');
+  return ocrWorker;
+}
+async function barrasDoArquivo(file){
+  try {
+    if (!window.Html5Qrcode) await carregarScript(H5_SRC);
+    const h = new window.Html5Qrcode('scanFb');
+    try { return await h.scanFile(file, false); } finally { try { h.clear(); } catch {} }
+  } catch { return ''; }
+}
+async function lerEtiquetaFoto(file){
+  if (!S.folha || !S.folha.extra) return;
+  const st = t => { const e = $('#fx-ocr-st'); if (e) e.textContent = t; };
+  let bmp;
+  try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+  catch { try { bmp = await createImageBitmap(file); } catch { return toast('Não consegui abrir a foto.', 'bad'); } }
+  // 1) código de barras / QR da própria foto
+  st('Procurando o código de barras…');
+  let cod = '';
+  try { if ('BarcodeDetector' in window) { const r = await new BarcodeDetector().detect(bmp); if (r.length) cod = r[0].rawValue; } } catch {}
+  if (!cod) cod = await barrasDoArquivo(file);
+  if (cod) {
+    const et = lerEtiqueta(cod), cx = $('#fx-code');
+    if (cx && !cx.value.trim()) cx.value = (et && et.code ? et.code : String(cod).trim()).slice(0, 60);
+    if (cx && cx.value) await preencherPorCodigo(cx.value);
+  }
+  // 2) descrição pelo texto da etiqueta (só se ainda estiver vazia)
+  const dx = $('#fx-desc');
+  if (!dx || dx.value.trim()) { st(''); return; }
+  if (!navigator.onLine) { st(''); return toast('Sem internet para ler o texto da etiqueta (é preciso na primeira vez). Digite a descrição.', 'bad'); }
+  try {
+    st('Lendo o texto da etiqueta… pode levar alguns segundos.');
+    const w = await obterOcr(); let melhor = null, n = 0;
+    for (const g of [0, 90, 270]) {
+      n++; if (n > 1) st(`Girando a foto e tentando de novo (${n} de 3)…`);
+      const { data } = await w.recognize(paraCanvas(bmp, g));
+      const palavras = data.words || (data.blocks ? data.blocks.flatMap(b => b.paragraphs.flatMap(p => p.lines.flatMap(l => l.words))) : []);
+      const r = interpretarOcr(data.text, palavras);
+      if (!melhor || r.score > melhor.score) melhor = r;
+      if (r.score >= 10) break;
+    }
+    st('');
+    if (!$('#fx-desc')) return;
+    if (melhor && melhor.score >= 7 && melhor.desc.length >= 5) {
+      if (!$('#fx-desc').value.trim()) $('#fx-desc').value = melhor.desc.slice(0, 120);
+      if (melhor.cod && $('#fobs') && !$('#fobs').value.trim()) $('#fobs').value = 'Código na etiqueta: ' + melhor.cod;
+      dica('Descrição lida da etiqueta pela câmera. Confira e corrija se precisar antes de registrar.');
+      $('#fx-desc').focus();
+    } else toast('Não consegui ler a descrição. Tire a foto mais de perto, sem reflexo, ou digite.', 'bad');
+  } catch { st(''); toast('A leitura do texto não funcionou agora. Digite a descrição.', 'bad'); }
 }
 
 /* ---------- scanner ---------- */
@@ -709,7 +829,7 @@ async function abrirScanner(alvo = null){
       loopDetect();
     } else {
       $('#scanVideo').hidden = true; $('#scanFb').hidden = false;
-      await carregarScript('https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js');
+      await carregarScript(H5_SRC);
       Scan.h5 = new Html5Qrcode('scanFb');
       await Scan.h5.start({ facingMode:'environment' }, { fps:10, qrbox:{ width:280, height:160 } }, txt => aoLer(txt), () => {});
     }
@@ -752,6 +872,7 @@ async function aoLer(txt){
       if (ux && et.unit && (!ux.value.trim() || ux.value.trim().toUpperCase() === 'UN')) ux.value = et.unit.slice(0, 10);
       atualizarPrev();
     }
+    if (cx && cx.value) preencherPorCodigo(cx.value);
     if (it) toast(`Atenção: esse código já está na lista (${it.descricao}). Conte por lá, sem usar "Item fora da lista".`, 'bad');
     const prox = $('#fx-desc') && !$('#fx-desc').value.trim() ? $('#fx-desc') : $('#fq'); if (prox) prox.focus();
     return;
@@ -1178,6 +1299,7 @@ const ACT = {
   'abrir-item'(el){ const it = S.itens.find(i => i.code === el.dataset.code); if (it) tratarItem(it); },
   'scan'(){ abrirScanner(); },
   'scan-fechar'(){ Scan.alvo = null; fecharScanner(); },
+  'extra-ocr'(){ const f = $('#fx-foto'); if (f) f.click(); },
   'extra-scan'(){ if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); abrirScanner('campo'); },
   'scan-lanterna'(){ lanterna(); },
   'step'(el){ const inp = $('#fq'), v = parseNum(inp.value), base = Number.isFinite(v) ? v : 0;
@@ -1311,11 +1433,13 @@ document.addEventListener('input', e => {
 document.addEventListener('change', e => {
   const el = e.target;
   if (el.id === 'chkCont') { S.continuo = el.checked; LS.set('contagem_continuo', S.continuo); return; }
+  if (el.id === 'fx-foto') { const f = el.files && el.files[0]; el.value = ''; if (f) lerEtiquetaFoto(f); return; }
+  if (el.id === 'fx-code') { dica(''); return preencherPorCodigo(el.value); }
   if (el.dataset.bind) { setPath(el.dataset.bind, el.type === 'checkbox' ? el.checked : el.value); if (el.dataset.rerender) ACT[el.dataset.rerender](el); }
 });
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.id === 'fq') { e.preventDefault(); confirmarFolha(); }
-  if (e.key === 'Enter' && e.target.id === 'fx-code') { e.preventDefault(); ($('#fx-desc').value.trim() ? $('#fq') : $('#fx-desc')).focus(); }
+  if (e.key === 'Enter' && e.target.id === 'fx-code') { e.preventDefault(); const v = e.target.value; preencherPorCodigo(v).then(() => ($('#fx-desc') && $('#fx-desc').value.trim() ? $('#fq') : $('#fx-desc')).focus()); }
   if (e.key === 'Enter' && e.target.id === 'busca') {
     e.preventDefault(); const it = acharItem(e.target.value);
     if (it) { e.target.value = ''; S.busca = ''; renderListaCiclo(); tratarItem(it); }
