@@ -480,10 +480,20 @@ function saldoOf(obra,code){ return (state.estoque[obra]&&state.estoque[obra][co
 function totalSaldo(code){ let s=0; state.obras.forEach(o=>s+=saldoOf(o.id,code)); return s; }
 function addSaldo(obra,code,delta){ if(!state.estoque[obra])state.estoque[obra]={}; state.estoque[obra][code]=(state.estoque[obra][code]||0)+delta; }
 function statusOf(p,saldo){ if(saldo<=p.min)return'low'; if(p.max>0&&saldo>=p.max)return'high'; return'good'; }
+/* Reposição só faz sentido para item que já teve estoque/movimento na obra. Mín/Máx é cadastrado no produto (global):
+   sem essa checagem, todo item com mínimo > 0 aparecia como "Repor" em obra que nunca o recebeu. */
+function buildTracked(){ const t=new Set();
+  (state.movements||[]).forEach(m=>{ if(m.obra)t.add(m.obra+'|'+m.code); if(m.obraDest)t.add(m.obraDest+'|'+m.code); });
+  Object.keys(state.estoque||{}).forEach(ob=>Object.entries(state.estoque[ob]||{}).forEach(([c,v])=>{ if(v)t.add(ob+'|'+c); }));
+  return t; }
+function needsRepor(p,s,obra,tr){ if(!(s<=p.min))return false; if(s!==0)return true; if(!(p.min>0))return false;
+  if(!obra||obra==='__all')return state.obras.some(ob=>tr.has(ob.id+'|'+p.code));
+  return tr.has(obra+'|'+p.code); }
+function statusRepor(p,s,obra,tr){ if(needsRepor(p,s,obra,tr))return'low'; if(p.max>0&&s>=p.max)return'high'; return'good'; }
 function toast(msg,type='ok'){ const t=document.createElement('div'); t.className='toast '+type; t.innerHTML=msg; $('#toasts').appendChild(t);
   setTimeout(()=>{t.style.transition='.3s';t.style.opacity='0';t.style.transform='translateX(40px)';setTimeout(()=>t.remove(),300);},3400); }
 function refreshBadge(){ const o=curObra(); const b=$('#navBadge'); if(!o){b.style.display='none';return;}
-  const low=state.products.filter(p=>saldoOf(o,p.code)<=p.min && (saldoOf(o,p.code)>0||p.min>0)).length;
+  const tr=buildTracked(); const low=state.products.filter(p=>needsRepor(p,(o==='__all'?totalSaldo(p.code):saldoOf(o,p.code)),o,tr)).length;
   if(low>0){b.style.display='';b.textContent=low;}else{b.style.display='none';} }
 function modal(html){ $('#modalRoot').innerHTML=`<div class="ovl" onclick="if(event.target===this)closeModal()"><div class="modal">${html}</div></div>`; }
 function closeModal(){ $('#modalRoot').innerHTML=''; }
@@ -655,7 +665,8 @@ function renderPainel(){
   const o=curObra(); const all=o==='__all';
   const sal=code=>all?totalSaldo(code):saldoOf(o,code);
   const ps=state.products;
-  const low=ps.filter(p=>sal(p.code)<=p.min && (sal(p.code)>0||p.min>0));
+  const tr=buildTracked(); const stOf=(p,s)=>statusRepor(p,s,o,tr);
+  const low=ps.filter(p=>stOf(p,sal(p.code))==='low');
   const high=ps.filter(p=>p.max>0&&sal(p.code)>=p.max);
   const valEst=ps.reduce((s,p)=>s+sal(p.code)*(p.custo||0),0);
   const sede=defaultSedeObra();
@@ -673,7 +684,7 @@ function renderPainel(){
   <div class="panel" style="margin-bottom:24px"><h3 id="evoTitle">Evolução do estoque</h3><p class="desc">Valor estimado em estoque ao longo do período, pela <b>data de emissão</b> das notas (entradas) e data das saídas/transferências.</p><div style="height:280px;position:relative"><canvas id="evoChart"></canvas></div></div>`;
   if(low.length||high.length){
     html+=`<div class="sechead"><h3>⚠ Alertas${all?'':' · '+esc(obraName(o))}</h3></div><div class="tbl-wrap" style="margin-bottom:24px"><table><thead><tr><th>Código</th><th>Produto</th><th class="num">Saldo</th><th class="num">Mín</th><th class="num">Máx</th><th>Situação</th></tr></thead><tbody>`;
-    [...low,...high.filter(h=>!low.includes(h))].forEach(p=>{const s=sal(p.code);const st=statusOf(p,s);
+    [...low,...high.filter(h=>!low.includes(h))].forEach(p=>{const s=sal(p.code);const st=stOf(p,s)==='low'?'low':'high';
       html+=`<tr><td class="mono">${esc(p.code)}</td><td>${esc(p.desc)}</td><td class="num">${numf(s)} ${esc(p.unit||'')}</td><td class="num muted">${numf(p.min)}</td><td class="num muted">${p.max>0?numf(p.max):'—'}</td><td>${st==='low'?'<span class="pill low">Repor</span>':'<span class="pill high">Excesso</span>'}</td></tr>`;});
     html+=`</tbody></table></div>`;
   }
@@ -683,21 +694,35 @@ function renderPainel(){
       <select id="dashStatus" style="width:auto"><option value="">Todos os status</option><option value="low">Abaixo do mínimo</option><option value="good">Normal</option><option value="high">Acima do máximo</option></select>
       <input id="dashQty" type="number" step="any" placeholder="saldo ≤" style="width:100px" title="Rastrear produtos com saldo até a quantidade informada">
       <label style="display:flex;align-items:center;gap:6px;font-size:12px;text-transform:none;font-weight:500;margin:0;color:#5a544a"><input type="checkbox" id="dashZero" style="width:auto"> Incluir zerados</label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;text-transform:none;font-weight:500;margin:0;color:#5a544a"><input type="checkbox" id="dashGroup" style="width:auto" checked> Agrupar por grupo</label>
       <span id="dashCount" style="font-size:12px;color:#8a8377"></span>
     </div></div>`;
   if(!ps.length){ html+=`<div class="tbl-wrap"><div class="empty"><div class="ico">▦</div>Nenhum produto. Use <b>Entrada</b> ou <b>Importar Planilha</b>.</div></div>`; $('#view').innerHTML=html; return; }
   html+=`<div class="tbl-wrap"><table><thead><tr><th>Foto</th><th>Código</th><th>Produto</th><th class="num">Saldo</th><th class="num">Mín / Máx</th><th class="num">Custo</th><th class="num">Venda</th><th>Situação</th><th></th></tr></thead><tbody id="dashRows"></tbody></table></div>`;
   $('#view').innerHTML=html;
-  const draw=()=>{ const q=($('#dashSearch').value||'').toLowerCase(); const fst=$('#dashStatus').value; const qr=$('#dashQty').value; const qmax=qr===''?null:parseFloat(qr); const zero=$('#dashZero').checked;
-    const list=ps.filter(p=>{ const s=sal(p.code); const st=statusOf(p,s);
+  const grpCollapsed=window._dashGrpCollapsed||(window._dashGrpCollapsed=new Set());
+  window.toggleDashGrp=i=>{ const k=(window._dashKeys||[])[i]; if(k===undefined)return; if(grpCollapsed.has(k))grpCollapsed.delete(k); else grpCollapsed.add(k); draw(); };
+  const draw=()=>{ const q=($('#dashSearch').value||'').toLowerCase(); const fst=$('#dashStatus').value; const qr=$('#dashQty').value; const qmax=qr===''?null:parseFloat(qr); const zero=$('#dashZero').checked; const grouped=$('#dashGroup').checked;
+    const list=ps.filter(p=>{ const s=sal(p.code); const st=stOf(p,s);
       if(!zero && !(s>0))return false;
       if(q && !(p.desc.toLowerCase().includes(q)||String(p.code).includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.ref&&p.ref.toLowerCase().includes(q))||(p.grupo&&p.grupo.toLowerCase().includes(q))||(p.localizacao&&p.localizacao.toLowerCase().includes(q))||(p.endereco&&p.endereco.toLowerCase().includes(q))))return false;
       if(fst && st!==fst)return false; if(qmax!=null && !(s<=qmax))return false; return true; });
     $('#dashCount').textContent=list.length+' item(ns)';
-    $('#dashRows').innerHTML=list.map(p=>{const s=sal(p.code);const st=statusOf(p,s);
+    const rowHTML=p=>{const s=sal(p.code);const st=stOf(p,s);
       const pill=st==='low'?'<span class="pill low">Abaixo do mín</span>':st==='high'?'<span class="pill high">Acima do máx</span>':'<span class="pill good">Normal</span>';
-      return `<tr><td>${thumb(p.code)}</td><td class="mono">${esc(p.code)}${p.aux?`<br><span style="font-size:10px;color:#a09a8d">aux: ${esc(p.aux)}</span>`:''}</td><td><a href="#" onclick="productDetailModal('${esc(p.code)}');return false" style="color:#1c1c1c;font-weight:600;text-decoration:none">${esc(p.desc)}</a>${p.ref?`<div class="refline">↳ ${esc(p.ref)}</div>`:''}</td><td class="num"><b class="${st==='low'?'neg':''}">${numf(s)}</b> ${esc(p.unit||'')}</td><td class="num muted">${numf(p.min)} / ${p.max>0?numf(p.max):'—'}</td><td class="num">${money(p.custo||0)}</td><td class="num">${p.preco?money(p.preco):'—'}</td><td>${pill}</td><td class="num"><button class="btn ghost sm" title="Detalhes do produto" onclick="productDetailModal('${esc(p.code)}')">🔍</button></td></tr>`;}).join('')||`<tr><td colspan="9" class="empty" style="padding:28px">Nada encontrado.</td></tr>`; };
-  draw(); ['dashSearch','dashStatus','dashQty','dashZero'].forEach(id=>{const el=$('#'+id); if(el){el.oninput=draw; el.onchange=draw;}});
+      return `<tr><td>${thumb(p.code)}</td><td class="mono">${esc(p.code)}${p.aux?`<br><span style="font-size:10px;color:#a09a8d">aux: ${esc(p.aux)}</span>`:''}</td><td><a href="#" onclick="productDetailModal('${esc(p.code)}');return false" style="color:#1c1c1c;font-weight:600;text-decoration:none">${esc(p.desc)}</a>${p.ref?`<div class="refline">↳ ${esc(p.ref)}</div>`:''}</td><td class="num"><b class="${st==='low'?'neg':''}">${numf(s)}</b> ${esc(p.unit||'')}</td><td class="num muted">${numf(p.min)} / ${p.max>0?numf(p.max):'—'}</td><td class="num">${money(p.custo||0)}</td><td class="num">${p.preco?money(p.preco):'—'}</td><td>${pill}</td><td class="num"><button class="btn ghost sm" title="Detalhes do produto" onclick="productDetailModal('${esc(p.code)}')">🔍</button></td></tr>`;};
+    let body;
+    if(!grouped){ body=list.map(rowHTML).join(''); }
+    else{
+      const NG='(sem grupo)'; const gm=new Map();
+      list.forEach(p=>{ const g=p.grupo&&p.grupo.trim()?p.grupo.trim():NG; if(!gm.has(g))gm.set(g,[]); gm.get(g).push(p); });
+      const keys=[...gm.keys()].sort((a,b)=>a===NG?1:b===NG?-1:a.localeCompare(b,'pt-BR')); window._dashKeys=keys;
+      body=keys.map(g=>{ const items=gm.get(g).slice().sort((a,b)=>a.desc.localeCompare(b.desc,'pt-BR'));
+        const val=items.reduce((sum,p)=>sum+sal(p.code)*(p.custo||0),0); const nLow=items.filter(p=>stOf(p,sal(p.code))==='low').length;
+        const closed=grpCollapsed.has(g);
+        return `<tr onclick="toggleDashGrp(${keys.indexOf(g)})" style="cursor:pointer;background:#f7f3ea"><td colspan="9" style="padding:9px 14px"><b>${closed?'▸':'▾'} ${esc(g)}</b> <span class="muted" style="font-size:12px">· ${items.length} item(ns) · ${money(val)}</span>${nLow?` <span class="pill low" style="margin-left:6px">${nLow} p/ repor</span>`:''}</td></tr>`+(closed?'':items.map(rowHTML).join('')); }).join(''); }
+    $('#dashRows').innerHTML=body||`<tr><td colspan="9" class="empty" style="padding:28px">Nada encontrado.</td></tr>`; };
+  draw(); ['dashSearch','dashStatus','dashQty','dashZero','dashGroup'].forEach(id=>{const el=$('#'+id); if(el){el.oninput=draw; el.onchange=draw;}});
   drawDashboard(); ['dashFrom','dashTo'].forEach(id=>{const el=$('#'+id); if(el)el.onchange=drawDashboard;});
 }
 function defaultSedeObra(){ const m=state.obras.find(o=>/sede|almox|matriz/i.test(o.nome)); return m?m.id:(curObra()&&curObra()!=='__all'?curObra():(state.obras[0]?state.obras[0].id:null)); }
@@ -2370,7 +2395,7 @@ async function doSignup(){ const nome=$('#suNome').value.trim(); const email=$('
 async function doLogout(){ await sb.rpc('log_event',{p_acao:'logout'}); await sb.auth.signOut(); }
 function showGate(){ $('#gate').style.display='flex'; }
 function hideGate(){ $('#gate').style.display='none'; }
-function showPending(){ const el=$('#authView'); el.innerHTML=`<div class="pendbox"><div class="ico">⏳</div><h3 style="margin-bottom:8px">Conta aguardando aprovação</h3><p style="color:var(--muted);font-size:13px">Um administrador precisa ativar seu usuário antes do primeiro acesso.</p><button class="btn ghost sm" style="margin-top:16px" onclick="doLogout()">Sair</button></div>`; showGate(); }
+function showPending(){ _appUid=null; const el=$('#authView'); el.innerHTML=`<div class="pendbox"><div class="ico">⏳</div><h3 style="margin-bottom:8px">Conta aguardando aprovação</h3><p style="color:var(--muted);font-size:13px">Um administrador precisa ativar seu usuário antes do primeiro acesso.</p><button class="btn ghost sm" style="margin-top:16px" onclick="doLogout()">Sair</button></div>`; showGate(); }
 async function loadProfile(){ try{ const {data,error}=await sb.from('profiles').select('*').eq('id',session.user.id).maybeSingle(); if(error)throw error;
     if(data){ try{localStorage.setItem('estoque_profile_cache_v1',JSON.stringify(data));}catch(e){} } return data; }
   catch(e){ console.warn('loadProfile sem rede, tentando cache:',e);
@@ -2384,7 +2409,11 @@ async function onAuthReady(){
   hideGate(); applyRoleNav(); initNavGrps(); await load(); await loadPhotos(); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); refreshRetiradasBadge(); refreshMinhasBadge(); refreshInvBadge(); refreshGlobalAlerts(); updateOfflineBadge(); go('painel');
   if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); }
 }
-sb.auth.onAuthStateChange((event,s)=>{ session=s; onAuthReady(); });
+let _appUid=null;
+sb.auth.onAuthStateChange((event,s)=>{ session=s;
+  /* Renovação de token / volta de foco da aba dispara este evento: não recarregue nem volte ao painel se o mesmo usuário já está dentro. */
+  if(s&&_appUid&&s.user.id===_appUid&&event!=='SIGNED_OUT'){ return; }
+  _appUid=s?s.user.id:null; onAuthReady(); });
 
 /* ===== RELATÓRIOS ===== */
 let _rel=null, relTipo='aplicacao';
