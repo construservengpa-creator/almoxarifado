@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Controle de Estoque por Obra</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -186,6 +186,74 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   .galert.err{background:#fde8e8;color:#8a1f1f}
   .galert.ok{background:#e3f7ee;color:#12583c}
   .galert:hover{filter:brightness(0.97)}
+
+  /* ===== Botão de menu (só aparece no celular) ===== */
+  .menu-btn{display:none;background:var(--panel);color:#fff;border:none;border-radius:8px;width:42px;height:42px;font-size:20px;line-height:1;cursor:pointer;flex-shrink:0;align-items:center;justify-content:center}
+  #navOverlay{display:none}
+  html{-webkit-text-size-adjust:100%}
+  /* ===== Ajustes para celular / tablet ===== */
+  @media(max-width:860px){
+    body{display:block;min-height:100dvh}
+    aside{position:fixed;left:0;top:0;height:100dvh;width:280px;max-width:85vw;z-index:150;transform:translateX(-100%);transition:transform .22s ease;box-shadow:none;padding-top:env(safe-area-inset-top)}
+    body.nav-open aside{transform:none;box-shadow:0 0 40px rgba(0,0,0,.5)}
+    #navOverlay{position:fixed;inset:0;background:rgba(15,20,25,.6);z-index:140;opacity:0;pointer-events:none;transition:opacity .2s}
+    body.nav-open #navOverlay{display:block;opacity:1;pointer-events:auto}
+    body.nav-open{overflow:hidden}
+    nav button{padding:13px 13px;font-size:14.5px}
+    .navgrp-hd{padding:13px 13px 8px}
+    .menu-btn{display:inline-flex}
+    main{width:100%;min-height:100dvh}
+    .topbar{padding:10px 14px;padding-top:calc(10px + env(safe-area-inset-top));gap:10px;flex-wrap:wrap;justify-content:flex-start}
+    .topbar h2{font-size:16.5px;flex:1;min-width:0}
+    .topbar h2 small{font-size:11px}
+    #topActions{width:100%;display:flex;flex-wrap:wrap;gap:8px}
+    #topActions:empty{display:none}
+    .offbadge{margin-right:0;padding:5px 10px;font-size:11px}
+    #globalAlerts{position:static}
+    .galert{padding:10px 14px;font-size:12.5px;flex-wrap:wrap}
+    .wrap{padding:14px 14px calc(24px + env(safe-area-inset-bottom))}
+    .cards{gap:10px;margin-bottom:16px}
+    .cards>.card{flex:1 1 calc(50% - 10px);min-width:130px}
+    .card{padding:14px 14px}
+    .card .val{font-size:20px}
+    .panel{padding:16px}
+    .row.c2,.row.c3,.row.c4,.row[style*="grid-template-columns"]{grid-template-columns:1fr!important}
+    .fc-stats{grid-template-columns:1fr 1fr}
+    .fc-head{flex-direction:column;gap:10px}
+    .sechead{gap:10px}
+    .sechead>*{max-width:100%}
+    .search{flex:1 1 100%;min-width:0;max-width:none}
+    .obrasel{width:100%}
+    .obrasel select{flex:1;min-width:0}
+    /* tabelas: rolagem horizontal dentro do próprio bloco */
+    table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%}
+    .tbl-wrap table{display:table;min-width:max-content}
+    .tbl-wrap{-webkit-overflow-scrolling:touch}
+    th,td{padding:10px 11px}
+    td{font-size:13px}
+    /* campos: 16px evita o zoom automático do iOS */
+    input,select,textarea{font-size:16px;padding:12px}
+    .inline-edit{font-size:15px;width:76px}
+    .btn{padding:12px 16px;min-height:44px;justify-content:center}
+    .btn.sm{padding:9px 12px;min-height:38px;font-size:12.5px}
+    .tabs{overflow-x:auto;white-space:nowrap;flex-wrap:nowrap;-webkit-overflow-scrolling:touch}
+    .tabs button{flex-shrink:0}
+    .scan-box{padding:18px}
+    .scan-box input{font-size:18px;padding:13px 12px;letter-spacing:1px}
+    .filebox{padding:20px}
+    .consphoto{width:96px;height:96px}
+    .stepper .st .lbl{font-size:8.5px}
+    /* modais viram "folha" ocupando a largura toda */
+    .ovl{padding:0;align-items:flex-end}
+    .modal{max-width:none;border-radius:16px 16px 0 0;padding:20px 16px calc(20px + env(safe-area-inset-bottom));max-height:92dvh}
+    #toasts{left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom))}
+    .toast{min-width:0;width:100%}
+    #gate{padding:14px;align-items:flex-start}
+    .gate-card{padding:22px 18px;margin:auto}
+  }
+  @media(max-width:420px){
+    .fc-stats{grid-template-columns:1fr}
+  }
 </style>
 </head>
 <body>
@@ -196,6 +264,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     <div id="authView"></div>
   </div>
 </div>
+<div id="navOverlay" class="noprint"></div>
 <aside>
   <div class="brand">
     <h1><span class="dot"></span>ESTOQUE</h1>
@@ -251,6 +320,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 <main>
   <div id="globalAlerts" class="noprint"></div>
   <div class="topbar">
+    <button class="menu-btn noprint" id="menuBtn" type="button" aria-label="Abrir menu">☰</button>
     <h2 id="pageTitle">Painel <small id="pageSub"></small></h2>
     <div id="offlineBadge" class="offbadge noprint" style="display:none"></div>
     <div class="noprint" id="topActions"></div>
@@ -494,6 +564,13 @@ function go(tab){
   ({painel:renderPainel,entrada:renderEntrada,baixa:renderBaixa,ajuste:renderAjuste,inventario:renderInventario,aprovacoes:renderAprovacoes,separacao:renderSeparacao,expedicao:renderExpedicao,retiradas:renderRetiradaPendente,compras:renderCompras,transfer:renderTransfer,mutuo:renderMutuo,consulta:renderConsulta,obras:renderObras,aplic:renderAplic,produtos:renderProdutos,importar:renderImportar,empresas:renderEmpresas,admin:renderAdmin,relatorios:renderRelatorios,auditoria:renderAuditoria}[tab])();
 }
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>go(b.dataset.tab));
+/* ===== Menu lateral em gaveta (celular) ===== */
+function closeNav(){ document.body.classList.remove('nav-open'); }
+document.getElementById('menuBtn').addEventListener('click',()=>document.body.classList.toggle('nav-open'));
+document.getElementById('navOverlay').addEventListener('click',closeNav);
+document.querySelectorAll('#nav button[data-tab]').forEach(b=>b.addEventListener('click',()=>{ if(window.innerWidth<=860)closeNav(); }));
+window.addEventListener('resize',()=>{ if(window.innerWidth>860)closeNav(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape')closeNav(); });
 function toggleNavGrp(key,forceOpen){
   const body=document.getElementById('navgrpBody-'+key); if(!body)return;
   const isOpen=body.style.display!=='none';
