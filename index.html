@@ -280,6 +280,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       <button data-tab="ajuste" data-role="encarregado"><span class="ic">✎</span><span>Ajuste de Saldo</span></button>
       <button data-tab="inventario" data-role="encarregado"><span class="ic">☑</span><span>Inventário</span><span class="badge" id="navBadgeInv" style="display:none"></span></button>
       <button data-tab="transfer"><span class="ic">⇄</span><span>Transferência entre Obras</span></button>
+      <button data-tab="devolucao"><span class="ic">↩</span><span>Devolução de Materiais</span><span class="badge" id="navBadgeDevol" style="display:none"></span></button>
       <button data-tab="mutuo" data-role="encarregado"><span class="ic">💱</span><span>Mútuo entre Empresas</span></button>
     </div>
 
@@ -478,7 +479,16 @@ function printSignReport(opt){ const w=window.open('','_blank'); if(!w){toast('P
   <script>setTimeout(()=>window.print(),350);<\/script></body></html>`); w.document.close(); }
 function obraName(id){ const o=state.obras.find(o=>o.id===id); return o?o.nome:'(obra removida)'; }
 function curObra(){ return state.currentObra; }
-function saldoOf(obra,code){ return (state.estoque[obra]&&state.estoque[obra][code])||0; }
+let devolucoesBloqueio={};
+function saldoTotalOf(obra,code){ return (state.estoque[obra]&&state.estoque[obra][code])||0; }
+function saldoBloqueadoOf(obra,code){ return (devolucoesBloqueio[obra]&&devolucoesBloqueio[obra][code])||0; }
+function saldoOf(obra,code){ return Math.max(saldoTotalOf(obra,code)-saldoBloqueadoOf(obra,code),0); }
+async function refreshDevolucoesBloqueio(){
+  const {data,error}=await sb.from('devolucoes').select('obra_id,itens').in('status',['aguardando_nota','em_envio']);
+  if(error){console.warn('refreshDevolucoesBloqueio',error);return;}
+  const novo={}; (data||[]).forEach(d=>{ if(!novo[d.obra_id])novo[d.obra_id]={}; (d.itens||[]).forEach(it=>{ novo[d.obra_id][it.code]=(novo[d.obra_id][it.code]||0)+Number(it.qty||0); }); });
+  devolucoesBloqueio=novo;
+}
 function estoqueObraDaEmpresa(empresaNome){ if(!empresaNome)return null; return state.obras.find(o=>o.ehEstoque && o.empresa && o.empresa.trim().toLowerCase()===empresaNome.trim().toLowerCase()); }
 function obraEstoqueParaRequisicao(r){
   return r.mutuo_estoque_obra_id ? r.mutuo_estoque_obra_id : r.obra_id;
@@ -567,6 +577,7 @@ const titles={ painel:['Painel','Visão por obra'],entrada:['Entrada / Nota Fisc
   expedicao:['Expedição','Embalagem, romaneio, nota fiscal, etiquetas de volume e envio'],
   retiradas:['Aguardando Retirada','Material já separado do estoque que ainda não saiu — despacho ou retirada no balcão'],
   mutuo:['Mútuo entre Empresas','Controle de valores entre empresas e fechamento por período'],
+  devolucao:['Devolução de Materiais','Bloqueio de saldo, nota de devolução e estorno na conclusão'],
   compras:['Compras','Itens faltantes aguardando compra'],
   transfer:['Transferência entre Obras','Mover saldo de uma obra para outra'],consulta:['Consulta','Buscar por nome, código ou equipamento'],
   obras:['Obras','Cadastro de obras'],aplic:['Aplicações','Equipamentos e veículos (placa/tag)'],tiposetor:['Tipos & Setores','Opções de tipo e setor usadas em Aplicações'],produtos:['Produtos & Etiquetas','Catálogo e códigos de barras'],importar:['Importar Planilha','Carga inicial por obra'],empresas:['Empresas','Razão social, CNPJ e endereço'],admin:['Administração','Usuários e exclusões protegidas'],relatorios:['Relatórios','Consumo por aplicação, tipo, obra e produto'],auditoria:['Auditoria','Histórico de ações no sistema'] };
@@ -577,7 +588,7 @@ function go(tab){
   document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
   const activeBtn=document.querySelector('#nav button[data-tab="'+tab+'"]'); const grpBody=activeBtn&&activeBtn.closest('.navgrp-body'); if(grpBody&&grpBody.style.display==='none')toggleNavGrp(grpBody.id.replace('navgrpBody-',''),true);
   $('#pageTitle').firstChild.textContent=titles[tab][0]+' '; $('#pageSub').textContent=titles[tab][1]; $('#topActions').innerHTML='';
-  ({painel:renderPainel,entrada:renderEntrada,baixa:renderBaixa,ajuste:renderAjuste,inventario:renderInventario,aprovacoes:renderAprovacoes,separacao:renderSeparacao,expedicao:renderExpedicao,retiradas:renderRetiradaPendente,compras:renderCompras,transfer:renderTransfer,mutuo:renderMutuo,consulta:renderConsulta,obras:renderObras,aplic:renderAplic,tiposetor:renderTipoSetor,produtos:renderProdutos,importar:renderImportar,empresas:renderEmpresas,admin:renderAdmin,relatorios:renderRelatorios,auditoria:renderAuditoria}[tab])();
+  ({painel:renderPainel,entrada:renderEntrada,baixa:renderBaixa,ajuste:renderAjuste,inventario:renderInventario,aprovacoes:renderAprovacoes,separacao:renderSeparacao,expedicao:renderExpedicao,retiradas:renderRetiradaPendente,compras:renderCompras,transfer:renderTransfer,mutuo:renderMutuo,devolucao:renderDevolucao,consulta:renderConsulta,obras:renderObras,aplic:renderAplic,tiposetor:renderTipoSetor,produtos:renderProdutos,importar:renderImportar,empresas:renderEmpresas,admin:renderAdmin,relatorios:renderRelatorios,auditoria:renderAuditoria}[tab])();
 }
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>go(b.dataset.tab));
 /* ===== Menu lateral em gaveta (celular) ===== */
@@ -649,6 +660,8 @@ async function refreshGlobalAlerts(){
     if(c2)alerts.push({tab:'separacao',tone:'ok',text:(c2===1?'1 requisição':c2+' requisições')+' pronta(s) para separar.'});
     const {count:c6}=await sb.from('requisicoes').select('id',{count:'exact',head:true}).in('status',['separado','embalado','romaneio_emitido','faturado']);
     if(c6)alerts.push({tab:'expedicao',tone:'ok',text:(c6===1?'1 requisição':c6+' requisições')+' em andamento na expedição.'});
+    const {count:c7}=await sb.from('devolucoes').select('id',{count:'exact',head:true}).in('status',['aguardando_nota','em_envio']);
+    if(c7)alerts.push({tab:'devolucao',tone:'warn',text:(c7===1?'1 devolução':c7+' devoluções')+' com saldo bloqueado aguardando conclusão.'});
   }
   if(podeVerCompras()){
     const {count:c3}=await sb.from('compras_pendentes').select('id',{count:'exact',head:true}).in('status',['pendente','solicitada']).eq('atribuido_a',session.user.id);
@@ -2285,6 +2298,136 @@ function fecharPeriodoMutuo(periodo,origem,destino,total){
   });
 }
 
+/* ===== DEVOLUÇÃO DE MATERIAIS ===== */
+function devolStatusLabel(s){ return {aguardando_nota:'Aguardando nota de devolução',em_envio:'Em envio ao fornecedor',concluida:'Concluída',cancelada:'Cancelada'}[s]||s; }
+async function refreshDevolucaoBadge(){ if(!isAlmoxarife())return; const b=$('#navBadgeDevol'); if(!b)return;
+  const {count}=await sb.from('devolucoes').select('id',{count:'exact',head:true}).in('status',['aguardando_nota','em_envio']);
+  if(count){b.textContent=count;b.style.display='';}else b.style.display='none'; }
+let devolMostrarConcluidas=false;
+async function renderDevolucao(){
+  if(!isAlmoxarife()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito ao almoxarifado e administradores.</div></div>'; return; }
+  $('#topActions').innerHTML=`<button class="btn primary sm" onclick="devolucaoModal()">+ Nova devolução</button>`;
+  $('#view').innerHTML=`<div class="panel"><h3>↩ Devolução de materiais</h3><p class="desc">Enquanto uma devolução está aberta (aguardando nota ou em envio), a quantidade fica bloqueada e não entra no saldo disponível para consumo. Ao concluir, o saldo é efetivamente estornado (baixa definitiva) e o documento assinado fica anexado ao registro.</p></div>
+  <div class="sechead"><h3>Aguardando nota de devolução</h3></div>
+  <div class="tbl-wrap" id="devolAguardando" style="margin-bottom:22px"><div class="empty">Carregando...</div></div>
+  <div class="sechead"><h3>Em processo de envio ao fornecedor</h3></div>
+  <div class="tbl-wrap" id="devolEnvio" style="margin-bottom:22px"><div class="empty">Carregando...</div></div>
+  <div class="sechead" style="justify-content:space-between;display:flex;align-items:center"><h3>Concluídas</h3><label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:500;font-size:13px;margin:0"><input type="checkbox" id="devolVerConcluidas" style="width:auto" onchange="devolMostrarConcluidas=this.checked;drawDevolConcluidas()"> mostrar</label></div>
+  <div class="tbl-wrap" id="devolConcluidas"><div class="empty" style="padding:20px">Marque "mostrar" para ver o histórico.</div></div>`;
+  await drawDevolAbertas(); 
+}
+async function drawDevolAbertas(){
+  const {data,error}=await sb.from('devolucoes').select('*').in('status',['aguardando_nota','em_envio']).order('criado_em',{ascending:true});
+  const ag=$('#devolAguardando'), en=$('#devolEnvio'); if(!ag||!en)return;
+  if(error){ ag.innerHTML=en.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>'; return; }
+  const linha=d=>{ const totalItens=(d.itens||[]).reduce((s,i)=>s+Number(i.qty||0),0); const totalValor=(d.itens||[]).reduce((s,i)=>s+Number(i.qty||0)*Number(i.valorUnit||0),0);
+    return `<tr><td class="mono">#${d.id}</td><td>${esc(d.obra_nome)}</td><td>${esc(d.fornecedor||'—')}${d.nota_origem_numero?'<br><span class="muted" style="font-size:11px">NF origem '+esc(d.nota_origem_numero)+'</span>':''}</td><td>${d.quem_emite==='fornecedor'?'Fornecedor (credor)':'Destinatário'}</td><td class="num">${totalItens}</td><td class="num">${money(totalValor)}</td>
+      <td class="num" style="white-space:nowrap">${d.status==='aguardando_nota'?`<button class="btn ghost sm" onclick="devolEditarNota(${d.id})">Nº nota</button> <button class="btn primary sm" onclick="marcarEmEnvio(${d.id})">Marcar em envio</button>`:`<button class="btn ghost sm" onclick="devolEditarNota(${d.id})">Nº nota</button> <button class="btn primary sm" onclick="concluirDevolucaoModal(${d.id})">Concluir</button>`} <button class="btn danger sm" onclick="cancelarDevolucao(${d.id})">Cancelar</button></td></tr>`; };
+  const aguardando=(data||[]).filter(d=>d.status==='aguardando_nota'), envio=(data||[]).filter(d=>d.status==='em_envio');
+  const head=`<table><thead><tr><th>Nº</th><th>Obra</th><th>Fornecedor / NF origem</th><th>Emite nota</th><th class="num">Itens</th><th class="num">Valor</th><th></th></tr></thead><tbody>`;
+  ag.innerHTML=head+(aguardando.length?aguardando.map(linha).join(''):'<tr><td colspan="7" class="empty" style="padding:20px">Nada aguardando nota.</td></tr>')+'</tbody></table>';
+  en.innerHTML=head+(envio.length?envio.map(linha).join(''):'<tr><td colspan="7" class="empty" style="padding:20px">Nada em envio no momento.</td></tr>')+'</tbody></table>';
+}
+async function drawDevolConcluidas(){ const box=$('#devolConcluidas'); if(!box)return;
+  if(!devolMostrarConcluidas){ box.innerHTML='<div class="empty" style="padding:20px">Marque "mostrar" para ver o histórico.</div>'; return; }
+  box.innerHTML='<div class="empty">Carregando...</div>';
+  const {data,error}=await sb.from('devolucoes').select('*').eq('status','concluida').order('concluido_em',{ascending:false}).limit(60);
+  if(error){ box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>'; return; }
+  box.innerHTML=`<table><thead><tr><th>Nº</th><th>Obra</th><th>Fornecedor / NF origem</th><th>Nota devolução</th><th class="num">Valor</th><th>Concluída em</th><th></th></tr></thead><tbody>${
+    (data||[]).length?(data||[]).map(d=>{ const totalValor=(d.itens||[]).reduce((s,i)=>s+Number(i.qty||0)*Number(i.valorUnit||0),0);
+      return `<tr><td class="mono">#${d.id}</td><td>${esc(d.obra_nome)}</td><td>${esc(d.fornecedor||'—')}${d.nota_origem_numero?'<br><span class="muted" style="font-size:11px">NF origem '+esc(d.nota_origem_numero)+'</span>':''}</td><td>${esc(d.numero_nota_devolucao||'—')}${d.data_nota_devolucao?' · '+fmtDate(new Date(d.data_nota_devolucao+'T12:00:00').getTime()):''}</td><td class="num">${money(totalValor)}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(d.concluido_em).getTime())}</td><td class="num">${d.doc_devolucao_base64?`<button class="btn ghost sm" onclick="verDocDevolucao(${d.id})">Ver documento</button>`:'—'}</td></tr>`; }).join(''):'<tr><td colspan="7" class="empty" style="padding:20px">Nenhuma devolução concluída.</td></tr>'
+  }</tbody></table>`;
+}
+async function verDocDevolucao(id){ const {data,error}=await sb.from('devolucoes').select('doc_devolucao_base64,doc_devolucao_nome').eq('id',id).maybeSingle();
+  if(error||!data||!data.doc_devolucao_base64){toast('Documento não encontrado.','err');return;}
+  const w=window.open(); if(!w){toast('Permita pop-ups.','err');return;} w.document.write(`<title>${esc(data.doc_devolucao_nome||'Documento')}</title><body style="margin:0"><img src="${data.doc_devolucao_base64}" style="max-width:100%" onerror="this.replaceWith(document.createTextNode('Não foi possível exibir o arquivo diretamente — baixe pelo link.'))"><a href="${data.doc_devolucao_base64}" download="${esc(data.doc_devolucao_nome||'documento')}">Baixar</a></body>`); }
+function devolucaoModal(){
+  const notasRecentes=state.notas.slice(0,80);
+  modal(`<h3>Nova devolução</h3>
+    <div class="row c2"><div class="field"><label>Obra</label><select id="dvObra">${state.obras.map(o=>`<option value="${o.id}">${esc(o.nome)}</option>`).join('')}</select></div>
+    <div class="field"><label>Nota de origem (opcional)</label><select id="dvNota" onchange="devolNotaChange()"><option value="">— sem nota de origem —</option>${notasRecentes.map(n=>`<option value="${n.id}">${esc(n.numero)} · ${esc(n.forn||'—')}</option>`).join('')}</select></div></div>
+    <div class="field"><label>Motivo</label><input id="dvMotivo" placeholder="Ex.: material avariado, excesso de compra..."></div>
+    <div class="field"><label>Quem emite a nota de devolução?</label>
+      <div style="display:flex;gap:16px;margin-top:4px">
+        <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:500;margin:0"><input type="radio" name="dvEmite" value="fornecedor" checked style="width:auto"> Fornecedor (credor)</label>
+        <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:500;margin:0"><input type="radio" name="dvEmite" value="destinatario" style="width:auto"> Destinatário</label></div></div>
+    <div class="sechead" style="margin-top:10px"><h3 style="font-size:13px">Itens a devolver</h3></div>
+    <div id="dvItensWrap"><p class="muted" style="font-size:12.5px">Selecione uma nota de origem para carregar os itens, ou pesquise abaixo pra adicionar manualmente.</p></div>
+    <div class="search" style="max-width:none;margin-top:6px"><span class="si">⌕</span><input id="dvBusca" placeholder="Buscar produto por nome/código..." autocomplete="off" oninput="devolBuscaResults(this.value)"></div>
+    <div id="dvBuscaResults"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="salvarDevolucao()">Registrar devolução</button></div>`);
+  window._dvItens=[];
+}
+function devolNotaChange(){ const notaId=$('#dvNota').value; const n=state.notas.find(x=>x.id===notaId);
+  window._dvItens=[]; if(n&&n.itens){ n.itens.forEach(it=>{ window._dvItens.push({code:it.code,desc:it.desc,unit:it.unit||'',qty:0,max:it.qty,valorUnit:it.valorUnit||0}); }); }
+  devolRenderItens(); }
+function devolBuscaResults(q){ const box=$('#dvBuscaResults'); if(!box)return; q=(q||'').trim(); if(!q){box.innerHTML='';return;}
+  const list=searchProducts(q).slice(0,6);
+  box.innerHTML=list.map(p=>`<div class="tbl-wrap" style="margin-top:4px"><table><tbody><tr><td>${esc(p.desc)} <span class="muted" style="font-size:11px">${esc(p.code)}</span></td><td class="num" style="width:70px"><button class="btn ghost sm" onclick="devolAddItemManual('${esc(p.code)}')">+ Add</button></td></tr></tbody></table></div>`).join(''); }
+function devolAddItemManual(code){ const p=findProduct(code); if(!p)return; if(!window._dvItens)window._dvItens=[];
+  if(window._dvItens.some(i=>i.code===code)){toast('Item já está na lista.','warn');return;}
+  window._dvItens.push({code:p.code,desc:p.desc,unit:p.unit||'',qty:0,max:null,valorUnit:p.custo||0});
+  $('#dvBusca').value=''; $('#dvBuscaResults').innerHTML=''; devolRenderItens(); }
+function devolRenderItens(){ const wrap=$('#dvItensWrap'); if(!wrap)return; const itens=window._dvItens||[];
+  if(!itens.length){ wrap.innerHTML='<p class="muted" style="font-size:12.5px">Nenhum item ainda.</p>'; return; }
+  wrap.innerHTML=`<table><thead><tr><th>Item</th><th class="num">Qtd a devolver</th><th class="num">Valor unit.</th><th></th></tr></thead><tbody>${
+    itens.map((i,idx)=>`<tr><td>${esc(i.desc)}${i.max?` <span class="muted" style="font-size:11px">(máx. ${numf(i.max)})</span>`:''}</td><td class="num"><input type="number" step="any" min="0" ${i.max?`max="${i.max}"`:''} value="${i.qty}" style="width:90px" oninput="devolSetQty(${idx},this.value)"></td><td class="num">${money(i.valorUnit)}</td><td class="num"><button class="btn danger sm" onclick="devolRmItem(${idx})">✕</button></td></tr>`).join('')
+  }</tbody></table>`; }
+function devolSetQty(idx,v){ if(window._dvItens&&window._dvItens[idx])window._dvItens[idx].qty=parseFloat(v)||0; }
+function devolRmItem(idx){ window._dvItens.splice(idx,1); devolRenderItens(); }
+async function salvarDevolucao(){
+  const obraId=$('#dvObra').value; const obra=state.obras.find(o=>o.id===obraId); if(!obra){toast('Selecione a obra.','err');return;}
+  const notaId=$('#dvNota').value; const nota=notaId?state.notas.find(x=>x.id===notaId):null;
+  const motivo=$('#dvMotivo').value.trim();
+  const emite=document.querySelector('input[name=dvEmite]:checked').value;
+  const itens=(window._dvItens||[]).filter(i=>i.qty>0);
+  if(!itens.length){toast('Informe a quantidade de ao menos um item.','err');return;}
+  for(const i of itens){ const disp=saldoOf(obraId,i.code); if(i.qty>disp){toast(`${i.desc}: quantidade maior que o disponível (${numf(disp)}).`,'err');return;} }
+  const {error}=await sb.from('devolucoes').insert({nota_origem_id:notaId||null,nota_origem_numero:nota?nota.numero:null,fornecedor:nota?nota.forn:null,obra_id:obraId,obra_nome:obra.nome,quem_emite:emite,itens,motivo:motivo||null,criado_por:session.user.id,criado_por_nome:profile.nome||profile.email});
+  if(error){toast('Erro: '+error.message,'err');return;}
+  toast('Devolução registrada — saldo bloqueado.','ok'); closeModal(); await refreshDevolucoesBloqueio(); refreshBadge(); refreshDevolucaoBadge(); drawDevolAbertas(); refreshGlobalAlerts();
+}
+function devolEditarNota(id){
+  sb.from('devolucoes').select('numero_nota_devolucao,data_nota_devolucao').eq('id',id).maybeSingle().then(({data})=>{
+    modal(`<h3>Número da nota de devolução</h3>
+      <div class="field"><label>Número</label><input id="dvNumNota" value="${data&&data.numero_nota_devolucao?esc(data.numero_nota_devolucao):''}"></div>
+      <div class="field"><label>Data de emissão</label><input id="dvDataNota" type="date" value="${data&&data.data_nota_devolucao?data.data_nota_devolucao:''}"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="salvarNumNota(${id})">Salvar</button></div>`);
+  }); }
+async function salvarNumNota(id){ const numero=$('#dvNumNota').value.trim(); const data=$('#dvDataNota').value||null;
+  const {error}=await sb.from('devolucoes').update({numero_nota_devolucao:numero||null,data_nota_devolucao:data}).eq('id',id);
+  if(error){toast('Erro: '+error.message,'err');return;} toast('Nota atualizada.','ok'); closeModal(); drawDevolAbertas(); drawDevolConcluidas(); }
+async function marcarEmEnvio(id){ const {error}=await sb.from('devolucoes').update({status:'em_envio'}).eq('id',id);
+  if(error){toast('Erro: '+error.message,'err');return;} toast('Devolução marcada como em envio.','ok'); drawDevolAbertas(); refreshDevolucaoBadge(); refreshGlobalAlerts(); }
+function concluirDevolucaoModal(id){
+  modal(`<h3>Concluir devolução #${id}</h3><p class="mp">Isso estorna (baixa definitiva) o saldo bloqueado desta devolução — não há como desfazer sozinho, precisa de um administrador.</p>
+    <div class="row c2"><div class="field"><label>Nº da nota de devolução</label><input id="dvNumNotaC"></div><div class="field"><label>Data de emissão</label><input id="dvDataNotaC" type="date" value="${new Date().toISOString().slice(0,10)}"></div></div>
+    <div class="field"><label>Documento assinado (imagem ou PDF)</label><input id="dvDoc" type="file" accept="image/*,.pdf"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="concluirDevolucao(${id})">Concluir e estornar saldo</button></div>`);
+}
+function fileToDataURL(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(file); }); }
+async function concluirDevolucao(id){
+  const numero=$('#dvNumNotaC').value.trim(); const data=$('#dvDataNotaC').value||null;
+  const fileEl=$('#dvDoc'); const file=fileEl&&fileEl.files[0];
+  let docB64=null,docNome=null;
+  if(file){ if(file.size>4*1024*1024){toast('Arquivo muito grande (máx. 4MB).','err');return;} docB64=await fileToDataURL(file); docNome=file.name; }
+  const {data:d,error:e1}=await sb.from('devolucoes').select('*').eq('id',id).maybeSingle();
+  if(e1||!d){toast('Erro ao carregar devolução.','err');return;}
+  (d.itens||[]).forEach(it=>{ addSaldo(d.obra_id,it.code,-Number(it.qty||0));
+    state.movements.unshift({id:uid(),ts:Date.now(),tipo:'devolucao',obra:d.obra_id,code:it.code,desc:it.desc,qty:Number(it.qty||0),valorUnit:Number(it.valorUnit||0),valorTotal:Number(it.qty||0)*Number(it.valorUnit||0),doc:'Devolução #'+d.id,obs:d.fornecedor?('Fornecedor: '+d.fornecedor):'',saldo:saldoTotalOf(d.obra_id,it.code)}); });
+  await save('Devolução #'+d.id+' concluída — saldo estornado');
+  const {error:e2}=await sb.from('devolucoes').update({status:'concluida',numero_nota_devolucao:numero||d.numero_nota_devolucao,data_nota_devolucao:data,doc_devolucao_base64:docB64,doc_devolucao_nome:docNome,concluido_em:new Date().toISOString(),concluido_por_nome:profile.nome||profile.email}).eq('id',id);
+  if(e2){toast('Saldo estornado, mas houve erro ao atualizar o registro: '+e2.message,'err');return;}
+  toast('Devolução concluída — saldo estornado.','ok'); closeModal(); await refreshDevolucoesBloqueio(); refreshBadge(); refreshDevolucaoBadge(); drawDevolAbertas(); drawDevolConcluidas(); refreshGlobalAlerts();
+}
+function cancelarDevolucao(id){
+  requireSupervisor('Cancelar devolução #'+id+' (libera o saldo bloqueado)',async()=>{
+    const {error}=await sb.from('devolucoes').update({status:'cancelada'}).eq('id',id);
+    if(error){toast('Erro: '+error.message,'err');return;}
+    toast('Devolução cancelada — saldo liberado.','warn'); await refreshDevolucoesBloqueio(); refreshBadge(); refreshDevolucaoBadge(); drawDevolAbertas(); refreshGlobalAlerts();
+  });
+}
+
 /* ===== CONSULTA ===== */
 function renderConsulta(){ $('#topActions').innerHTML=obraSelectorHTML(true);
   const o=curObra(); const all=o==='__all'||!o;
@@ -2502,7 +2645,7 @@ async function onAuthReady(){
   if(!session){ profile=null; drawAuthView(); showGate(); return; }
   profile=await loadProfile();
   if(!profile||!profile.ativo){ showPending(); return; }
-  hideGate(); applyRoleNav(); initNavGrps(); await load(); await loadPhotos(); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); refreshRetiradasBadge(); refreshMinhasBadge(); refreshInvBadge(); refreshGlobalAlerts(); updateOfflineBadge(); go('painel');
+  hideGate(); applyRoleNav(); initNavGrps(); await load(); await loadPhotos(); await refreshDevolucoesBloqueio(); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); refreshRetiradasBadge(); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge(); go('painel');
   if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); }
 }
 let _appUid=null;
@@ -2576,11 +2719,19 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
   let titulo,headers,rows,foot;
   if(relTipo==='aplicacao'){
     titulo='Consumo por aplicação';
-    const g={}; inP.filter(m=>m.tipo==='baixa').forEach(m=>{ const k=m.aplic||'__sem'; if(!g[k])g[k]={itens:0,valor:0,os:new Set()}; g[k].itens++; g[k].valor+=m.valorTotal; const mo=movOS(m); if(mo)g[k].os.add(mo); });
-    const arr=Object.entries(g).map(([k,v])=>{ const a=state.aplicacoes.find(x=>x.id===k); return {nome:k==='__sem'?'(sem aplicação)':(a?a.nome:'(removida)'), tipo:k==='__sem'?'—':aplicTipoLabel(a&&a.tipo,a&&a.sub), itens:v.itens, valor:v.valor, os:[...v.os].sort().join(', ')||'—'}; }).sort((a,b)=>b.valor-a.valor);
-    headers=['Aplicação','Tipo','Ordens de Serviço','Nº itens','Valor total'];
-    rows=arr.map(a=>[a.nome,a.tipo,a.os,String(a.itens),money(a.valor)]);
-    foot=['Total','','',String(arr.reduce((s,a)=>s+a.itens,0)),money(arr.reduce((s,a)=>s+a.valor,0))];
+    const g={}; inP.filter(m=>m.tipo==='baixa').forEach(m=>{ const k=m.aplic||'__sem'; if(!g[k])g[k]={itens:0,valor:0,os:new Set(),movs:[]}; g[k].itens++; g[k].valor+=m.valorTotal; const mo=movOS(m); if(mo)g[k].os.add(mo); g[k].movs.push(m); });
+    const arr=Object.entries(g).map(([k,v])=>{ const a=state.aplicacoes.find(x=>x.id===k); return {key:k, nome:k==='__sem'?'(sem aplicação)':(a?a.nome:'(removida)'), tipo:k==='__sem'?'—':aplicTipoLabel(a&&a.tipo,a&&a.sub), itens:v.itens, valor:v.valor, os:[...v.os].sort().join(', ')||'—', movs:v.movs.sort((x,y)=>y.ts-x.ts)}; }).sort((a,b)=>b.valor-a.valor);
+    const totItens=arr.reduce((s,a)=>s+a.itens,0), totValor=arr.reduce((s,a)=>s+a.valor,0);
+    const box=$('#relView');
+    _rel={titulo,sub:periodoLbl,headers:['Aplicação','Tipo','Ordens de Serviço','Nº itens','Valor total'],rows:arr.map(a=>[a.nome,a.tipo,a.os,String(a.itens),money(a.valor)]),foot:['Total','','',String(totItens),money(totValor)]};
+    box.innerHTML=`<div class="sechead"><h3>${esc(titulo)}</h3><span style="font-size:12px;color:#8a8377">${esc(periodoLbl)}</span></div>
+      <div class="tbl-wrap"><table><thead><tr><th style="width:24px"></th><th>Aplicação</th><th>Tipo</th><th>Ordens de Serviço</th><th class="num">Nº itens</th><th class="num">Valor total</th></tr></thead><tbody>${
+        arr.length?arr.map((a,i)=>`<tr class="rel-ap-row" style="cursor:pointer" onclick="toggleRelAplicRow(${i})"><td class="num" id="relApChev${i}" style="color:#8a8377">▸</td><td>${esc(a.nome)}</td><td>${esc(a.tipo)}</td><td>${esc(a.os)}</td><td class="num">${a.itens}</td><td class="num">${money(a.valor)}</td></tr>
+          <tr id="relApDet${i}" style="display:none"><td></td><td colspan="5" style="padding:0 0 10px 0"><table style="width:100%;background:#faf8f3"><thead><tr><th style="font-size:10.5px">Data</th><th style="font-size:10.5px">Item</th><th style="font-size:10.5px" class="num">Qtd</th><th style="font-size:10.5px" class="num">Valor</th><th style="font-size:10.5px">OS</th></tr></thead><tbody>${
+            a.movs.map(m=>`<tr><td style="font-size:12.5px">${fmtDate(m.ts)}</td><td style="font-size:12.5px">${esc(m.desc)}</td><td class="num" style="font-size:12.5px">${numf(m.qty)}</td><td class="num" style="font-size:12.5px">${money(m.valorTotal)}</td><td style="font-size:12.5px">${esc(movOS(m)||'—')}</td></tr>`).join('')
+          }</tbody></table></td></tr>`).join(''):`<tr><td colspan="6" class="empty" style="padding:24px">Sem dados no período.</td></tr>`
+      }</tbody>${arr.length?`<tfoot><tr><td></td><td><b>Total</b></td><td></td><td></td><td class="num"><b>${totItens}</b></td><td class="num"><b>${money(totValor)}</b></td></tr></tfoot>`:''}</table></div>`;
+    return;
   } else if(relTipo==='tipo'){
     titulo='Consumo por tipo de aplicação';
     const g={}; inP.filter(m=>m.tipo==='baixa').forEach(m=>{ const a=state.aplicacoes.find(x=>x.id===m.aplic); let k=a?(a.tipo==='sede'?'sede:'+(a.sub||''):a.tipo):'__sem'; if(!g[k])g[k]={itens:0,valor:0}; g[k].itens++; g[k].valor+=m.valorTotal; });
@@ -2651,6 +2802,8 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
   box.innerHTML=`<div class="sechead"><h3>${esc(titulo)}</h3><span style="font-size:12px;color:#8a8377">${esc(periodoLbl)}</span></div>
     <div class="tbl-wrap"><table><thead><tr>${headers.map((h,i)=>`<th${i>0?' class="num"':''}>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.length?rows.map(r=>`<tr>${r.map((c,i)=>`<td${i>0?' class="num"':''}>${esc(c)}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${headers.length}" class="empty" style="padding:24px">Sem dados no período.</td></tr>`}</tbody>${rows.length&&foot?`<tfoot><tr>${foot.map((c,i)=>`<td${i>0?' class="num"':''}><b>${esc(c)}</b></td>`).join('')}</tr></tfoot>`:''}</table></div>`;
 }
+function toggleRelAplicRow(i){ const row=$('#relApDet'+i); const chev=$('#relApChev'+i); if(!row)return;
+  const open=row.style.display!=='none'; row.style.display=open?'none':''; if(chev)chev.textContent=open?'▸':'▾'; }
 function drawABC(inP,isAll,fobra,periodoLbl){ const box=$('#relView'); if(!box)return;
   const bx=inP.filter(m=>m.tipo==='baixa'); let metric={}, itemLabel, titulo;
   if(relTipo==='aplicacao'){ itemLabel='Aplicação'; titulo='Curva ABC — consumo por aplicação';
