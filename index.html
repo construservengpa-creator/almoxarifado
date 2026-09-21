@@ -277,7 +277,6 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     <div class="navgrp-body" id="navgrpBody-mov">
       <button data-tab="entrada"><span class="ic">⊕</span><span>Entrada / Nota Fiscal</span></button>
       <button data-tab="baixa"><span class="ic">⊖</span><span>Consumo de Estoque</span><span class="badge" id="navBadgeMinhas" style="display:none"></span></button>
-      <button data-tab="requisicao"><span class="ic">📝</span><span>Requisição de Material</span></button>
       <button data-tab="ajuste" data-role="encarregado"><span class="ic">✎</span><span>Ajuste de Saldo</span></button>
       <button data-tab="inventario" data-role="encarregado"><span class="ic">☑</span><span>Inventário</span><span class="badge" id="navBadgeInv" style="display:none"></span></button>
       <button data-tab="transfer"><span class="ic">⇄</span><span>Transferência entre Obras</span></button>
@@ -482,10 +481,7 @@ function curObra(){ return state.currentObra; }
 function saldoOf(obra,code){ return (state.estoque[obra]&&state.estoque[obra][code])||0; }
 function estoqueObraDaEmpresa(empresaNome){ if(!empresaNome)return null; return state.obras.find(o=>o.ehEstoque && o.empresa && o.empresa.trim().toLowerCase()===empresaNome.trim().toLowerCase()); }
 function obraEstoqueParaRequisicao(r){
-  if(r.origem_tela!=='requisicao') return r.obra_id;
-  if(r.mutuo_estoque_obra_id) return r.mutuo_estoque_obra_id;
-  const cc=state.obras.find(o=>o.id===r.obra_id); const est=cc?estoqueObraDaEmpresa(cc.empresa):null;
-  return est?est.id:r.obra_id;
+  return r.mutuo_estoque_obra_id ? r.mutuo_estoque_obra_id : r.obra_id;
 }
 function totalSaldo(code){ let s=0; state.obras.forEach(o=>s+=saldoOf(o.id,code)); return s; }
 function addSaldo(obra,code,delta){ if(!state.estoque[obra])state.estoque[obra]={}; state.estoque[obra][code]=(state.estoque[obra][code]||0)+delta; }
@@ -564,7 +560,6 @@ function closeCameraScanner(){ if(camScanner){ const c=camScanner; camScanner=nu
 
 /* ===== Roteamento ===== */
 const titles={ painel:['Painel','Visão por obra'],entrada:['Entrada / Nota Fiscal','XML, colado ou manual'],baixa:['Consumo de Estoque','Solicitação com aprovação do encarregado'],
-  requisicao:['Requisição de Material','Solicitação formal — inclui mútuo entre empresas quando aplicável'],
   ajuste:['Ajuste de Saldo','Lançar ou corrigir saldo sem nota fiscal'],
   inventario:['Inventário','Ajustes da contagem cíclica aguardando autorização'],
   aprovacoes:['Aprovações','Requisições pendentes de aprovação'],
@@ -582,7 +577,7 @@ function go(tab){
   document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
   const activeBtn=document.querySelector('#nav button[data-tab="'+tab+'"]'); const grpBody=activeBtn&&activeBtn.closest('.navgrp-body'); if(grpBody&&grpBody.style.display==='none')toggleNavGrp(grpBody.id.replace('navgrpBody-',''),true);
   $('#pageTitle').firstChild.textContent=titles[tab][0]+' '; $('#pageSub').textContent=titles[tab][1]; $('#topActions').innerHTML='';
-  ({painel:renderPainel,entrada:renderEntrada,baixa:renderBaixa,requisicao:renderRequisicao,ajuste:renderAjuste,inventario:renderInventario,aprovacoes:renderAprovacoes,separacao:renderSeparacao,expedicao:renderExpedicao,retiradas:renderRetiradaPendente,compras:renderCompras,transfer:renderTransfer,mutuo:renderMutuo,consulta:renderConsulta,obras:renderObras,aplic:renderAplic,tiposetor:renderTipoSetor,produtos:renderProdutos,importar:renderImportar,empresas:renderEmpresas,admin:renderAdmin,relatorios:renderRelatorios,auditoria:renderAuditoria}[tab])();
+  ({painel:renderPainel,entrada:renderEntrada,baixa:renderBaixa,ajuste:renderAjuste,inventario:renderInventario,aprovacoes:renderAprovacoes,separacao:renderSeparacao,expedicao:renderExpedicao,retiradas:renderRetiradaPendente,compras:renderCompras,transfer:renderTransfer,mutuo:renderMutuo,consulta:renderConsulta,obras:renderObras,aplic:renderAplic,tiposetor:renderTipoSetor,produtos:renderProdutos,importar:renderImportar,empresas:renderEmpresas,admin:renderAdmin,relatorios:renderRelatorios,auditoria:renderAuditoria}[tab])();
 }
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>go(b.dataset.tab));
 /* ===== Menu lateral em gaveta (celular) ===== */
@@ -1257,9 +1252,8 @@ function printLabels(items,type){
   w.document.close(); }
 
 /* ===== BAIXA (sempre via requisição, aprovada pelo encarregado) ===== */
-let baixaProduct=null, baixaMode='scanner', saidaCart=[], baixaFormal=false;
-function renderBaixaScreen(formal){
-  baixaFormal=formal;
+let baixaProduct=null, baixaMode='scanner', saidaCart=[];
+function renderBaixa(){
   if(needObra())return;
   $('#topActions').innerHTML=obraSelectorHTML(false);
   $('#view').innerHTML=`
@@ -1274,21 +1268,6 @@ function renderBaixaScreen(formal){
   <div class="sechead" style="margin-top:24px"><h3>Minhas solicitações em andamento</h3></div>
   <div class="tbl-wrap" id="minhasAndamento"><div class="empty">Carregando...</div></div>`;
   setBaixaMode(baixaMode); drawBaixaHist(); drawMinhasFrotasPendentes(); drawMinhasEmAndamento();
-}
-function renderBaixa(){ renderBaixaScreen(false); }
-function renderRequisicao(){
-  baixaFormal=true; baixaMode='scanner';
-  if(needObra())return;
-  $('#topActions').innerHTML=obraSelectorHTML(false,'Centro de Custo');
-  $('#view').innerHTML=`
-  <div id="baixaPane"></div>
-  <div class="sechead" style="margin-top:24px"><h3>Últimas requisições</h3></div>
-  <div class="tbl-wrap"><table><thead><tr><th>Data</th><th>Nº</th><th>Obra</th><th>Produto</th><th class="num">Qtd</th><th class="num">Total</th><th></th></tr></thead><tbody id="baixaHist"></tbody></table></div>
-  <div class="sechead" style="margin-top:24px"><h3>Minhas solicitações pendentes de aprovação</h3></div>
-  <div class="tbl-wrap" id="minhasFrotas"><div class="empty">Carregando...</div></div>
-  <div class="sechead" style="margin-top:24px"><h3>Minhas solicitações em andamento</h3></div>
-  <div class="tbl-wrap" id="minhasAndamento"><div class="empty">Carregando...</div></div>`;
-  setBaixaMode('scanner'); drawBaixaHist(); drawMinhasFrotasPendentes(); drawMinhasEmAndamento();
 }
 async function drawMinhasFrotasPendentes(){ const box=$('#minhasFrotas'); if(!box)return;
   if(!isOnline){ box.innerHTML='<div class="empty">Sem conexão — indisponível no momento.</div>'; return; }
@@ -1315,14 +1294,14 @@ function setBaixaMode(m){ baixaMode=m; if($('#bmScan'))$('#bmScan').classList.to
     <div class="search" style="max-width:none"><span class="si">⌕</span><input id="saidaAplicSearch" placeholder="Digite qualquer informação e pesquise..." autocomplete="off" oninput="onAplicInput(this.value)" onfocus="drawAplicResults(this.value)"></div>
     <div id="saidaAplicResults" style="display:none"></div>`:`<input disabled placeholder="cadastre em Aplicações">`}</div><div class="field" id="osFieldWrap" style="margin:0;display:none"><label>Ordem de Serviço <span style="color:#c0392b">(obrigatório)</span></label><input id="saidaOS" placeholder="Nº da OS"></div>`;
   const outrosEstoques=oObra&&oObra.empresa?state.obras.filter(x=>x.ehEstoque&&x.empresa&&x.empresa.trim().toLowerCase()!==oObra.empresa.trim().toLowerCase()):[];
-  const mutuoRow=(baixaFormal && oObra&&oObra.empresa)?`<div class="panel" style="padding:12px 18px;margin-bottom:12px;border-color:#d8c8a0;background:#fff9ee">
+  const mutuoRow=(oObra&&oObra.empresa)?`<div class="panel" style="padding:12px 18px;margin-bottom:12px;border-color:#d8c8a0;background:#fff9ee">
     <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-weight:500;font-size:13px;margin:0;color:#1c1c1c"><input type="checkbox" id="saidaMutuo" style="width:auto" onchange="toggleSaidaMutuo()"> O material será fornecido pelo estoque de outra empresa (registra o mútuo automaticamente na separação)</label>
     <div id="saidaMutuoFields" style="display:none;margin-top:10px"><div class="field" style="margin:0"><label>Estoque de qual empresa vai atender?</label><select id="saidaMutuoObra">${outrosEstoques.length?outrosEstoques.map(x=>`<option value="${x.id}">${esc(x.nome)} (${esc(x.empresa)})</option>`).join(''):'<option value="">— nenhum estoque de outra empresa cadastrado —</option>'}</select></div></div></div>`:'';
   if(m==='scanner'){
     pane.innerHTML=`
       ${state.aplicacoes.length?`<div class="panel" style="padding:14px 18px;margin-bottom:12px"><div class="row c3">${aplicOsRow}<div class="field" style="margin:0"><label>Observação (opcional)</label><textarea id="saidaObs" rows="2" placeholder="Ex.: manutenção... (Enter = nova linha)"></textarea></div></div></div>`:`<div class="panel" style="padding:14px 18px;margin-bottom:12px;border-color:#f0c060;background:#fff7e8"><b style="color:#8a5a00">⚠ Cadastre uma aplicação primeiro</b><p class="desc" style="margin:6px 0 8px">O consumo exige informar o equipamento/veículo de destino.</p><button class="btn dark sm" onclick="go('aplic')">Cadastrar aplicação</button></div>`}
       ${mutuoRow}
-      <div class="scan-box"><label>📷 ${baixaFormal?'Requisição de material — Centro de Custo':'Solicitação de material — obra'}: ${esc(obraName(o))}</label>
+      <div class="scan-box"><label>📷 Solicitação de material — obra: ${esc(obraName(o))}</label>
       <input id="scanInput" placeholder="Leia o código de barras ou digite nome / código (parcial)" autocomplete="off">
       <button class="btn dark sm" style="margin-top:8px" onclick="openCameraScanner(c=>{$('#scanInput').value=c; lookupScan(c,true);})">📷 Usar câmera do celular</button>
       <div class="scan-hint">⚡ Escaneie ou pesquise, informe a quantidade e <b>adicione à lista</b>. Toda solicitação passa por aprovação do encarregado antes da separação — mesmo sem saldo suficiente.</div></div>
@@ -1415,7 +1394,7 @@ function confirmSaida(){ const o=curObra()==='__all'?state.obras[0].id:curObra()
 
   const payload={obra_id:o,obra_nome:obraName(o),solicitante_id:session.user.id,solicitante_nome:profile.nome||profile.email,
     itens:itens.map(i=>{const p=findProduct(i.code); return {code:p.code,desc:p.desc,unit:p.unit,qty:i.qty};}),
-    observacao:(obs||resp?[obs,resp?('Solicitante: '+resp):''].filter(Boolean).join(' · '):null),ordem_servico:os||null,aplicacao_id:aplic,aplicacao_nome:aplicName(aplic),origem_tela:baixaFormal?'requisicao':'consumo',...mutuoFields};
+    observacao:(obs||resp?[obs,resp?('Solicitante: '+resp):''].filter(Boolean).join(' · '):null),ordem_servico:os||null,aplicacao_id:aplic,aplicacao_nome:aplicName(aplic),...mutuoFields};
   const finish=()=>{ saidaCart=[]; drawBaixaHist(); drawMinhasFrotasPendentes(); setBaixaMode(baixaMode); };
   if(!isOnline){ queueAction('requisicao',payload); toast('Sem conexão — solicitação guardada neste aparelho, será enviada quando a conexão voltar.','warn'); finish(); return; }
   sb.from('requisicoes').insert(payload).then(({error})=>{ if(error){toast('Erro ao enviar: '+error.message,'err');return;} toast(mutuoFields.mutuo_empresa_destino?'Solicitação enviada para aprovação — o mútuo será registrado automaticamente na separação.':'Solicitação enviada para aprovação.','ok'); refreshAprovBadge(); refreshGlobalAlerts(); finish(); });
@@ -1699,10 +1678,6 @@ async function aprovarRequisicao(id){
   if(e1||!r){toast('Erro ao carregar pedido.','err');return;}
   if(!podeAprovarObra(r.obra_id)){toast('Você não está vinculado à obra (centro de custo) desta requisição.','err');return;}
   const obraSaldo=obraEstoqueParaRequisicao(r);
-  if(r.origem_tela==='requisicao' && obraSaldo===r.obra_id){
-    const cc=state.obras.find(o=>o.id===r.obra_id);
-    toast('Nenhum estoque central cadastrado para a empresa '+(cc?esc(cc.empresa||'—'):'—')+' — usando o saldo da própria obra.','warn');
-  }
   // Verifica o saldo item a item — não bloqueia mais a aprovação por falta de estoque.
   const itensAvaliados=r.itens.map(i=>{
     const disponivel=Math.max(Math.min(saldoOf(obraSaldo,i.code), i.qty),0);
