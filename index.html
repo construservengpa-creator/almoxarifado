@@ -2540,6 +2540,7 @@ var qrcode = function() {
   <div class="userbox">
     <div class="av" id="uAvatar">?</div>
     <div><div class="nm" id="uNome">—</div><div class="rl" id="uPapel">—</div></div>
+    <button title="Trocar senha" onclick="trocarSenhaModal()">🔑</button>
     <button title="Sair" onclick="doLogout()">⏻</button>
   </div>
 </aside>
@@ -3852,7 +3853,10 @@ async function drawSeparacaoList(){ const box=$('#sepList'); if(!box)return;
   }).join('');
 }
 function definirTipoEnvio(reqId){ const sel=document.querySelector('input[name=tipoEnvioPre_'+reqId+']:checked'); const tipo=sel?sel.value:'despacho';
-  sb.from('requisicoes').update({tipo_envio:tipo}).eq('id',reqId).then(({error})=>{ if(error){toast('Erro: '+error.message,'err');return;} drawSeparacaoList(); }); }
+  const payload=tipo==='interna'?{tipo_envio:tipo,status:'romaneio_emitido'}:{tipo_envio:tipo};
+  sb.from('requisicoes').update(payload).eq('id',reqId).then(({error})=>{ if(error){toast('Erro: '+error.message,'err');return;}
+    toast(tipo==='interna'?'Retirada no balcão — indo direto pra embalagem (sem romaneio).':'Tipo de envio definido.','ok');
+    drawSeparacaoList(); drawExpedicaoList(); refreshExpedBadge(); }); }
 async function separarItem(id){
   const {data:item,error:e1}=await sb.from('requisicao_itens_status').select('*').eq('id',id).maybeSingle();
   if(e1||!item){toast('Erro ao carregar item.','err');return;}
@@ -4040,8 +4044,13 @@ async function excluirCaixa(caixaId){
   if(count){toast('Essa caixa tem itens — não é possível excluir. Reabra e remova os itens primeiro.','err');return;}
   const {error}=await sb.from('caixas').delete().eq('id',caixaId);
   if(error){toast('Erro: '+error.message,'err');return;} toast('Caixa excluída.','warn'); await abrirExpedicao(window._expedCtx.r.id); }
-async function concluirEmbalamento(reqId){ const {error}=await sb.from('requisicoes').update({status:'embalado'}).eq('id',reqId);
-  if(error){toast('Erro: '+error.message,'err');return;} toast('Embalamento concluído.','ok'); await abrirExpedicao(reqId); drawExpedicaoList(); refreshExpedBadge(); }
+async function concluirEmbalamento(reqId){
+  const tipoEnvio=window._expedCtx&&window._expedCtx.r?window._expedCtx.r.tipo_envio:null;
+  const novoStatus=tipoEnvio==='interna'?'faturado':'embalado';
+  const {error}=await sb.from('requisicoes').update({status:novoStatus}).eq('id',reqId);
+  if(error){toast('Erro: '+error.message,'err');return;}
+  toast(tipoEnvio==='interna'?'Embalamento concluído — retirada no balcão, sem nota fiscal.':'Embalamento concluído.','ok');
+  await abrirExpedicao(reqId); drawExpedicaoList(); refreshExpedBadge(); }
 async function emitirRomaneio(reqId){ const {error}=await sb.from('requisicoes').update({status:'romaneio_emitido'}).eq('id',reqId);
   if(error){toast('Erro: '+error.message,'err');return;} toast('Romaneio emitido — pronto para embalar.','ok');
   drawSeparacaoList(); drawExpedicaoList(); refreshSeparacaoBadge(); refreshExpedBadge(); refreshGlobalAlerts(); }
@@ -4375,12 +4384,17 @@ let authMode='login';
 function drawAuthView(){ const el=$('#authView'); if(!el)return;
   el.innerHTML=`<div class="authtabs"><button id="atLogin" onclick="setAuthMode('login')">Entrar</button><button id="atSignup" onclick="setAuthMode('signup')">Criar conta</button></div>
   <div id="authForm"></div><div id="authMsg" style="margin-top:10px;font-size:12.5px;color:var(--muted)"></div>`;
-  $('#atLogin').classList.toggle('on',authMode==='login'); $('#atSignup').classList.toggle('on',authMode==='signup');
+  $('#atLogin').classList.toggle('on',authMode==='login'||authMode==='forgot'); $('#atSignup').classList.toggle('on',authMode==='signup');
   const f=$('#authForm');
-  if(authMode==='login'){
+  if(authMode==='forgot'){
+    f.innerHTML=`<div class="field"><label>E-mail</label><input id="fpEmail" type="email" autocomplete="username"></div>
+      <button class="btn primary" style="width:100%;justify-content:center" onclick="doForgotPassword()">Enviar link de redefinição</button>
+      <div style="text-align:right;margin-top:10px"><a href="javascript:void(0)" onclick="setAuthMode('login')" style="font-size:12px;color:var(--muted)">Voltar ao login</a></div>`;
+  } else if(authMode==='login'){
     f.innerHTML=`<div class="field"><label>E-mail</label><input id="loEmail" type="email" autocomplete="username"></div>
       <div class="field"><label>Senha</label><input id="loSenha" type="password" autocomplete="current-password"></div>
-      <button class="btn primary" style="width:100%;justify-content:center" onclick="doLogin()">Entrar</button>`;
+      <button class="btn primary" style="width:100%;justify-content:center" onclick="doLogin()">Entrar</button>
+      <div style="text-align:right;margin-top:10px"><a href="javascript:void(0)" onclick="setAuthMode('forgot')" style="font-size:12px;color:var(--muted)">Esqueci minha senha</a></div>`;
     $('#loSenha').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();doLogin();}});
   } else {
     f.innerHTML=`<div class="field"><label>Nome</label><input id="suNome"></div>
@@ -4390,6 +4404,33 @@ function drawAuthView(){ const el=$('#authView'); if(!el)return;
       <div style="font-size:11.5px;color:var(--muted2);margin-top:8px">Após criar a conta, um administrador precisa ativá-la antes do primeiro acesso.</div>`;
   }
 }
+async function doForgotPassword(){ const email=$('#fpEmail').value.trim();
+  if(!email){toast('Informe seu e-mail.','err');return;}
+  const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:window.location.origin+window.location.pathname});
+  if(error){ $('#authMsg').textContent='Erro: '+error.message; return; }
+  $('#authMsg').textContent='Se esse e-mail estiver cadastrado, você vai receber um link de redefinição em instantes.'; }
+function showResetPasswordForm(){ showGate(); const el=$('#authView'); if(!el)return;
+  el.innerHTML=`<h3 style="margin-bottom:10px">Definir nova senha</h3>
+    <div class="field"><label>Nova senha (mín. 6 caracteres)</label><input id="rpSenha1" type="password" autocomplete="new-password"></div>
+    <div class="field"><label>Confirmar nova senha</label><input id="rpSenha2" type="password" autocomplete="new-password"></div>
+    <button class="btn primary" style="width:100%;justify-content:center" onclick="doResetPassword()">Salvar nova senha</button>
+    <div id="authMsg" style="margin-top:10px;font-size:12.5px;color:var(--muted)"></div>`; }
+async function doResetPassword(){ const s1=$('#rpSenha1').value, s2=$('#rpSenha2').value;
+  if(!s1||s1.length<6){toast('A senha precisa ter ao menos 6 caracteres.','err');return;}
+  if(s1!==s2){toast('As senhas não coincidem.','err');return;}
+  const {error}=await sb.auth.updateUser({password:s1});
+  if(error){ $('#authMsg').textContent='Erro: '+error.message; return; }
+  toast('Senha atualizada com sucesso.','ok'); onAuthReady(); }
+function trocarSenhaModal(){ modal(`<h3>Trocar senha</h3>
+    <div class="field"><label>Nova senha (mín. 6 caracteres)</label><input id="tsSenha1" type="password" autocomplete="new-password"></div>
+    <div class="field"><label>Confirmar nova senha</label><input id="tsSenha2" type="password" autocomplete="new-password"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="salvarTrocaSenha()">Salvar</button></div>`); }
+async function salvarTrocaSenha(){ const s1=$('#tsSenha1').value, s2=$('#tsSenha2').value;
+  if(!s1||s1.length<6){toast('A senha precisa ter ao menos 6 caracteres.','err');return;}
+  if(s1!==s2){toast('As senhas não coincidem.','err');return;}
+  const {error}=await sb.auth.updateUser({password:s1});
+  if(error){toast('Erro: '+error.message,'err');return;}
+  toast('Senha atualizada.','ok'); closeModal(); }
 function setAuthMode(m){ authMode=m; drawAuthView(); }
 async function doLogin(){ const email=$('#loEmail').value.trim(); const senha=$('#loSenha').value;
   if(!email||!senha){toast('Informe e-mail e senha.','err');return;}
@@ -4417,7 +4458,7 @@ async function onAuthReady(){
   hideGate(); applyRoleNav(); initNavGrps(); await load(); await loadPhotos(); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); refreshMinhasBadge(); refreshGlobalAlerts(); updateOfflineBadge(); go('painel');
   if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); }
 }
-sb.auth.onAuthStateChange((event,s)=>{ session=s; onAuthReady(); });
+sb.auth.onAuthStateChange((event,s)=>{ session=s; if(event==='PASSWORD_RECOVERY'){ showResetPasswordForm(); return; } onAuthReady(); });
 
 /* ===== RELATÓRIOS ===== */
 let _rel=null, relTipo='aplicacao';
