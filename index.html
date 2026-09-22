@@ -381,6 +381,37 @@ function podeVerRetiradas(){ return isAlmoxarife()||isEncarregado(); }
 
 /* ===== Persistência (Supabase: tabela app_kv + auditoria via RPC) ===== */
 const KEY='controle-estoque-obras-v1';
+/* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
+   IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
+   da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
+const APP_VERSION='2026-09-22T19:40:00-03:00';
+let _versionCheckTimer=null, _versionBannerShown=false;
+function startVersionWatch(){
+  clearInterval(_versionCheckTimer);
+  _versionCheckTimer=setInterval(checkAppVersion,5*60*1000);
+  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible')checkAppVersion(); });
+  window.addEventListener('focus',checkAppVersion);
+  setTimeout(checkAppVersion,20000);
+}
+async function checkAppVersion(){
+  if(_versionBannerShown||!isOnline)return;
+  try{
+    const res=await fetch(location.pathname+'?_v='+Date.now(),{cache:'no-store'});
+    if(!res.ok)return;
+    const text=await res.text();
+    const m=text.match(/const APP_VERSION=['"]([^'"]+)['"]/);
+    if(m&&m[1]&&m[1]!==APP_VERSION)showVersionBanner();
+  }catch(e){ /* falha de rede não é motivo pra avisar nada */ }
+}
+function showVersionBanner(){
+  if(_versionBannerShown)return; _versionBannerShown=true;
+  const b=document.createElement('div');
+  b.id='versionBanner';
+  b.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#1a2129;color:#fff;padding:13px 18px;display:flex;align-items:center;justify-content:center;gap:14px;font-size:13.5px;flex-wrap:wrap;box-shadow:0 -4px 20px rgba(0,0,0,.3)';
+  b.innerHTML='🔄 Existe uma versão mais nova deste sistema publicada — esta aba está desatualizada. <button id="versionReloadBtn" style="background:#f5a623;color:#1a1206;border:none;border-radius:7px;padding:8px 18px;font-weight:600;cursor:pointer">Atualizar agora</button>';
+  document.body.appendChild(b);
+  $('#versionReloadBtn').onclick=()=>location.reload();
+}
 const Store={
   async get(k){ try{ const {data,error}=await sb.from('app_kv').select('value').eq('key',k).maybeSingle(); if(error)throw error; return data?data.value:null; }catch(e){ console.warn('Store.get sem rede, usando cache:',e); return undefined; } },
   async set(k,v,label){ const {error}=await sb.rpc('save_estado',{p_key:k,p_value:v,p_label:label||null}); if(error){console.error(error); toast('Erro ao salvar: '+error.message,'err');} }
@@ -2842,7 +2873,7 @@ async function onAuthReady(){
   profile=await loadProfile();
   if(!profile||!profile.ativo){ showPending(); return; }
   hideGate(); applyRoleNav(); initNavGrps(); await load(); await loadPhotos(); await refreshDevolucoesBloqueio(); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); refreshRetiradasBadge(); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge(); go('painel');
-  if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); }
+  if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); startVersionWatch(); }
 }
 let _appUid=null;
 sb.auth.onAuthStateChange((event,s)=>{ session=s;
