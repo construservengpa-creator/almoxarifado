@@ -390,12 +390,13 @@ async function load(){ const d=await Store.get(KEY);
   else if(d&&d.products){state=d;}
   if(!state.obras)state.obras=[]; if(!state.aplicacoes)state.aplicacoes=[]; if(!state.estoque)state.estoque={}; if(!state.movements)state.movements=[]; if(!state.notas)state.notas=[]; if(!state.seq)state.seq={baixa:0,transfer:0}; if(!state.config)state.config={supHash:null}; if(!state.empresas)state.empresas=[]; if(!state.aplicTipos||!state.aplicTipos.length)state.aplicTipos=[{id:'equipamento',label:'EQUIPAMENTO',icone:'⚙',usaSetor:false},{id:'veiculo',label:'VEÍCULO',icone:'🚚',usaSetor:false},{id:'sede',label:'SEDE',icone:'🏢',usaSetor:true}]; if(!state.setores||!state.setores.length)state.setores=[{id:'oficina',nome:'OFICINA'},{id:'escritorio',nome:'ESCRITÓRIO / ADM'},{id:'lavajato',nome:'LAVAJATO'},{id:'diretoria',nome:'DIRETORIA'}];
   state.movements.forEach(m=>{ if(!m.id)m.id=uid(); });
+  if(d!==undefined){ await loadMovimentosEDaldos(); } /* fonte de verdade agora são as tabelas, não o JSON — só pula isso se estiver offline usando o cache local */
   if(!state.currentObra || !state.obras.some(o=>o.id===state.currentObra)) state.currentObra=state.obras[0]?state.obras[0].id:null;
   cacheState();
 }
 async function loadPhotos(){ const d=await Store.get(KEY+':fotos'); if(d&&typeof d==='object'){ photos=d; Object.keys(photos).forEach(k=>{ if(typeof photos[k]==='string')photos[k]=[photos[k]]; if(!Array.isArray(photos[k]))delete photos[k]; }); } }
 async function savePhotos(){ await Store.set(KEY+':fotos', photos, 'Fotos atualizadas'); }
-async function save(label){ await Store.set(KEY, state, label); cacheState(); refreshBadge(); }
+async function save(label){ const {movements,estoque,...toPersist}=state; await Store.set(KEY, toPersist, label); cacheState(); refreshBadge(); }
 
 /* ===== Modo offline: cache local + fila de sincronização ===== */
 let isOnline=navigator.onLine;
@@ -430,8 +431,10 @@ const SAFE_REFRESH_TABS=['obras','aplic','produtos','consulta','relatorios'];
 function subscribeRealtime(){
   sb.channel('app_kv_sync').on('postgres_changes',{event:'UPDATE',schema:'public',table:'app_kv',filter:'key=eq.'+KEY},payload=>{
     if(!payload.new||!payload.new.value)return;
+    const prevMovements=state.movements, prevEstoque=state.estoque; /* movements/estoque não vêm mais dentro deste documento — preserva o que já está em memória em vez de zerar */
     state=payload.new.value;
-    if(!state.obras)state.obras=[]; if(!state.aplicacoes)state.aplicacoes=[]; if(!state.estoque)state.estoque={}; if(!state.movements)state.movements=[]; if(!state.notas)state.notas=[]; if(!state.seq)state.seq={baixa:0,transfer:0}; if(!state.empresas)state.empresas=[]; if(!state.aplicTipos||!state.aplicTipos.length)state.aplicTipos=[{id:'equipamento',label:'EQUIPAMENTO',icone:'⚙',usaSetor:false},{id:'veiculo',label:'VEÍCULO',icone:'🚚',usaSetor:false},{id:'sede',label:'SEDE',icone:'🏢',usaSetor:true}]; if(!state.setores||!state.setores.length)state.setores=[{id:'oficina',nome:'OFICINA'},{id:'escritorio',nome:'ESCRITÓRIO / ADM'},{id:'lavajato',nome:'LAVAJATO'},{id:'diretoria',nome:'DIRETORIA'}];
+    state.movements=prevMovements||[]; state.estoque=prevEstoque||{};
+    if(!state.obras)state.obras=[]; if(!state.aplicacoes)state.aplicacoes=[]; if(!state.notas)state.notas=[]; if(!state.seq)state.seq={baixa:0,transfer:0}; if(!state.empresas)state.empresas=[]; if(!state.aplicTipos||!state.aplicTipos.length)state.aplicTipos=[{id:'equipamento',label:'EQUIPAMENTO',icone:'⚙',usaSetor:false},{id:'veiculo',label:'VEÍCULO',icone:'🚚',usaSetor:false},{id:'sede',label:'SEDE',icone:'🏢',usaSetor:true}]; if(!state.setores||!state.setores.length)state.setores=[{id:'oficina',nome:'OFICINA'},{id:'escritorio',nome:'ESCRITÓRIO / ADM'},{id:'lavajato',nome:'LAVAJATO'},{id:'diretoria',nome:'DIRETORIA'}];
     if(!state.currentObra||!state.obras.some(o=>o.id===state.currentObra))state.currentObra=state.obras[0]?state.obras[0].id:null;
     refreshBadge(); refreshAprovBadge(); refreshGlobalAlerts();
     if(SAFE_REFRESH_TABS.includes(activeTab))go(activeTab);
@@ -446,6 +449,17 @@ function subscribeRealtime(){
     if(activeTab==='expedicao'&&typeof drawExpedicaoList==='function')drawExpedicaoList();
     if(activeTab==='retiradas'&&typeof drawRetiradaPendente==='function')drawRetiradaPendente();
     refreshAprovBadge(); refreshSeparacaoBadge(); refreshExpedBadge(); refreshRetiradasBadge(); refreshComprasBadge(); refreshMinhasBadge(); refreshGlobalAlerts();
+  }).subscribe();
+  // Movimentações e saldos agora são tabelas próprias (não mais o JSON de app_kv) — mantém
+  // outras abas/sessões ao vivo quando alguém lança entrada, baixa, ajuste, transferência etc.
+  let _movSyncTimer=null;
+  sb.channel('mov_saldo_sync').on('postgres_changes',{event:'*',schema:'public',table:'movimentos_estoque'},()=>{
+    clearTimeout(_movSyncTimer); _movSyncTimer=setTimeout(async()=>{ await loadMovimentosEDaldos();
+      if(activeTab==='baixa')drawBaixaHist(); if(activeTab==='transfer'&&typeof drawTrHist==='function')drawTrHist();
+      if(SAFE_REFRESH_TABS.includes(activeTab))go(activeTab); refreshBadge();
+    },400);
+  }).on('postgres_changes',{event:'*',schema:'public',table:'saldos_estoque'},()=>{
+    clearTimeout(_movSyncTimer); _movSyncTimer=setTimeout(async()=>{ await loadMovimentosEDaldos(); refreshBadge(); },400);
   }).subscribe();
 }
 
@@ -507,7 +521,31 @@ function obraEstoqueParaRequisicao(r){
   return r.mutuo_estoque_obra_id ? r.mutuo_estoque_obra_id : r.obra_id;
 }
 function totalSaldo(code){ let s=0; state.obras.forEach(o=>s+=saldoOf(o.id,code)); return s; }
-function addSaldo(obra,code,delta){ if(!state.estoque[obra])state.estoque[obra]={}; state.estoque[obra][code]=(state.estoque[obra][code]||0)+delta; }
+function addSaldo(obra,code,delta){
+  if(!state.estoque[obra])state.estoque[obra]={};
+  state.estoque[obra][code]=(state.estoque[obra][code]||0)+delta;
+  if(obra&&code&&delta){
+    sb.rpc('ajustar_saldo',{p_obra:obra,p_code:code,p_delta:delta}).then(({error})=>{
+      if(error) toast('Erro ao gravar saldo no banco (recarregue a página para conferir): '+error.message,'err');
+    });
+  }
+}
+/* ===== Movimentações — agora persistidas linha a linha em movimentos_estoque, não mais dentro do JSON único (isso é o que elimina a perda por sobrescrita concorrente) ===== */
+function movToRow(m){ return {id:m.id,ts:m.ts,tipo:m.tipo,obra:m.obra||null,obra_dest:m.obraDest||null,code:m.code||null,descricao:m.desc||null,qty:m.qty||0,valor_unit:m.valorUnit||0,valor_total:m.valorTotal||0,doc:m.doc||null,obs:m.obs||null,aplic:m.aplic||null,os:m.os||null,seq:m.seq||null,nota_id:m.notaId||null,inv_id:m.invId||null,inv_modo:m.invModo||null,baixa_id:m.baixaId||null,romaneio_id:m.romaneioId||null,saldo:(m.saldo!=null?m.saldo:null),saldo_dest:(m.saldoDest!=null?m.saldoDest:null)}; }
+function rowToMov(r){ return {id:r.id,ts:Number(r.ts),tipo:r.tipo,obra:r.obra||undefined,obraDest:r.obra_dest||undefined,code:r.code||undefined,desc:r.descricao||undefined,qty:Number(r.qty)||0,valorUnit:Number(r.valor_unit)||0,valorTotal:Number(r.valor_total)||0,doc:r.doc||undefined,obs:r.obs||undefined,aplic:r.aplic||undefined,os:r.os||undefined,seq:r.seq||undefined,notaId:r.nota_id||undefined,invId:r.inv_id||undefined,invModo:r.inv_modo||undefined,baixaId:r.baixa_id||undefined,romaneioId:r.romaneio_id||undefined,saldo:r.saldo!=null?Number(r.saldo):undefined,saldoDest:r.saldo_dest!=null?Number(r.saldo_dest):undefined}; }
+function pushMov(m){ if(!m.id)m.id=uid(); if(!m.ts)m.ts=Date.now(); state.movements.unshift(m);
+  sb.from('movimentos_estoque').insert(movToRow(m)).then(({error})=>{ if(error) toast('Erro ao gravar movimentação no banco (recarregue a página para conferir): '+error.message,'err'); });
+  return m; }
+async function loadMovimentosEDaldos(){
+  try{
+    const [{data:mv,error:e1},{data:sd,error:e2}]=await Promise.all([
+      sb.from('movimentos_estoque').select('*').order('ts',{ascending:false}),
+      sb.from('saldos_estoque').select('*')
+    ]);
+    if(!e1&&mv) state.movements=mv.map(rowToMov);
+    if(!e2&&sd){ const est={}; sd.forEach(r=>{ if(!est[r.obra_id])est[r.obra_id]={}; est[r.obra_id][r.code]=Number(r.saldo)||0; }); state.estoque=est; }
+  }catch(e){ console.warn('loadMovimentosEDaldos falhou, usando o que veio do app_kv/cache:',e); }
+}
 function statusOf(p,saldo){ if(saldo<=p.min)return'low'; if(p.max>0&&saldo>=p.max)return'high'; return'good'; }
 /* Reposição só faz sentido para item que já teve estoque/movimento na obra. Mín/Máx é cadastrado no produto (global):
    sem essa checagem, todo item com mínimo > 0 aparecia como "Repor" em obra que nunca o recebeu. */
@@ -1100,7 +1138,7 @@ function processNf(force){
     if(it.custo>0){ const novo=qAnt+it.qty; p.custo=novo>0?((qAnt*(p.custo||0))+(it.qty*it.custo))/novo:it.custo; }
     if(it.preco>0)p.preco=it.preco; if(it.desc&&p.desc!==it.desc)p.desc=it.desc;
     addSaldo(obra,p.code,it.qty); total+=it.qty*it.custo; notaItens.push({code:p.code,desc:p.desc,qty:it.qty,custo:it.custo,unit:p.unit});
-    state.movements.unshift({id:uid(),ts,tipo:'entrada',obra,notaId,code:p.code,desc:p.desc,qty:it.qty,valorUnit:it.custo,valorTotal:it.qty*it.custo,doc,saldo:saldoOf(obra,p.code)});
+    pushMov({id:uid(),ts,tipo:'entrada',obra,notaId,code:p.code,desc:p.desc,qty:it.qty,valorUnit:it.custo,valorTotal:it.qty*it.custo,doc,saldo:saldoOf(obra,p.code)});
     if(p.max>0&&saldoOf(obra,p.code)>p.max)alerts.push(`${p.desc}: ${numf(saldoOf(obra,p.code))} acima do máximo`);
   });
   state.notas.unshift({id:notaId,numero,forn,dataEmissao,cnpjTomador:cnpjTom,cnpjEmit,obra,valor:total,itens:notaItens,ts});
@@ -1217,7 +1255,7 @@ function saveNewProduct(){ const desc=$('#npDesc').value.trim(); if(!desc){toast
   const p={code,desc,unit:$('#npUnit').value.trim()||'UN',aux:($('#npAux')?$('#npAux').value.trim():''),min:parseFloat($('#npMin').value)||0,max:parseFloat($('#npMax').value)||0,custo:parseFloat($('#npCusto').value)||0,preco:parseFloat($('#npPreco').value)||0,ref:$('#npRef').value.trim(),
     grupo:($('#npGrupo')?$('#npGrupo').value.trim():''),localizacao:($('#npLocal')?$('#npLocal').value.trim():''),endereco:($('#npEndereco')?$('#npEndereco').value.trim():'')};
   state.products.push(p);
-  if(qty>0){ addSaldo(obra,code,qty); state.movements.unshift({ts:Date.now(),tipo:'entrada',obra,code,desc,qty,valorUnit:p.custo,valorTotal:qty*p.custo,doc:'Saldo inicial',saldo:qty}); }
+  if(qty>0){ addSaldo(obra,code,qty); pushMov({ts:Date.now(),tipo:'entrada',obra,code,desc,qty,valorUnit:p.custo,valorTotal:qty*p.custo,doc:'Saldo inicial',saldo:qty}); }
   save(); closeModal(); renderProdutos(); toast('Produto cadastrado.','ok'); }
 /* --- Etiquetas: selecionar código(s) de barras e quantidade a imprimir --- */
 let labelSel={}; let labelType='barcode';
@@ -1405,7 +1443,7 @@ function drawBaixaHist(){ const list=state.movements.filter(m=>m.tipo==='baixa')
 function reportBaixaGroup(gid){ const ms=state.movements.filter(m=>m.tipo==='baixa'&&(m.baixaId||m.id)===gid); if(!ms.length)return; const m0=ms[0];
   const itens=ms.map(m=>{const p=findProduct(m.code); return {code:m.code,aux:p?p.aux:'',desc:m.desc,qty:m.qty,unit:p?p.unit:'',valor:m.valorUnit};});
   printSignReport({titulo:'Comprovante de Saída de Material',numero:seqf(m0.seq),subtitulo:'Baixa de estoque',data:fmtDate(m0.ts),obra:obraName(m0.obra),aplicacao:aplicName(m0.aplic),doc:m0.doc,obs:m0.obs,itens,assinaturas:['Solicitante','Responsável pelo almoxarifado','Recebedor']}); }
-function delBaixaMov(id){ const m=state.movements.find(x=>x.id===id&&x.tipo==='baixa'); if(!m)return; requireSupervisor('Excluir baixa Nº '+seqf(m.seq),()=>{ addSaldo(m.obra,m.code,m.qty); state.movements=state.movements.filter(x=>x.id!==id); save('Baixa Nº '+seqf(m.seq)+' excluída e estornada'); drawBaixaHist(); toast('Baixa excluída e estornada.','warn'); }); }
+function delBaixaMov(id){ const m=state.movements.find(x=>x.id===id&&x.tipo==='baixa'); if(!m)return; requireSupervisor('Excluir baixa Nº '+seqf(m.seq),()=>{ addSaldo(m.obra,m.code,m.qty); state.movements=state.movements.filter(x=>x.id!==id); sb.from('movimentos_estoque').delete().eq('id',id).then(({error})=>{ if(error)toast('Erro ao excluir movimentação no banco: '+error.message,'err'); }); save('Baixa Nº '+seqf(m.seq)+' excluída e estornada'); drawBaixaHist(); toast('Baixa excluída e estornada.','warn'); }); }
 /* --- scanner --- */
 function drawScanResults(q){ const box=$('#scanResults'); if(!box)return; q=(q||'').trim(); if(!q){box.innerHTML='';return;}
   const o=curObra()==='__all'?state.obras[0].id:curObra();
@@ -1515,7 +1553,7 @@ function aplicarAjuste(code){ const p=findProduct(code); if(!p)return; const obr
   }
   requireSupervisor(`Ajustar saldo de "${p.desc}" em ${obraName(obra)} de ${numf(atual)} para ${numf(novo)}`,async()=>{
     addSaldo(obra,code,delta); p.custo=custoFinal;
-    state.movements.unshift({id:uid(),ts:Date.now(),tipo:'ajuste',obra,code:p.code,desc:p.desc,qty:delta,valorUnit:custoFinal,valorTotal:delta*custoFinal,doc:'Ajuste: '+motivo,saldo:saldoOf(obra,code)});
+    pushMov({id:uid(),ts:Date.now(),tipo:'ajuste',obra,code:p.code,desc:p.desc,qty:delta,valorUnit:custoFinal,valorTotal:delta*custoFinal,doc:'Ajuste: '+motivo,saldo:saldoOf(obra,code)});
     toast('Salvando...','warn');
     await save('Ajuste de saldo: '+p.desc+' em '+obraName(obra)+' ('+(delta>0?'+':'')+numf(delta)+') · '+motivo);
     toast('Saldo ajustado e salvo.','ok'); renderAjuste(); }); }
@@ -1580,7 +1618,7 @@ function invAplicar(linhas){
     if(delta>0&&ci!=null&&ci>0){ custoFinal=L.novo>0?(((atual*(p.custo||0))+(delta*ci))/L.novo):ci; }
     addSaldo(L.obra,L.code,delta); p.custo=custoFinal;
     const mid=uid();
-    state.movements.unshift({id:mid,ts:Date.now(),tipo:'ajuste',obra:L.obra,code:L.code,desc:p.desc,qty:delta,valorUnit:custoFinal,valorTotal:delta*custoFinal,doc:'Ajuste de inventário: '+L.lista+(L.tipo==='extra'?' · item fora da lista':''),saldo:saldoOf(L.obra,L.code),invId:L.key,invModo:L.modoEf});
+    pushMov({id:mid,ts:Date.now(),tipo:'ajuste',obra:L.obra,code:L.code,desc:p.desc,qty:delta,valorUnit:custoFinal,valorTotal:delta*custoFinal,doc:'Ajuste de inventário: '+L.lista+(L.tipo==='extra'?' · item fora da lista':''),saldo:saldoOf(L.obra,L.code),invId:L.key,invModo:L.modoEf});
     marcas.push({...L,mov:mid});
   }
   return marcas;
@@ -1719,6 +1757,7 @@ async function excluirEventoSeparacao(reqId){
     const obraSaldo=obraEstoqueParaRequisicao(r);
     separados.forEach(i=>addSaldo(obraSaldo,i.code,i.quantidade_separada));
     state.movements=state.movements.filter(m=>!(m.tipo==='baixa'&&m.obs==='Separação REQ-'+String(reqId).padStart(5,'0')));
+    await sb.from('movimentos_estoque').delete().eq('tipo','baixa').eq('obs','Separação REQ-'+String(reqId).padStart(5,'0'));
     await save('Separação da REQ-'+String(reqId).padStart(5,'0')+' excluída (estorno de estoque)');
     for(const i of separados){
       const novaDisp=i.quantidade_disponivel+i.quantidade_separada;
@@ -1926,7 +1965,7 @@ async function separarItem(id){
   const qtdSeparar=item.quantidade_disponivel;
   const obraSaldo=obraEstoqueParaRequisicao(r);
   addSaldo(obraSaldo,item.code,-qtdSeparar);
-  state.movements.unshift({id:uid(),ts:Date.now(),tipo:'baixa',obra:obraSaldo,aplic:r.aplicacao_id||'',obs:'Separação REQ-'+String(r.id).padStart(5,'0'),os:r.ordem_servico||'',code:item.code,desc:item.descricao,qty:qtdSeparar,valorUnit:vu,valorTotal:qtdSeparar*vu,doc:'Separação REQ-'+String(r.id).padStart(5,'0'),saldo:saldoOf(obraSaldo,item.code)});
+  pushMov({id:uid(),ts:Date.now(),tipo:'baixa',obra:obraSaldo,aplic:r.aplicacao_id||'',obs:'Separação REQ-'+String(r.id).padStart(5,'0'),os:r.ordem_servico||'',code:item.code,desc:item.descricao,qty:qtdSeparar,valorUnit:vu,valorTotal:qtdSeparar*vu,doc:'Separação REQ-'+String(r.id).padStart(5,'0'),saldo:saldoOf(obraSaldo,item.code)});
   await save('Separação REQ-'+String(r.id).padStart(5,'0')+': '+item.descricao);
   if(r.mutuo_empresa_destino){
     const estObra=state.obras.find(x=>x.id===r.mutuo_estoque_obra_id);
@@ -2285,7 +2324,7 @@ function drawTrCart(){ const b=$('#trCartBody'); if(!b)return; const orig=trOrig
   b.innerHTML=trCart.map(i=>{const p=findProduct(i.code);const s=saldoOf(orig,i.code);const tot=(i.qty||0)*((p.custo)||0);return `<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''}</span></td><td class="num ${i.qty>s?'neg':''}">${numf(s)} ${esc(p.unit||'')}</td><td class="num"><input class="inline-edit" type="number" step="any" min="0" value="${i.qty}" oninput="setTrQty('${esc(i.code)}',this.value)"></td><td class="num" id="tv_${esc(i.code)}">${money(tot)}</td><td class="num"><button class="btn danger sm" onclick="rmTr('${esc(i.code)}')">✕</button></td></tr>`;}).join(''); updateTrTotal(); }
 function drawTrHist(){ const list=state.movements.filter(m=>m.tipo==='transferencia').slice(0,40);
   $('#trHist').innerHTML=list.length?list.map(m=>`<tr><td class="muted" style="font-size:12px">${fmtDate(m.ts)}</td><td class="mono">${m.seq?seqf(m.seq):'—'}</td><td style="font-size:12.5px">${esc(obraName(m.obra))} → ${esc(obraName(m.obraDest))}</td><td>${esc(m.desc)}${m.obs?`<br><span class="muted" style="font-size:11px">obs: ${esc(m.obs)}</span>`:''}</td><td class="num"><span class="pill tr">${numf(m.qty)}</span></td><td class="num">${money(m.valorTotal)}</td><td class="num"><button class="btn ghost sm" title="Romaneio (agrupado)" onclick="reportRomaneio('${m.romaneioId||m.id}')">🖨</button> <button class="btn danger sm" title="Excluir e estornar (supervisor)" onclick="delTrMov('${m.id}')">🗑</button></td></tr>`).join(''):`<tr><td colspan="7" class="empty" style="padding:24px">Nenhuma transferência.</td></tr>`; }
-function delTrMov(id){ const m=state.movements.find(x=>x.id===id&&x.tipo==='transferencia'); if(!m)return; requireSupervisor('Excluir transferência Nº '+seqf(m.seq),()=>{ addSaldo(m.obra,m.code,m.qty); addSaldo(m.obraDest,m.code,-m.qty); state.movements=state.movements.filter(x=>x.id!==id); save('Transferência Nº '+seqf(m.seq)+' excluída e estornada'); drawTrHist(); toast('Transferência excluída e estornada.','warn'); }); }
+function delTrMov(id){ const m=state.movements.find(x=>x.id===id&&x.tipo==='transferencia'); if(!m)return; requireSupervisor('Excluir transferência Nº '+seqf(m.seq),()=>{ addSaldo(m.obra,m.code,m.qty); addSaldo(m.obraDest,m.code,-m.qty); state.movements=state.movements.filter(x=>x.id!==id); sb.from('movimentos_estoque').delete().eq('id',id).then(({error})=>{ if(error)toast('Erro ao excluir movimentação no banco: '+error.message,'err'); }); save('Transferência Nº '+seqf(m.seq)+' excluída e estornada'); drawTrHist(); toast('Transferência excluída e estornada.','warn'); }); }
 function confirmTransfer(){ const orig=$('#trOrig').value, dest=$('#trDest').value;
   if(orig===dest){toast('Origem e destino devem ser diferentes.','err');return;}
   const oOrig=state.obras.find(o=>o.id===orig), oDest=state.obras.find(o=>o.id===dest);
@@ -2296,7 +2335,7 @@ function confirmTransfer(){ const orig=$('#trOrig').value, dest=$('#trDest').val
   for(const i of itens){ const s=saldoOf(orig,i.code); if(i.qty>s){const p=findProduct(i.code); toast(`Saldo insuficiente: ${p.desc} (${numf(s)}).`,'err'); return;} }
   const wantReport=$('#trReport')&&$('#trReport').checked; const obs=($('#trObs')?$('#trObs').value.trim():''); const seq=++state.seq.transfer; const romaneioId=uid(); const ts=Date.now(); const repItens=[];
   itens.forEach(i=>{const p=findProduct(i.code); const vu=p.custo||0; addSaldo(orig,p.code,-i.qty); addSaldo(dest,p.code,i.qty);
-    state.movements.unshift({id:uid(),ts,seq,romaneioId,tipo:'transferencia',obra:orig,obraDest:dest,obs,code:p.code,desc:p.desc,qty:i.qty,valorUnit:vu,valorTotal:i.qty*vu,doc:`Romaneio Nº ${seqf(seq)} · ${obraName(orig)} → ${obraName(dest)}`,saldo:saldoOf(orig,p.code),saldoDest:saldoOf(dest,p.code)});
+    pushMov({id:uid(),ts,seq,romaneioId,tipo:'transferencia',obra:orig,obraDest:dest,obs,code:p.code,desc:p.desc,qty:i.qty,valorUnit:vu,valorTotal:i.qty*vu,doc:`Romaneio Nº ${seqf(seq)} · ${obraName(orig)} → ${obraName(dest)}`,saldo:saldoOf(orig,p.code),saldoDest:saldoOf(dest,p.code)});
     repItens.push({code:p.code,aux:p.aux,desc:p.desc,qty:i.qty,unit:p.unit,valor:vu}); });
   save('Transferência Nº '+seqf(seq)+' · '+obraName(orig)+' → '+obraName(dest)); toast(`Romaneio Nº ${seqf(seq)} · ${itens.length} item(ns) · ${esc(obraName(orig))} → ${esc(obraName(dest))}`,'ok');
   if(wantReport)printSignReport({titulo:'Romaneio de Transferência de Estoque',numero:seqf(seq),conferencia:true,recebimento:true,subtitulo:'Movimentação entre obras',data:fmtDate(ts),obra:obraName(orig),obraDest:obraName(dest),obs,itens:repItens,assinaturas:['Responsável obra origem','Responsável obra destino','Transportador / Conferente']});
@@ -2484,7 +2523,7 @@ async function concluirDevolucao(id){
   const {data:d,error:e1}=await sb.from('devolucoes').select('*').eq('id',id).maybeSingle();
   if(e1||!d){toast('Erro ao carregar devolução.','err');return;}
   (d.itens||[]).forEach(it=>{ addSaldo(d.obra_id,it.code,-Number(it.qty||0));
-    state.movements.unshift({id:uid(),ts:Date.now(),tipo:'devolucao',obra:d.obra_id,code:it.code,desc:it.desc,qty:Number(it.qty||0),valorUnit:Number(it.valorUnit||0),valorTotal:Number(it.qty||0)*Number(it.valorUnit||0),doc:'Devolução #'+d.id,obs:d.fornecedor?('Fornecedor: '+d.fornecedor):'',saldo:saldoTotalOf(d.obra_id,it.code)}); });
+    pushMov({id:uid(),ts:Date.now(),tipo:'devolucao',obra:d.obra_id,code:it.code,desc:it.desc,qty:Number(it.qty||0),valorUnit:Number(it.valorUnit||0),valorTotal:Number(it.qty||0)*Number(it.valorUnit||0),doc:'Devolução #'+d.id,obs:d.fornecedor?('Fornecedor: '+d.fornecedor):'',saldo:saldoTotalOf(d.obra_id,it.code)}); });
   await save('Devolução #'+d.id+' concluída — saldo estornado');
   const {error:e2}=await sb.from('devolucoes').update({status:'concluida',numero_nota_devolucao:numero||d.numero_nota_devolucao,data_nota_devolucao:data,doc_devolucao_base64:docB64,doc_devolucao_nome:docNome,concluido_em:new Date().toISOString(),concluido_por_nome:profile.nome||profile.email}).eq('id',id);
   if(e2){toast('Saldo estornado, mas houve erro ao atualizar o registro: '+e2.message,'err');return;}
@@ -2570,7 +2609,7 @@ function commitImport(){ const obra=$('#impObra').value; let novos=0,atual=0;
   importRows.forEach(r=>{ let p=r.code?findProduct(r.code):null;
     if(p){ p.desc=r.desc||p.desc;p.unit=r.unit||p.unit;p.min=r.min;p.max=r.max;if(r.custo>0)p.custo=r.custo;if(r.preco>0)p.preco=r.preco;if(r.ref)p.ref=r.ref;if(r.aux)p.aux=r.aux; atual++; }
     else{ const code=r.code||genCode(); p={code,desc:r.desc,unit:r.unit,aux:r.aux,min:r.min,max:r.max,custo:r.custo,preco:r.preco,ref:r.ref}; state.products.push(p); novos++; }
-    if(r.qty>0){ addSaldo(obra,p.code,r.qty); state.movements.unshift({ts:Date.now(),tipo:'entrada',obra,code:p.code,desc:p.desc,qty:r.qty,valorUnit:p.custo||0,valorTotal:r.qty*(p.custo||0),doc:'Carga inicial (planilha)',saldo:saldoOf(obra,p.code)}); } });
+    if(r.qty>0){ addSaldo(obra,p.code,r.qty); pushMov({ts:Date.now(),tipo:'entrada',obra,code:p.code,desc:p.desc,qty:r.qty,valorUnit:p.custo||0,valorTotal:r.qty*(p.custo||0),doc:'Carga inicial (planilha)',saldo:saldoOf(obra,p.code)}); } });
   save('Importação de planilha em '+obraName(obra)+' · '+novos+' novo(s), '+atual+' atualizado(s)'); importRows=[]; toast(`Importado em ${esc(obraName(obra))} · ${novos} novo(s), ${atual} atualizado(s).`,'ok'); go('produtos'); }
 async function downloadTemplate(){
   try{ await ensureXLSX(); }catch(e){ toast('Não foi possível carregar o gerador de Excel (verifique a conexão).','err'); return; }
@@ -2621,18 +2660,26 @@ async function saveUserRole(id){ const papel=$('#up_'+id).value; const setor=$('
   if(error){toast('Erro: '+error.message,'err');return;}
   await sb.rpc('log_event',{p_acao:'usuario_atualizado',p_entidade:'profiles',p_entidade_id:id,p_detalhes:{papel,setor,ativo}});
   _comprasAssignees=null; toast('Usuário atualizado.','ok'); renderAdmin(); }
-function deleteNotaId(id,fromEntrada){ const n=state.notas.find(x=>x.id===id); if(!n)return; requireSupervisor(`Excluir NF ${n.numero}`,()=>{
+function deleteNotaId(id,fromEntrada){ const n=state.notas.find(x=>x.id===id); if(!n)return; requireSupervisor(`Excluir NF ${n.numero}`,async()=>{
   state.movements.filter(m=>m.notaId===id).forEach(m=>addSaldo(m.obra,m.code,-m.qty));
   state.movements=state.movements.filter(m=>m.notaId!==id);
+  await sb.from('movimentos_estoque').delete().eq('nota_id',id);
   state.notas=state.notas.filter(x=>x.id!==id); save('NF '+n.numero+' excluída e estornada'); if(fromEntrada)drawNfHist(); else renderAdmin(); toast('Nota excluída e estornada.','warn'); }); }
 function wipeAll(){ requireSupervisor('Zerar todo o estoque',()=>{ modal(`<h3 style="color:#b03030">Confirmar exclusão total</h3><p class="mp">Apaga <b>${state.products.length} produto(s)</b>, todos os saldos, histórico, fotos, <b>requisições, compras pendentes, caixas e embarques</b>. <b>Não há como desfazer.</b></p><div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn danger" onclick="doWipe()">Apagar tudo</button></div>`); }); }
 async function doWipe(){
   state.products=[]; state.movements=[]; state.estoque={}; state.notas=[]; photos={}; savePhotos();
   await save('Estoque zerado (zona de risco)');
   try{
+    await sb.from('itens_caixa').delete().gt('id',-1);
+    await sb.from('caixas').delete().gt('id',-1);
+    await sb.from('compras_pendentes').delete().gt('id',-1);
+    await sb.from('requisicao_itens_status').delete().gt('id',-1);
+    await sb.from('retiradas_internas').delete().gt('id',-1);
     await sb.from('embarques').delete().gt('id',-1);
     await sb.from('notas_fiscais_saida').delete().gt('id',-1);
     await sb.from('requisicoes').delete().gt('id',-1);
+    await sb.from('movimentos_estoque').delete().gte('ts',0);
+    await sb.from('saldos_estoque').delete().not('obra_id','is',null);
   }catch(e){ toast('Estoque zerado, mas houve erro limpando requisições/compras: '+(e&&e.message||e),'err'); }
   closeModal(); renderAdmin(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshMinhasBadge(); refreshGlobalAlerts();
   toast('Estoque e requisições zerados.','warn');
