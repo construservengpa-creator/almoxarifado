@@ -297,6 +297,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     <div class="navgrp-hd" data-grp-toggle="fluxo"><span class="navgrp-hd-l">Fluxo de Requisição<span class="badge" id="navBadgeFluxo" style="display:none"></span></span><span class="navgrp-chev">▾</span></div>
     <div class="navgrp-body" id="navgrpBody-fluxo">
+      <button data-tab="notificacoes" data-role="retiradas_acesso"><span class="ic">🔔</span><span>Painel de Notificações</span></button>
       <button data-tab="aprovacoes" data-role="encarregado"><span class="ic">✔</span><span>Aprovações</span><span class="badge" id="navBadgeAprov" style="display:none"></span></button>
       <button data-tab="separacao" data-role="almoxarife"><span class="ic">📦</span><span>Separação</span><span class="badge" id="navBadgeSeparacao" style="display:none"></span></button>
       <button data-tab="compras" data-role="separacao_acesso"><span class="ic">🛒</span><span>Compras</span><span class="badge" id="navBadgeCompras" style="display:none"></span></button>
@@ -448,7 +449,17 @@ function subscribeRealtime(){
     if(activeTab==='separacao'&&typeof drawSeparacaoList==='function')drawSeparacaoList();
     if(activeTab==='expedicao'&&typeof drawExpedicaoList==='function')drawExpedicaoList();
     if(activeTab==='retiradas'&&typeof drawRetiradaPendente==='function')drawRetiradaPendente();
+    if(activeTab==='notificacoes'&&typeof drawNotificacoes==='function')drawNotificacoes();
     refreshAprovBadge(); refreshSeparacaoBadge(); refreshExpedBadge(); refreshRetiradasBadge(); refreshComprasBadge(); refreshMinhasBadge(); refreshGlobalAlerts();
+  }).subscribe();
+  // requisicao_itens_status é o que muda quando um item é separado (quantidade_separada) — é o
+  // gatilho de "aguardando retirada" e do Painel de Notificações; sem isto, essas telas só
+  // atualizavam no polling de 15s em vez de na hora.
+  sb.channel('itens_status_sync').on('postgres_changes',{event:'*',schema:'public',table:'requisicao_itens_status'},()=>{
+    if(activeTab==='retiradas'&&typeof drawRetiradaPendente==='function')drawRetiradaPendente();
+    if(activeTab==='separacao'&&typeof drawSeparacaoList==='function')drawSeparacaoList();
+    if(activeTab==='notificacoes'&&typeof drawNotificacoes==='function')drawNotificacoes();
+    refreshRetiradasBadge(); refreshSeparacaoBadge();
   }).subscribe();
   // Movimentações e saldos agora são tabelas próprias (não mais o JSON de app_kv) — mantém
   // outras abas/sessões ao vivo quando alguém lança entrada, baixa, ajuste, transferência etc.
@@ -621,6 +632,7 @@ function closeCameraScanner(){ if(camScanner){ const c=camScanner; camScanner=nu
 
 /* ===== Roteamento ===== */
 const titles={ painel:['Painel','Visão por obra'],entrada:['Entrada / Nota Fiscal','XML, colado ou manual'],baixa:['Consumo de Estoque','Solicitação com aprovação do encarregado'],
+  notificacoes:['Painel de Notificações','Tela de apresentação — alarme sonoro para separação e retirada'],
   ajuste:['Ajuste de Saldo','Lançar ou corrigir saldo sem nota fiscal'],
   inventario:['Inventário','Ajustes da contagem cíclica aguardando autorização'],
   aprovacoes:['Aprovações','Requisições pendentes de aprovação'],
@@ -636,11 +648,12 @@ let activeTab='painel';
 function go(tab){
   if(isEncAlmox()&&ABAS_BLOQUEADAS_ENCALMOX.includes(tab)){ toast('O perfil Encarregado do almoxarifado não tem acesso a esta área.','err'); return; }
   if(isEncFrotas()&&ABAS_BLOQUEADAS_ENCFROTAS.includes(tab)){ toast('O perfil Encarregado de Frotas não tem acesso a esta área.','err'); return; }
+  if(activeTab==='notificacoes'&&tab!=='notificacoes'){ stopNotifPolling(); document.body.classList.remove('apresentacao'); }
   activeTab=tab;
   document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
   const activeBtn=document.querySelector('#nav button[data-tab="'+tab+'"]'); const grpBody=activeBtn&&activeBtn.closest('.navgrp-body'); if(grpBody&&grpBody.style.display==='none')toggleNavGrp(grpBody.id.replace('navgrpBody-',''),true);
   $('#pageTitle').firstChild.textContent=titles[tab][0]+' '; $('#pageSub').textContent=titles[tab][1]; $('#topActions').innerHTML='';
-  ({painel:renderPainel,entrada:renderEntrada,baixa:renderBaixa,ajuste:renderAjuste,inventario:renderInventario,aprovacoes:renderAprovacoes,separacao:renderSeparacao,expedicao:renderExpedicao,retiradas:renderRetiradaPendente,compras:renderCompras,transfer:renderTransfer,mutuo:renderMutuo,devolucao:renderDevolucao,consulta:renderConsulta,obras:renderObras,aplic:renderAplic,tiposetor:renderTipoSetor,produtos:renderProdutos,importar:renderImportar,empresas:renderEmpresas,admin:renderAdmin,relatorios:renderRelatorios,auditoria:renderAuditoria}[tab])();
+  ({painel:renderPainel,entrada:renderEntrada,baixa:renderBaixa,notificacoes:renderNotificacoes,ajuste:renderAjuste,inventario:renderInventario,aprovacoes:renderAprovacoes,separacao:renderSeparacao,expedicao:renderExpedicao,retiradas:renderRetiradaPendente,compras:renderCompras,transfer:renderTransfer,mutuo:renderMutuo,devolucao:renderDevolucao,consulta:renderConsulta,obras:renderObras,aplic:renderAplic,tiposetor:renderTipoSetor,produtos:renderProdutos,importar:renderImportar,empresas:renderEmpresas,admin:renderAdmin,relatorios:renderRelatorios,auditoria:renderAuditoria}[tab])();
 }
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>go(b.dataset.tab));
 /* ===== Menu lateral em gaveta (celular) ===== */
@@ -649,7 +662,7 @@ document.getElementById('menuBtn').addEventListener('click',()=>document.body.cl
 document.getElementById('navOverlay').addEventListener('click',closeNav);
 document.querySelectorAll('#nav button[data-tab]').forEach(b=>b.addEventListener('click',()=>{ if(window.innerWidth<=860)closeNav(); }));
 window.addEventListener('resize',()=>{ if(window.innerWidth>860)closeNav(); });
-document.addEventListener('keydown',e=>{ if(e.key==='Escape')closeNav(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeNav(); if(document.body.classList.contains('apresentacao')&&typeof notifSairApresentacao==='function')notifSairApresentacao(); } });
 function toggleNavGrp(key,forceOpen){
   const body=document.getElementById('navgrpBody-'+key); if(!body)return;
   const isOpen=body.style.display!=='none';
@@ -2250,7 +2263,101 @@ async function drawRetiradaPendente(){ const box=$('#retList'); if(!box)return;
       }</tbody></table></div></div>`; }).join('');
 }
 
-let _auditRows=[];
+/* ===== PAINEL DE NOTIFICAÇÕES (tela de apresentação — alarme sonoro para separação e retirada) ===== */
+let _notifSepKnown=new Set(), _notifRetKnown=new Set(), _notifFirstLoad=true, _notifSoundOn=false, _notifAudioCtx=null, _notifTimer=null;
+function notifEnsureAudio(){ if(!_notifAudioCtx){ try{ _notifAudioCtx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } if(_notifAudioCtx&&_notifAudioCtx.state==='suspended')_notifAudioCtx.resume(); }
+function notifBeep(freq,dur,delay,vol){ if(!_notifAudioCtx)return; const t0=_notifAudioCtx.currentTime+(delay||0);
+  const osc=_notifAudioCtx.createOscillator(); const gain=_notifAudioCtx.createGain();
+  osc.type='sine'; osc.frequency.setValueAtTime(freq,t0);
+  gain.gain.setValueAtTime(0,t0); gain.gain.linearRampToValueAtTime(vol||0.35,t0+0.02); gain.gain.linearRampToValueAtTime(0,t0+dur);
+  osc.connect(gain); gain.connect(_notifAudioCtx.destination); osc.start(t0); osc.stop(t0+dur+0.02); }
+function notifAlarmSeparacao(){ if(!_notifSoundOn)return; notifBeep(880,.18,0); notifBeep(880,.18,.25); notifBeep(1046.5,.3,.5); }
+function notifAlarmRetirada(){ if(!_notifSoundOn)return; notifBeep(660,.22,0); notifBeep(660,.22,.32); }
+function notifAtivarSom(){ notifEnsureAudio(); _notifSoundOn=true; notifBeep(880,.15,0);
+  const b=$('#notifSomFab'); if(b){ b.textContent='🔔'; b.classList.add('on'); b.title='Alarme sonoro ativado'; } toast('Alarme sonoro ativado nesta tela.','ok'); }
+function stopNotifPolling(){ clearInterval(_notifTimer); _notifTimer=null; }
+function notifModoApresentacao(){
+  document.body.classList.add('apresentacao');
+  const rf=document.documentElement.requestFullscreen||document.documentElement.webkitRequestFullscreen;
+  if(rf){ try{ rf.call(document.documentElement).catch(()=>{}); }catch(e){} }
+}
+function notifSairApresentacao(){
+  document.body.classList.remove('apresentacao');
+  if(document.fullscreenElement){ try{ document.exitFullscreen(); }catch(e){} }
+}
+document.addEventListener('fullscreenchange',()=>{ if(!document.fullscreenElement)document.body.classList.remove('apresentacao'); });
+function renderNotificacoes(){
+  if(!podeVerRetiradas()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito ao almoxarifado e encarregados/administradores.</div></div>'; return; }
+  _notifSepKnown=new Set(); _notifRetKnown=new Set(); _notifFirstLoad=true;
+  $('#view').innerHTML=`
+    <div class="panel" id="notifHeader" style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:16px">
+      <div><h3 style="margin:0">🔔 Painel de Notificações</h3><p class="desc" style="margin:4px 0 0">Deixe esta tela aberta num monitor. Toca um alarme sempre que uma requisição nova entra em separação ou fica pronta para retirada — o que já está aguardando ao abrir a tela aparece listado, sem alarme; o som toca só para o que chegar depois.</p></div>
+      <button class="btn" onclick="notifModoApresentacao()">🖥 Modo apresentação</button>
+    </div>
+    <div class="notif-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div><div class="sechead"><h3>🔧 Aguardando Separação</h3></div><div id="notifSep"><div class="empty">Carregando...</div></div></div>
+      <div><div class="sechead"><h3>📦 Aguardando Retirada</h3></div><div id="notifRet"><div class="empty">Carregando...</div></div></div>
+    </div>
+    <button class="notif-fab" id="notifSomFab" title="Ativar alarme sonoro" onclick="notifAtivarSom()">🔕</button>
+    <button class="notif-fab notif-exit-fab" title="Sair da apresentação" onclick="notifSairApresentacao()">✕</button>
+    <style>@media(max-width:860px){.notif-grid{grid-template-columns:1fr!important}}
+      @keyframes notifPulse{0%{box-shadow:0 0 0 0 rgba(200,120,20,.55)}70%{box-shadow:0 0 0 16px rgba(200,120,20,0)}100%{box-shadow:0 0 0 0 rgba(200,120,20,0)}}
+      .notif-new{animation:notifPulse 1.4s ease-out 3}
+      .notif-fab{position:fixed;bottom:18px;right:18px;z-index:60;width:42px;height:42px;border-radius:50%;border:1px solid var(--line);background:#fff;opacity:.4;display:flex;align-items:center;justify-content:center;font-size:17px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.15);transition:opacity .15s,transform .15s;padding:0}
+      .notif-fab:hover{opacity:1;transform:scale(1.06)}
+      .notif-fab.on{opacity:.85;background:var(--amber);border-color:transparent;color:#1a1206}
+      .notif-exit-fab{left:18px;right:auto;bottom:auto;top:18px;opacity:.25}
+      body:not(.apresentacao) .notif-exit-fab{display:none}
+      body.apresentacao #notifHeader{display:none!important}
+      body.apresentacao aside,body.apresentacao .topbar,body.apresentacao #globalAlerts{display:none!important}
+      body.apresentacao main{width:100%}
+      body.apresentacao .wrap{max-width:none;padding:80px 5vw 40px;min-height:100vh;box-sizing:border-box}
+      body.apresentacao .notif-grid{gap:5vw;min-height:calc(100vh - 160px);align-items:stretch}
+      body.apresentacao .notif-grid>div:first-child{border-right:2px solid #e4dfd4;padding-right:5vw}
+      body.apresentacao .notif-grid .sechead{margin-bottom:18px}
+      body.apresentacao .notif-grid .sechead h3{font-size:30px!important}
+      body.apresentacao #notifSep,body.apresentacao #notifRet{display:flex;flex-direction:column;gap:18px}
+      body.apresentacao #notifSep .panel,body.apresentacao #notifRet .panel{padding:24px 28px!important;margin-bottom:0!important}
+      body.apresentacao #notifSep .panel h3,body.apresentacao #notifRet .panel h3{font-size:22px!important}
+      body.apresentacao #notifSep .panel .muted,body.apresentacao #notifRet .panel .muted{font-size:16px!important}
+      body.apresentacao #notifSep .empty,body.apresentacao #notifRet .empty{font-size:24px;padding:70px 20px!important;color:#b9b2a2}
+    </style>`;
+  drawNotificacoes();
+  stopNotifPolling(); _notifTimer=setInterval(drawNotificacoes,15000);
+}
+async function drawNotificacoes(){ if(activeTab!=='notificacoes')return;
+  await Promise.all([drawNotifSeparacao(),drawNotifRetirada()]); _notifFirstLoad=false; }
+async function drawNotifSeparacao(){ const box=$('#notifSep'); if(!box)return;
+  const {data:reqs,error}=await sb.from('requisicoes').select('*').in('status',['em_separacao','aguardando_compra']).order('criado_em',{ascending:true});
+  if(error){ box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>'; return; }
+  const novos=(reqs||[]).filter(r=>!_notifSepKnown.has(r.id));
+  (reqs||[]).forEach(r=>_notifSepKnown.add(r.id));
+  if(!_notifFirstLoad&&novos.length)notifAlarmSeparacao();
+  if(!reqs||!reqs.length){ box.innerHTML='<div class="tbl-wrap"><div class="empty">Nada aguardando separação.</div></div>'; return; }
+  box.innerHTML=reqs.map(r=>{ const isNew=novos.some(n=>n.id===r.id);
+    return `<div class="panel ${isNew?'notif-new':''}" style="margin-bottom:10px;cursor:pointer" onclick="go('separacao')">
+      <div class="sechead" style="margin-bottom:2px;flex-wrap:wrap;gap:6px"><h3 style="font-size:14px">REQ-${String(r.id).padStart(5,'0')} — ${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</h3><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span></div>
+      <div class="muted" style="font-size:12px">Solicitante: ${esc(r.solicitante_nome)} · ${fmtDate(new Date(r.criado_em).getTime())}</div>
+    </div>`; }).join('');
+}
+async function drawNotifRetirada(){ const box=$('#notifRet'); if(!box)return;
+  const {data,error}=await sb.from('requisicao_itens_status').select('*, requisicoes(id,obra_nome,ordem_servico,status,tipo_envio,criado_em)').gt('quantidade_separada',0).order('atualizado_em',{ascending:true});
+  if(error){ box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>'; return; }
+  const itens=(data||[]).filter(i=>i.requisicoes&&STATUS_AINDA_NAO_SAIU.includes(i.requisicoes.status));
+  const grupos={}; itens.forEach(i=>{ const r=i.requisicoes; if(!grupos[r.id])grupos[r.id]={r,itens:[]}; grupos[r.id].itens.push(i); });
+  const lista=Object.values(grupos);
+  const novos=lista.filter(g=>!_notifRetKnown.has(g.r.id));
+  lista.forEach(g=>_notifRetKnown.add(g.r.id));
+  if(!_notifFirstLoad&&novos.length)notifAlarmRetirada();
+  if(!lista.length){ box.innerHTML='<div class="tbl-wrap"><div class="empty">Nada aguardando retirada.</div></div>'; return; }
+  box.innerHTML=lista.map(g=>{ const r=g.r; const isNew=novos.some(n=>n.r.id===r.id);
+    return `<div class="panel ${isNew?'notif-new':''}" style="margin-bottom:10px;cursor:pointer" onclick="go('retiradas')">
+      <div class="sechead" style="margin-bottom:2px;flex-wrap:wrap;gap:6px"><h3 style="font-size:14px">REQ-${String(r.id).padStart(5,'0')} — ${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</h3><span>${envioTipoLabel(r.tipo_envio)}</span></div>
+      <div class="muted" style="font-size:12px">${g.itens.map(i=>esc(i.descricao)+' ('+numf(i.quantidade_separada)+' '+esc(i.unidade||'')+')').join(', ')}</div>
+    </div>`; }).join('');
+}
+
+
 async function renderAuditoria(){
   if(!isEncarregado()||isEncAlmox()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito a encarregados/administradores.</div></div>'; return; }
   const d2=new Date(),d1=new Date(); d1.setDate(d1.getDate()-30);
