@@ -1665,7 +1665,15 @@ function invLancar(){
 }
 
 function reqStatusLabel(s){ return {pendente:'Pendente',aprovada:'Aprovada',rejeitada:'Rejeitada',cancelada:'Cancelada',em_separacao:'Em separação',aguardando_compra:'Aguardando compra',separado:'Separado',embalado:'Embalado',romaneio_emitido:'Romaneio emitido',faturado:'Faturado',embarcado:'Embarcado (despacho)',retirado:'Retirado (interna)',recebido:'Recebido'}[s]||s; }
-async function cancelarRequisicao(id){ const {error}=await sb.from('requisicoes').update({status:'cancelada'}).eq('id',id); if(error){toast('Erro: '+error.message,'err');return;} toast('Requisição cancelada.','warn'); if(activeTab==='baixa')drawMinhasFrotasPendentes(); refreshAprovBadge(); refreshGlobalAlerts(); }
+async function cancelarRequisicao(id){
+  const {data:itens,error:e0}=await sb.from('requisicao_itens_status').select('quantidade_separada').eq('requisicao_id',id);
+  if(e0){ toast('Erro: '+e0.message,'err'); return; }
+  if((itens||[]).some(i=>i.quantidade_separada>0)){ toast('Esta requisição já tem separação de estoque concluída e não pode mais ser cancelada.','err'); if(activeTab==='baixa')drawMinhasFrotasPendentes(); return; }
+  const {data,error}=await sb.from('requisicoes').update({status:'cancelada'}).eq('id',id).eq('status','pendente').select();
+  if(error){ toast('Erro: '+error.message,'err'); return; }
+  if(!data||!data.length){ toast('Não foi possível cancelar — a requisição já não está mais pendente.','err'); if(activeTab==='baixa')drawMinhasFrotasPendentes(); return; }
+  toast('Requisição cancelada.','warn'); if(activeTab==='baixa')drawMinhasFrotasPendentes(); refreshAprovBadge(); refreshGlobalAlerts();
+}
 
 /* ===== APROVAÇÕES (encarregado / admin) ===== */
 async function renderAprovacoes(){
