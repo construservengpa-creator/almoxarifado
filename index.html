@@ -1740,6 +1740,12 @@ async function excluirRequisicaoAdmin(reqId){
   const ativa=(itens||[]).some(i=>i.quantidade_separada>0);
   if(ativa){toast('Essa requisição tem separação ativa. Exclua o evento de separação primeiro.','err');return;}
   requireSupervisor('Excluir requisição REQ-'+String(reqId).padStart(5,'0')+' definitivamente',async()=>{
+    const {data:caixasReq}=await sb.from('caixas').select('id').eq('requisicao_id',reqId);
+    const caixaIds=(caixasReq||[]).map(c=>c.id);
+    if(caixaIds.length) await sb.from('itens_caixa').delete().in('caixa_id',caixaIds);
+    await sb.from('caixas').delete().eq('requisicao_id',reqId);
+    await sb.from('compras_pendentes').delete().eq('requisicao_id',reqId);
+    await sb.from('requisicao_itens_status').delete().eq('requisicao_id',reqId);
     await sb.from('embarques').delete().eq('requisicao_id',reqId);
     await sb.from('notas_fiscais_saida').delete().eq('requisicao_id',reqId);
     await sb.from('retiradas_internas').delete().eq('requisicao_id',reqId);
