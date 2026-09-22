@@ -367,9 +367,11 @@ function isEncarregado(){ return !!profile && (profile.papel==='admin'||profile.
 function isEncAlmox(){ return !!profile && profile.papel==='encarregado' && profile.setor==='almoxarifado' && profile.ativo; }
 function isAdminOuEncAlmox(){ return isAdmin()||isEncAlmox(); }
 const ABAS_BLOQUEADAS_ENCALMOX=['auditoria','importar','empresas','admin'];
+const ABAS_BLOQUEADAS_ENCFROTAS=['ajuste','inventario','mutuo'];
 function isAlmoxarife(){ return !!profile && (profile.papel==='admin'||profile.setor==='almoxarifado') && profile.ativo; }
 function isCompras(){ return !!profile && (profile.papel==='admin'||profile.setor==='compras') && profile.ativo; }
 function isFrotas(){ return !!profile && (profile.papel==='admin'||profile.setor==='frotas') && profile.ativo; }
+function isEncFrotas(){ return !!profile && profile.papel==='encarregado' && profile.setor==='frotas' && profile.ativo; }
 function podeAprovarObra(obraId){ if(isAdminOuEncAlmox())return true; if(!isEncarregado())return false;
   const vinc=Array.isArray(profile.obras_vinculadas)?profile.obras_vinculadas:[]; return vinc.includes(obraId); }
 function podeVerCompras(){ return isAlmoxarife()||isCompras()||isFrotas(); }
@@ -595,6 +597,7 @@ const titles={ painel:['Painel','Visão por obra'],entrada:['Entrada / Nota Fisc
 let activeTab='painel';
 function go(tab){
   if(isEncAlmox()&&ABAS_BLOQUEADAS_ENCALMOX.includes(tab)){ toast('O perfil Encarregado do almoxarifado não tem acesso a esta área.','err'); return; }
+  if(isEncFrotas()&&ABAS_BLOQUEADAS_ENCFROTAS.includes(tab)){ toast('O perfil Encarregado de Frotas não tem acesso a esta área.','err'); return; }
   activeTab=tab;
   document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
   const activeBtn=document.querySelector('#nav button[data-tab="'+tab+'"]'); const grpBody=activeBtn&&activeBtn.closest('.navgrp-body'); if(grpBody&&grpBody.style.display==='none')toggleNavGrp(grpBody.id.replace('navgrpBody-',''),true);
@@ -632,7 +635,7 @@ function refreshFluxoGroupBadge(){ const ids=['navBadgeAprov','navBadgeSeparacao
 function applyRoleNav(){
   document.querySelectorAll('#nav button[data-role]').forEach(b=>{
     const need=b.dataset.role;
-    const ok=need==='auditoria'?(isEncarregado()&&!isEncAlmox()):need==='sem_encalmox'?!isEncAlmox():need==='admin'?isAdmin():need==='almoxarife'?isAlmoxarife():need==='compras'?isCompras():need==='separacao_acesso'?podeVerCompras():need==='retiradas_acesso'?podeVerRetiradas():isEncarregado();
+    const ok=need==='auditoria'?(isEncarregado()&&!isEncAlmox()):need==='sem_encalmox'?!isEncAlmox():need==='admin'?isAdmin():need==='almoxarife'?isAlmoxarife():need==='compras'?isCompras():need==='separacao_acesso'?podeVerCompras():need==='retiradas_acesso'?podeVerRetiradas():isEncarregado()&&!(isEncFrotas()&&ABAS_BLOQUEADAS_ENCFROTAS.includes(b.dataset.tab));
     b.style.display=ok?'':'none';
   });
   $('#uAvatar').textContent=(profile.nome||'?').trim().charAt(0).toUpperCase();
@@ -1298,7 +1301,48 @@ async function drawMinhasFrotasPendentes(){ const box=$('#minhasFrotas'); if(!bo
   const {data,error}=await sb.from('requisicoes').select('*').eq('solicitante_id',session.user.id).eq('status','pendente').order('criado_em',{ascending:false}).limit(30);
   if(error){ box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>'; return; }
   box.innerHTML=`<table><thead><tr><th>Nº</th><th>Data</th><th>Obra / OS</th><th>Aplicação</th><th>Itens</th><th></th></tr></thead><tbody>${
-    (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(r.criado_em).getTime())}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${esc(r.aplicacao_nome||'—')}</td><td>${r.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td class="num"><button class="btn ghost sm" onclick="cancelarRequisicao(${r.id})">Cancelar</button></td></tr>`).join('')||`<tr><td colspan="6" class="empty" style="padding:20px">Nenhuma pendência.</td></tr>`}</tbody></table>`; }
+    (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(r.criado_em).getTime())}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${esc(r.aplicacao_nome||'—')}</td><td>${r.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="editarRequisicaoModal(${r.id})">✎ Editar</button> <button class="btn danger sm" onclick="cancelarRequisicao(${r.id})">Cancelar</button></td></tr>`).join('')||`<tr><td colspan="6" class="empty" style="padding:20px">Nenhuma pendência.</td></tr>`}</tbody></table>`; }
+let _editReqId=null, _editReqCart=null;
+function editarRequisicaoModal(id){
+  sb.from('requisicoes').select('*').eq('id',id).single().then(({data:r,error})=>{
+    if(error||!r){ toast('Erro ao carregar requisição: '+(error?error.message:'não encontrada'),'err'); return; }
+    if(r.status!=='pendente'){ toast('Esta requisição não está mais pendente e não pode ser alterada.','err'); if(activeTab==='baixa')drawMinhasFrotasPendentes(); return; }
+    _editReqId=id; _editReqCart=(r.itens||[]).map(i=>({...i}));
+    modal(`<h3>✎ Editar requisição REQ-${String(r.id).padStart(5,'0')}</h3>
+      <p class="mp">Obra: <b>${esc(r.obra_nome)}</b>${r.aplicacao_nome?' · Aplicação: <b>'+esc(r.aplicacao_nome)+'</b>':''}. Só é possível alterar enquanto a requisição estiver <b>pendente de aprovação</b>.</p>
+      <div class="field"><label>Adicionar item</label>
+        <div class="search" style="max-width:none"><span class="si">⌕</span><input id="editReqSearch" placeholder="Nome ou código do produto" autocomplete="off" oninput="drawEditReqResults(this.value)"></div>
+        <div id="editReqResults"></div>
+      </div>
+      <div class="tbl-wrap" style="margin-top:10px"><table><tbody id="editReqCartBody"></tbody></table></div>
+      <div class="field" style="margin-top:10px"><label>Ordem de Serviço</label><input id="editReqOS" value="${esc(r.ordem_servico||'')}"></div>
+      <div class="field"><label>Observação</label><textarea id="editReqObs" rows="2">${esc(r.observacao||'')}</textarea></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="closeModal()">Fechar sem salvar</button><button class="btn primary" onclick="salvarEdicaoRequisicao()">Salvar alterações</button></div>`);
+    drawEditReqCart();
+  });
+}
+function drawEditReqResults(q){ const box=$('#editReqResults'); if(!box)return; const list=searchProducts(q).filter(p=>!_editReqCart.some(i=>i.code===p.code)).slice(0,8);
+  if(!q||!list.length){ box.innerHTML=q&&!list.length?'<div class="muted" style="font-size:12px;padding:6px 2px">Nenhum item encontrado.</div>':''; return; }
+  box.innerHTML=`<div class="tbl-wrap" style="margin-top:6px"><table><tbody>`+list.map(p=>`<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''}</span></td><td class="num" style="width:70px"><button class="btn ghost sm" onclick="addEditReqItem('${esc(p.code)}')">+ Add</button></td></tr>`).join('')+'</tbody></table></div>'; }
+function addEditReqItem(code){ const p=findProduct(code); if(!p)return;
+  _editReqCart.push({code:p.code,desc:p.desc,unit:p.unit,qty:1});
+  if($('#editReqSearch')){$('#editReqSearch').value='';} if($('#editReqResults'))$('#editReqResults').innerHTML=''; drawEditReqCart(); }
+function setEditReqQty(code,v){ const it=_editReqCart.find(i=>i.code===code); if(it)it.qty=parseFloat(v)||0; }
+function rmEditReqItem(code){ _editReqCart=_editReqCart.filter(i=>i.code!==code); drawEditReqCart(); }
+function drawEditReqCart(){ const b=$('#editReqCartBody'); if(!b)return;
+  if(!_editReqCart.length){ b.innerHTML='<tr><td class="empty" style="padding:14px">Nenhum item — a requisição precisa de ao menos 1 item.</td></tr>'; return; }
+  b.innerHTML=_editReqCart.map(i=>`<tr><td>${esc(i.desc)}<br><span class="muted" style="font-size:11px">${esc(i.code)}</span></td><td class="num" style="width:100px"><input class="inline-edit" type="number" step="any" min="0" value="${i.qty}" oninput="setEditReqQty('${esc(i.code)}',this.value)"></td><td class="num muted" style="font-size:12px">${esc(i.unit||'')}</td><td class="num"><button class="btn danger sm" onclick="rmEditReqItem('${esc(i.code)}')">✕</button></td></tr>`).join(''); }
+function salvarEdicaoRequisicao(){
+  const itens=(_editReqCart||[]).filter(i=>i.qty>0);
+  if(!itens.length){ toast('A requisição precisa de ao menos 1 item com quantidade.','err'); return; }
+  const os=$('#editReqOS')?$('#editReqOS').value.trim():''; const obs=$('#editReqObs')?$('#editReqObs').value.trim():'';
+  sb.from('requisicoes').update({itens,ordem_servico:os||null,observacao:obs||null}).eq('id',_editReqId).eq('status','pendente').select().then(({data,error})=>{
+    if(error){ toast('Erro ao salvar: '+error.message,'err'); return; }
+    if(!data||!data.length){ toast('Não foi possível salvar — a requisição pode já ter sido aprovada.','err'); }
+    else toast('Requisição atualizada.','ok');
+    closeModal(); if(activeTab==='baixa')drawMinhasFrotasPendentes();
+  });
+}
 async function drawMinhasEmAndamento(){ const box=$('#minhasAndamento'); if(!box)return;
   if(!isOnline){ box.innerHTML='<div class="empty">Sem conexão — indisponível no momento.</div>'; return; }
   const {data,error}=await sb.from('requisicoes').select('*').eq('solicitante_id',session.user.id).in('status',['em_separacao','aguardando_compra','separado','embalado','faturado','embarcado']).order('criado_em',{ascending:false}).limit(30);
@@ -1426,7 +1470,7 @@ function confirmSaida(){ const o=curObra()==='__all'?state.obras[0].id:curObra()
 
 /* ===== AJUSTE DE SALDO (lançamento direto, sem nota fiscal) ===== */
 function renderAjuste(){
-  if(!isEncarregado()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito a encarregados/administradores.</div></div>'; return; }
+  if(!isEncarregado()||isEncFrotas()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito a encarregados/administradores.</div></div>'; return; }
   if(needObra())return;
   $('#view').innerHTML=`<div class="panel"><h3>Ajuste de saldo</h3><p class="desc">Lança um saldo inicial ou corrige o estoque de um produto <b>sem passar por nota fiscal</b>. Fica registrado na auditoria como "ajuste".</p>
     <div class="field" style="max-width:320px"><label>Obra</label><select id="ajObra">${obraOptions(curObra()==='__all'?(state.obras[0]&&state.obras[0].id):curObra(),false)}</select></div>
@@ -1552,7 +1596,7 @@ async function refreshInvBadge(){ if(!isEncarregado())return; const b=$('#navBad
     const n=(a.count||0)+(e.count||0); if(n){b.textContent=n;b.style.display='';}else b.style.display='none';
   }catch(x){ b.style.display='none'; } }
 async function renderInventario(){
-  if(!isEncarregado()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito a encarregados/administradores.</div></div>'; return; }
+  if(!isEncarregado()||isEncFrotas()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito a encarregados/administradores.</div></div>'; return; }
   $('#view').innerHTML='<div class="panel"><div class="muted">Carregando ajustes da contagem...</div></div>';
   try{ invRows=await invCarregar(); }
   catch(e){ $('#view').innerHTML='<div class="panel"><h3>Inventário</h3><p class="desc">Não consegui ler as tabelas da contagem ('+esc(e.message)+'). Confira se os arquivos SQL da contagem cíclica foram executados neste projeto.</p></div>'; return; }
@@ -2251,6 +2295,7 @@ function reportRomaneio(id){ const ms=state.movements.filter(m=>m.tipo==='transf
 function periodoAtual(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
 function periodoLabel(p){ const [y,m]=p.split('-'); const meses=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']; return meses[parseInt(m,10)-1]+'/'+y; }
 async function renderMutuo(){
+  if(!isEncarregado()||isEncFrotas()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito a encarregados/administradores.</div></div>'; return; }
   $('#topActions').innerHTML=`<button class="btn primary sm" onclick="mutuoModal()">+ Registrar mútuo</button>`;
   $('#view').innerHTML=`<div class="panel"><h3>💱 Mútuo entre empresas</h3><p class="desc">Quando um material sai do estoque de uma empresa e é usado por outra (obras de razões sociais diferentes), a transferência direta não é permitida — faça a baixa por consumo na origem e registre aqui o valor que uma empresa passa a dever à outra.</p></div>
     <div id="mutuoAbertos"><div class="empty">Carregando...</div></div>
