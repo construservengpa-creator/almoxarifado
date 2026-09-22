@@ -384,7 +384,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-09-22T20:15:00-03:00';
+const APP_VERSION='2026-09-22T20:45:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -1788,8 +1788,18 @@ async function drawAprovHist(){ const box=$('#aprovHist'); if(!box)return;
   }
   const {data,error}=await q;
   if(error){box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>';return;}
+  let ativos=new Set();
+  if(isDanielAdmin()&&data&&data.length){
+    const {data:sep}=await sb.from('requisicao_itens_status').select('requisicao_id').in('requisicao_id',data.map(r=>r.id)).gt('quantidade_separada',0);
+    (sep||[]).forEach(s=>ativos.add(s.requisicao_id));
+  }
   box.innerHTML=`<table><thead><tr><th>Nº</th><th>Obra / OS</th><th>Aplicação</th><th>Solicitante</th><th>Situação</th><th>Decidido por</th><th>Quando</th>${isDanielAdmin()?'<th></th>':''}</tr></thead><tbody>${
-    (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${esc(r.aplicacao_nome||'—')}</td><td>${esc(r.solicitante_nome)}</td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${r.motivo_rejeicao?`<br><span class="muted" style="font-size:11px">${esc(r.motivo_rejeicao)}</span>`:''}</td><td>${esc(r.decidido_por_nome||'—')}</td><td class="muted" style="font-size:12px">${r.decidido_em?fmtDate(new Date(r.decidido_em).getTime()):'—'}</td>${isDanielAdmin()?`<td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="excluirEventoSeparacao(${r.id})">Excluir separação</button> <button class="btn danger sm" onclick="excluirRequisicaoAdmin(${r.id})">Excluir REQ</button></td>`:''}</tr>`).join('')||`<tr><td colspan="${isDanielAdmin()?8:7}" class="empty" style="padding:24px">Nenhuma decisão ainda.</td></tr>`}</tbody></table>`; }
+    (data||[]).map(r=>{
+      const botoes=!isDanielAdmin()?'':ativos.has(r.id)
+        ?`<td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="excluirEventoSeparacao(${r.id})" title="Estorna o estoque separado; libera o Excluir REQ em seguida">Excluir separação</button></td>`
+        :`<td class="num" style="white-space:nowrap"><button class="btn danger sm" onclick="excluirRequisicaoAdmin(${r.id})">Excluir REQ</button></td>`;
+      return `<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${esc(r.aplicacao_nome||'—')}</td><td>${esc(r.solicitante_nome)}</td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${r.motivo_rejeicao?`<br><span class="muted" style="font-size:11px">${esc(r.motivo_rejeicao)}</span>`:''}</td><td>${esc(r.decidido_por_nome||'—')}</td><td class="muted" style="font-size:12px">${r.decidido_em?fmtDate(new Date(r.decidido_em).getTime()):'—'}</td>${botoes}</tr>`;
+    }).join('')||`<tr><td colspan="${isDanielAdmin()?8:7}" class="empty" style="padding:24px">Nenhuma decisão ainda.</td></tr>`}</tbody></table>`; }
 async function excluirEventoSeparacao(reqId){
   if(!isDanielAdmin()){toast('Apenas o usuário autorizado pode excluir o evento de separação.','err');return;}
   requireSupervisor('Excluir separação da REQ-'+String(reqId).padStart(5,'0')+' (estorna o estoque separado)',async()=>{
