@@ -367,6 +367,7 @@ function isEncarregado(){ return !!profile && (profile.papel==='admin'||profile.
 /* Encarregado do almoxarifado: acesso a todas as funções e obras, exceto Auditoria, Importar Planilha, Empresas e Administração */
 function isEncAlmox(){ return !!profile && profile.papel==='encarregado' && profile.setor==='almoxarifado' && profile.ativo; }
 function isAdminOuEncAlmox(){ return isAdmin()||isEncAlmox(); }
+function isDanielAdmin(){ return !!profile && profile.email==='danielgustavo@ametaengenharia.com.br'; } /* excluir_requisicao_admin/excluir_separacao_admin são restritas a este usuário no próprio banco — isso aqui só evita mostrar um botão que vai dar erro pra outros */
 const ABAS_BLOQUEADAS_ENCALMOX=['auditoria','importar','empresas','admin'];
 const ABAS_BLOQUEADAS_ENCFROTAS=['ajuste','inventario','mutuo'];
 function isAlmoxarife(){ return !!profile && (profile.papel==='admin'||profile.setor==='almoxarifado') && profile.ativo; }
@@ -1756,55 +1757,26 @@ async function drawAprovHist(){ const box=$('#aprovHist'); if(!box)return;
   }
   const {data,error}=await q;
   if(error){box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>';return;}
-  box.innerHTML=`<table><thead><tr><th>Nº</th><th>Obra / OS</th><th>Aplicação</th><th>Solicitante</th><th>Situação</th><th>Decidido por</th><th>Quando</th>${isAdminOuEncAlmox()?'<th></th>':''}</tr></thead><tbody>${
-    (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${esc(r.aplicacao_nome||'—')}</td><td>${esc(r.solicitante_nome)}</td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${r.motivo_rejeicao?`<br><span class="muted" style="font-size:11px">${esc(r.motivo_rejeicao)}</span>`:''}</td><td>${esc(r.decidido_por_nome||'—')}</td><td class="muted" style="font-size:12px">${r.decidido_em?fmtDate(new Date(r.decidido_em).getTime()):'—'}</td>${isAdminOuEncAlmox()?`<td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="excluirEventoSeparacao(${r.id})">Excluir separação</button> <button class="btn danger sm" onclick="excluirRequisicaoAdmin(${r.id})">Excluir REQ</button></td>`:''}</tr>`).join('')||`<tr><td colspan="${isAdminOuEncAlmox()?8:7}" class="empty" style="padding:24px">Nenhuma decisão ainda.</td></tr>`}</tbody></table>`; }
+  box.innerHTML=`<table><thead><tr><th>Nº</th><th>Obra / OS</th><th>Aplicação</th><th>Solicitante</th><th>Situação</th><th>Decidido por</th><th>Quando</th>${isDanielAdmin()?'<th></th>':''}</tr></thead><tbody>${
+    (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${esc(r.aplicacao_nome||'—')}</td><td>${esc(r.solicitante_nome)}</td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${r.motivo_rejeicao?`<br><span class="muted" style="font-size:11px">${esc(r.motivo_rejeicao)}</span>`:''}</td><td>${esc(r.decidido_por_nome||'—')}</td><td class="muted" style="font-size:12px">${r.decidido_em?fmtDate(new Date(r.decidido_em).getTime()):'—'}</td>${isDanielAdmin()?`<td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="excluirEventoSeparacao(${r.id})">Excluir separação</button> <button class="btn danger sm" onclick="excluirRequisicaoAdmin(${r.id})">Excluir REQ</button></td>`:''}</tr>`).join('')||`<tr><td colspan="${isDanielAdmin()?8:7}" class="empty" style="padding:24px">Nenhuma decisão ainda.</td></tr>`}</tbody></table>`; }
 async function excluirEventoSeparacao(reqId){
-  if(!isAdminOuEncAlmox()){toast('Apenas administradores podem excluir o evento de separação.','err');return;}
+  if(!isDanielAdmin()){toast('Apenas o usuário autorizado pode excluir o evento de separação.','err');return;}
   requireSupervisor('Excluir separação da REQ-'+String(reqId).padStart(5,'0')+' (estorna o estoque separado)',async()=>{
-    const {data:r,error:e1}=await sb.from('requisicoes').select('*').eq('id',reqId).maybeSingle();
-    if(e1||!r){toast('Erro ao carregar requisição.','err');return;}
-    const {data:itens,error:e2}=await sb.from('requisicao_itens_status').select('*').eq('requisicao_id',reqId);
-    if(e2){toast('Erro: '+e2.message,'err');return;}
-    const separados=(itens||[]).filter(i=>i.quantidade_separada>0);
-    if(!separados.length){toast('Não há separação ativa nesta requisição.','err');return;}
-    const obraSaldo=obraEstoqueParaRequisicao(r);
-    separados.forEach(i=>addSaldo(obraSaldo,i.code,i.quantidade_separada));
-    state.movements=state.movements.filter(m=>!(m.tipo==='baixa'&&m.obs==='Separação REQ-'+String(reqId).padStart(5,'0')));
-    await sb.from('movimentos_estoque').delete().eq('tipo','baixa').eq('obs','Separação REQ-'+String(reqId).padStart(5,'0'));
-    await save('Separação da REQ-'+String(reqId).padStart(5,'0')+' excluída (estorno de estoque)');
-    for(const i of separados){
-      const novaDisp=i.quantidade_disponivel+i.quantidade_separada;
-      const novoStatus=novaDisp>=i.quantidade_solicitada?'disponivel':'faltante';
-      await sb.from('requisicao_itens_status').update({quantidade_disponivel:novaDisp,quantidade_separada:0,status:novoStatus,atualizado_em:new Date().toISOString()}).eq('id',i.id);
-    }
-    await sb.from('caixas').delete().eq('requisicao_id',reqId);
-    const {count}=await sb.from('requisicao_itens_status').select('id',{count:'exact',head:true}).eq('requisicao_id',reqId).eq('status','faltante');
-    await sb.from('requisicoes').update({status:count?'aguardando_compra':'em_separacao'}).eq('id',reqId);
+    const {error}=await sb.rpc('excluir_separacao_admin',{p_req_id:reqId});
+    if(error){toast('Erro: '+error.message,'err');return;}
+    await loadMovimentosEDaldos();
     toast('Separação excluída — estoque estornado.','warn');
-    drawAprovHist(); if(typeof drawSeparacaoList==='function')drawSeparacaoList(); if(typeof drawExpedicaoList==='function')drawExpedicaoList();
+    drawAprovHist(); if(typeof drawSeparacaoList==='function')drawSeparacaoList(); if(typeof drawExpedicaoList==='function')drawExpedicaoList(); if(typeof drawNotificacoes==='function')drawNotificacoes();
     refreshSeparacaoBadge(); refreshExpedBadge(); refreshRetiradasBadge(); refreshComprasBadge(); refreshGlobalAlerts();
   });
 }
 async function excluirRequisicaoAdmin(reqId){
-  if(!isAdminOuEncAlmox()){toast('Apenas administradores podem excluir requisições.','err');return;}
-  const {data:itens,error:e1}=await sb.from('requisicao_itens_status').select('quantidade_separada').eq('requisicao_id',reqId);
-  if(e1){toast('Erro: '+e1.message,'err');return;}
-  const ativa=(itens||[]).some(i=>i.quantidade_separada>0);
-  if(ativa){toast('Essa requisição tem separação ativa. Exclua o evento de separação primeiro.','err');return;}
+  if(!isDanielAdmin()){toast('Apenas o usuário autorizado pode excluir requisições.','err');return;}
   requireSupervisor('Excluir requisição REQ-'+String(reqId).padStart(5,'0')+' definitivamente',async()=>{
-    const {data:caixasReq}=await sb.from('caixas').select('id').eq('requisicao_id',reqId);
-    const caixaIds=(caixasReq||[]).map(c=>c.id);
-    if(caixaIds.length) await sb.from('itens_caixa').delete().in('caixa_id',caixaIds);
-    await sb.from('caixas').delete().eq('requisicao_id',reqId);
-    await sb.from('compras_pendentes').delete().eq('requisicao_id',reqId);
-    await sb.from('requisicao_itens_status').delete().eq('requisicao_id',reqId);
-    await sb.from('embarques').delete().eq('requisicao_id',reqId);
-    await sb.from('notas_fiscais_saida').delete().eq('requisicao_id',reqId);
-    await sb.from('retiradas_internas').delete().eq('requisicao_id',reqId);
-    const {error}=await sb.from('requisicoes').delete().eq('id',reqId);
+    const {error}=await sb.rpc('excluir_requisicao_admin',{p_req_id:reqId});
     if(error){toast('Erro: '+error.message,'err');return;}
     toast('Requisição excluída.','warn');
-    drawAprovHist(); if(typeof drawExpedicaoList==='function')drawExpedicaoList(); refreshGlobalAlerts();
+    drawAprovHist(); if(typeof drawExpedicaoList==='function')drawExpedicaoList(); if(typeof drawNotificacoes==='function')drawNotificacoes(); refreshGlobalAlerts();
   });
 }
 async function aprovarRequisicao(id){
