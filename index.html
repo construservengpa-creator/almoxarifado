@@ -1384,15 +1384,15 @@ async function drawMinhasFrotasPendentes(){ const box=$('#minhasFrotas'); if(!bo
   const {data,error}=await sb.from('requisicoes').select('*').eq('solicitante_id',session.user.id).eq('status','pendente').order('criado_em',{ascending:false}).limit(30);
   if(error){ box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>'; return; }
   box.innerHTML=`<table><thead><tr><th>Nº</th><th>Data</th><th>Obra / OS</th><th>Aplicação</th><th>Itens</th><th></th></tr></thead><tbody>${
-    (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(r.criado_em).getTime())}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${esc(r.aplicacao_nome||'—')}</td><td>${r.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="editarRequisicaoModal(${r.id})">✎ Editar</button> <button class="btn danger sm" onclick="cancelarRequisicao(${r.id})">Cancelar</button></td></tr>`).join('')||`<tr><td colspan="6" class="empty" style="padding:20px">Nenhuma pendência.</td></tr>`}</tbody></table>`; }
-let _editReqId=null, _editReqCart=null;
+    (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(r.criado_em).getTime())}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${esc(r.aplicacao_nome||'—')}</td><td>${r.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="abrirRequisicao(${r.id})">✎ Editar</button> <button class="btn danger sm" onclick="cancelarRequisicao(${r.id})">Cancelar</button></td></tr>`).join('')||`<tr><td colspan="6" class="empty" style="padding:20px">Nenhuma pendência.</td></tr>`}</tbody></table>`; }
+let _editReqId=null, _editReqCart=null, _editReqStatus=null;
 function editarRequisicaoModal(id){
   sb.from('requisicoes').select('*').eq('id',id).single().then(({data:r,error})=>{
     if(error||!r){ toast('Erro ao carregar requisição: '+(error?error.message:'não encontrada'),'err'); return; }
-    if(r.status!=='pendente'){ toast('Esta requisição não está mais pendente e não pode ser alterada.','err'); if(activeTab==='baixa')drawMinhasFrotasPendentes(); return; }
-    _editReqId=id; _editReqCart=(r.itens||[]).map(i=>({...i}));
+    if(!REQ_EDITAVEL.includes(r.status)){ toast('Esta requisição não pode mais ser alterada.','err'); if(activeTab==='baixa'){drawMinhasFrotasPendentes();drawMinhasEmAndamento();} return; }
+    _editReqId=id; _editReqStatus=r.status; _editReqCart=(r.itens||[]).map(i=>({...i}));
     modal(`<h3>✎ Editar requisição REQ-${String(r.id).padStart(5,'0')}</h3>
-      <p class="mp">Obra: <b>${esc(r.obra_nome)}</b>${r.aplicacao_nome?' · Aplicação: <b>'+esc(r.aplicacao_nome)+'</b>':''}. Só é possível alterar enquanto a requisição estiver <b>pendente de aprovação</b>.</p>
+      <p class="mp">Obra: <b>${esc(r.obra_nome)}</b>${r.aplicacao_nome?' · Aplicação: <b>'+esc(r.aplicacao_nome)+'</b>':''}. ${r.status==='pendente'?'Só é possível alterar enquanto não houver separação de estoque.':'<b>Atenção:</b> esta requisição já foi aprovada. Ao salvar, ela <b>volta para aprovação</b> do encarregado com os novos itens (a verificação de estoque e as compras pendentes são refeitas).'}</p>
       <div class="field"><label>Adicionar item</label>
         <div class="search" style="max-width:none"><span class="si">⌕</span><input id="editReqSearch" placeholder="Nome ou código do produto" autocomplete="off" oninput="drawEditReqResults(this.value)"></div>
         <div id="editReqResults"></div>
@@ -1415,23 +1415,79 @@ function rmEditReqItem(code){ _editReqCart=_editReqCart.filter(i=>i.code!==code)
 function drawEditReqCart(){ const b=$('#editReqCartBody'); if(!b)return;
   if(!_editReqCart.length){ b.innerHTML='<tr><td class="empty" style="padding:14px">Nenhum item — a requisição precisa de ao menos 1 item.</td></tr>'; return; }
   b.innerHTML=_editReqCart.map(i=>`<tr><td>${esc(i.desc)}<br><span class="muted" style="font-size:11px">${esc(i.code)}</span></td><td class="num" style="width:100px"><input class="inline-edit" type="number" step="any" min="0" value="${i.qty}" oninput="setEditReqQty('${esc(i.code)}',this.value)"></td><td class="num muted" style="font-size:12px">${esc(i.unit||'')}</td><td class="num"><button class="btn danger sm" onclick="rmEditReqItem('${esc(i.code)}')">✕</button></td></tr>`).join(''); }
-function salvarEdicaoRequisicao(){
+async function salvarEdicaoRequisicao(){
   const itens=(_editReqCart||[]).filter(i=>i.qty>0);
   if(!itens.length){ toast('A requisição precisa de ao menos 1 item com quantidade.','err'); return; }
   const os=$('#editReqOS')?$('#editReqOS').value.trim():''; const obs=$('#editReqObs')?$('#editReqObs').value.trim():'';
-  sb.from('requisicoes').update({itens,ordem_servico:os||null,observacao:obs||null}).eq('id',_editReqId).eq('status','pendente').select().then(({data,error})=>{
-    if(error){ toast('Erro ao salvar: '+error.message,'err'); return; }
-    if(!data||!data.length){ toast('Não foi possível salvar — a requisição pode já ter sido aprovada.','err'); }
-    else toast('Requisição atualizada.','ok');
-    closeModal(); if(activeTab==='baixa')drawMinhasFrotasPendentes();
-  });
+  const id=_editReqId;
+  // Confere de novo na hora de salvar — a separação pode ter começado com o modal aberto
+  const bloq=await reqBloqueioEdicao(id);
+  if(bloq){ toast(bloq,'err'); closeModal(); abrirRequisicao(id); return; }
+  let upd={itens,ordem_servico:os||null,observacao:obs||null};
+  if(_editReqStatus!=='pendente'){
+    // Já aprovada (sem separação): desfaz a verificação de estoque e as compras ainda não solicitadas,
+    // e devolve para aprovação com os itens novos.
+    const {error:eA}=await sb.from('requisicao_itens_status').delete().eq('requisicao_id',id);
+    if(eA){ toast('Erro ao limpar verificação de estoque: '+eA.message,'err'); return; }
+    const {error:eB}=await sb.from('compras_pendentes').delete().eq('requisicao_id',id).eq('status','pendente');
+    if(eB){ toast('Erro ao limpar compras pendentes: '+eB.message,'err'); return; }
+    upd={...upd,status:'pendente',decidido_por:null,decidido_por_nome:null,decidido_em:null};
+  }
+  const {data,error}=await sb.from('requisicoes').update(upd).eq('id',id).in('status',REQ_EDITAVEL).select();
+  if(error){ toast('Erro ao salvar: '+error.message,'err'); return; }
+  if(!data||!data.length) toast('Não foi possível salvar — a requisição mudou de situação.','err');
+  else toast(_editReqStatus==='pendente'?'Requisição atualizada.':'Requisição atualizada e devolvida para aprovação.','ok');
+  closeModal(); if(activeTab==='baixa'){ drawMinhasFrotasPendentes(); drawMinhasEmAndamento(); }
+  refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshGlobalAlerts();
+}
+/* ===== Abrir requisição: edita se não houver separação; senão, só visualiza ===== */
+const REQ_EDITAVEL=['pendente','em_separacao','aguardando_compra'];
+function reqIdFromDoc(doc){ const mm=/REQ-(\d+)/.exec(doc||''); return mm?parseInt(mm[1],10):null; }
+// Retorna o motivo do bloqueio (texto) ou null se puder editar
+async function reqBloqueioEdicao(id){
+  const {data:r,error}=await sb.from('requisicoes').select('status').eq('id',id).maybeSingle();
+  if(error||!r) return 'Requisição não encontrada.';
+  if(!REQ_EDITAVEL.includes(r.status)) return 'Requisição em "'+reqStatusLabel(r.status)+'" — somente visualização.';
+  const {data:its}=await sb.from('requisicao_itens_status').select('quantidade_separada').eq('requisicao_id',id);
+  if((its||[]).some(i=>Number(i.quantidade_separada)>0)) return 'Esta requisição já tem separação realizada — somente visualização.';
+  const {data:cps}=await sb.from('compras_pendentes').select('status').eq('requisicao_id',id).neq('status','pendente');
+  if((cps||[]).length) return 'Já existe compra solicitada para esta requisição — somente visualização.';
+  return null;
+}
+async function abrirRequisicao(id){
+  const bloq=await reqBloqueioEdicao(id);
+  if(!bloq) return editarRequisicaoModal(id);
+  verRequisicaoModal(id,bloq);
+}
+async function verRequisicaoModal(id,motivo){
+  const {data:r,error}=await sb.from('requisicoes').select('*').eq('id',id).maybeSingle();
+  if(error||!r){ toast('Erro ao carregar requisição: '+(error?error.message:'não encontrada'),'err'); return; }
+  const {data:its}=await sb.from('requisicao_itens_status').select('*').eq('requisicao_id',id);
+  const st={}; (its||[]).forEach(i=>st[i.code]=i);
+  modal(`<h3>👁 Requisição REQ-${String(r.id).padStart(5,'0')}</h3>
+    <p class="mp">${motivo?'<span class="muted">'+esc(motivo)+'</span><br>':''}Obra: <b>${esc(r.obra_nome)}</b>${r.aplicacao_nome?' · Aplicação: <b>'+esc(r.aplicacao_nome)+'</b>':''} · Situação: <span class="pill ${r.status}">${reqStatusLabel(r.status)}</span></p>
+    <p class="mp" style="font-size:12px">Solicitada em ${fmtDate(new Date(r.criado_em).getTime())}${r.solicitante_nome?' por <b>'+esc(r.solicitante_nome)+'</b>':''}${r.decidido_por_nome?' · Aprovada por <b>'+esc(r.decidido_por_nome)+'</b>':''}</p>
+    <div class="tbl-wrap"><table><thead><tr><th>Produto</th><th class="num">Solicitado</th><th class="num">Separado</th></tr></thead><tbody>${
+      (r.itens||[]).map(i=>{ const s=st[i.code]; return `<tr><td>${esc(i.desc)}<br><span class="muted" style="font-size:11px">${esc(i.code)}</span></td><td class="num">${numf(i.qty)} ${esc(i.unit||'')}</td><td class="num">${s?numf(s.quantidade_separada||0):'—'}</td></tr>`; }).join('')||'<tr><td colspan="3" class="empty" style="padding:14px">Sem itens.</td></tr>'
+    }</tbody></table></div>
+    ${r.ordem_servico?`<div class="field" style="margin-top:10px"><label>Ordem de Serviço</label><input value="${esc(r.ordem_servico)}" disabled></div>`:''}
+    ${r.observacao?`<div class="field"><label>Observação</label><textarea rows="2" disabled>${esc(r.observacao)}</textarea></div>`:''}
+    <div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="closeModal()">Fechar</button></div>`);
 }
 async function drawMinhasEmAndamento(){ const box=$('#minhasAndamento'); if(!box)return;
   if(!isOnline){ box.innerHTML='<div class="empty">Sem conexão — indisponível no momento.</div>'; return; }
   const {data,error}=await sb.from('requisicoes').select('*').eq('solicitante_id',session.user.id).in('status',['em_separacao','aguardando_compra','separado','embalado','faturado','embarcado']).order('criado_em',{ascending:false}).limit(30);
   if(error){ box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>'; return; }
-  box.innerHTML=`<table><thead><tr><th>Nº</th><th>Data</th><th>Obra / OS</th><th>Itens</th><th>Situação</th></tr></thead><tbody>${
-    (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(r.criado_em).getTime())}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${r.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${r.status==='aguardando_compra'?'<br><span class="muted" style="font-size:11px">Falta material — aguardando compra</span>':''}</td></tr>`).join('')||`<tr><td colspan="5" class="empty" style="padding:20px">Nada em andamento.</td></tr>`}</tbody></table>`; }
+  const ids=(data||[]).map(r=>r.id); const bloqueadas=new Set();
+  if(ids.length){
+    const {data:sep}=await sb.from('requisicao_itens_status').select('requisicao_id').in('requisicao_id',ids).gt('quantidade_separada',0);
+    (sep||[]).forEach(x=>bloqueadas.add(x.requisicao_id));
+    const {data:cps}=await sb.from('compras_pendentes').select('requisicao_id').in('requisicao_id',ids).neq('status','pendente');
+    (cps||[]).forEach(x=>bloqueadas.add(x.requisicao_id));
+  }
+  const podeEditar=r=>REQ_EDITAVEL.includes(r.status)&&!bloqueadas.has(r.id);
+  box.innerHTML=`<table><thead><tr><th>Nº</th><th>Data</th><th>Obra / OS</th><th>Itens</th><th>Situação</th><th></th></tr></thead><tbody>${
+    (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(r.criado_em).getTime())}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${r.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${r.status==='aguardando_compra'?'<br><span class="muted" style="font-size:11px">Falta material — aguardando compra</span>':''}</td><td class="num" style="white-space:nowrap">${podeEditar(r)?`<button class="btn ghost sm" onclick="abrirRequisicao(${r.id})">✎ Editar</button>`:`<button class="btn ghost sm" onclick="verRequisicaoModal(${r.id})">👁 Ver</button>`}</td></tr>`).join('')||`<tr><td colspan="6" class="empty" style="padding:20px">Nada em andamento.</td></tr>`}</tbody></table>`; }
 function aplicRequerOS(id){ const a=state.aplicacoes.find(x=>x.id===id); return !!(a&&(a.tipo==='equipamento'||a.tipo==='veiculo')); }
 function updateOsReq(){ const sel=$('#saidaAplic'); const wrap=$('#osFieldWrap'); const inp=$('#saidaOS'); if(!sel||!wrap)return;
   const need=aplicRequerOS(sel.value);
@@ -1484,7 +1540,7 @@ function setBaixaMode(m){ baixaMode=m; if($('#bmScan'))$('#bmScan').classList.to
 function toggleSaidaMutuo(){ const chk=$('#saidaMutuo'); const box=$('#saidaMutuoFields'); if(box)box.style.display=chk&&chk.checked?'':'none'; }
 function updateSaidaTotal(){ const el=$('#saidaTotal'); if(!el)return; let t=0; saidaCart.forEach(i=>{const p=findProduct(i.code); t+=(i.qty||0)*((p&&p.custo)||0);}); el.textContent=money(t); }
 function drawBaixaHist(){ const list=state.movements.filter(m=>m.tipo==='baixa').slice(0,40);
-  $('#baixaHist').innerHTML=list.length?list.map(m=>`<tr><td class="muted" style="font-size:12px">${fmtDate(m.ts)}</td><td class="mono">${m.seq?seqf(m.seq):'—'}</td><td>${esc(obraName(m.obra))}</td><td>${esc(m.desc)}${m.aplic?`<br><span class="muted" style="font-size:11px">→ ${esc(aplicName(m.aplic))}</span>`:''}${m.os?`<br><span class="muted" style="font-size:11px">OS ${esc(m.os)}</span>`:''}${m.obs?`<br><span class="muted" style="font-size:11px">obs: ${esc(m.obs)}</span>`:''}</td><td class="num neg">−${numf(m.qty)}</td><td class="num">${money(m.valorTotal)}</td><td class="num"><button class="btn ghost sm" title="Comprovante (agrupado)" onclick="reportBaixaGroup('${m.baixaId||m.id}')">🖨</button> <button class="btn danger sm" title="Excluir e estornar (supervisor)" onclick="delBaixaMov('${m.id}')">🗑</button></td></tr>`).join(''):`<tr><td colspan="7" class="empty" style="padding:24px">Nenhuma baixa.</td></tr>`; }
+  $('#baixaHist').innerHTML=list.length?list.map(m=>`<tr><td class="muted" style="font-size:12px">${fmtDate(m.ts)}</td><td class="mono">${m.seq?seqf(m.seq):'—'}</td><td>${esc(obraName(m.obra))}</td><td>${esc(m.desc)}${m.aplic?`<br><span class="muted" style="font-size:11px">→ ${esc(aplicName(m.aplic))}</span>`:''}${m.os?`<br><span class="muted" style="font-size:11px">OS ${esc(m.os)}</span>`:''}${m.obs?`<br><span class="muted" style="font-size:11px">obs: ${esc(m.obs)}</span>`:''}</td><td class="num neg">−${numf(m.qty)}</td><td class="num">${money(m.valorTotal)}</td><td class="num"><button class="btn ghost sm" title="Comprovante (agrupado)" onclick="reportBaixaGroup('${m.baixaId||m.id}')">🖨</button> ${reqIdFromDoc(m.doc)?`<button class="btn ghost sm" title="Ver requisição" onclick="abrirRequisicao(${reqIdFromDoc(m.doc)})">👁</button>`:''}</td></tr>`).join(''):`<tr><td colspan="7" class="empty" style="padding:24px">Nenhuma baixa.</td></tr>`; }
 function reportBaixaGroup(gid){ const ms=state.movements.filter(m=>m.tipo==='baixa'&&(m.baixaId||m.id)===gid); if(!ms.length)return; const m0=ms[0];
   const itens=ms.map(m=>{const p=findProduct(m.code); return {code:m.code,aux:p?p.aux:'',desc:m.desc,qty:m.qty,unit:p?p.unit:'',valor:m.valorUnit};});
   printSignReport({titulo:'Comprovante de Saída de Material',numero:seqf(m0.seq),subtitulo:'Baixa de estoque',data:fmtDate(m0.ts),obra:obraName(m0.obra),aplicacao:aplicName(m0.aplic),doc:m0.doc,obs:m0.obs,itens,assinaturas:['Solicitante','Responsável pelo almoxarifado','Recebedor']}); }
