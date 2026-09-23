@@ -4,12 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Controle de Estoque por Obra</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<!-- xlsx (usada só em Importar Planilha / Auditoria) e html5-qrcode (usada só no scanner de câmera) foram removidas
-     do carregamento inicial — pesam ~800KB e ~300KB e agora só são baixadas quando essas telas/ações são usadas.
-     Ver loadScriptOnce()/ensureXLSX()/ensureHtml5Qrcode() mais abaixo. -->
+<!-- xlsx, html5-qrcode, Chart.js e JsBarcode carregam sob demanda — ver loadScriptOnce() mais abaixo. -->
 <script>
 var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],f={},c=function(t,r){o=function(t){for(var r=new Array(t),e=0;e<t;e+=1){r[e]=new Array(t);for(var n=0;n<t;n+=1)r[e][n]=null}return r}(i=4*e+17),l(0,0),l(i-7,0),l(0,i-7),s(),h(),d(t,r),e>=7&&v(t),null==a&&(a=p(e,n,u)),w(a,r)},l=function(t,r){for(var e=-1;e<=7;e+=1)if(!(t+e<=-1||i<=t+e))for(var n=-1;n<=7;n+=1)r+n<=-1||i<=r+n||(o[t+e][r+n]=0<=e&&e<=6&&(0==n||6==n)||0<=n&&n<=6&&(0==e||6==e)||2<=e&&e<=4&&2<=n&&n<=4)},h=function(){for(var t=8;t<i-8;t+=1)null==o[t][6]&&(o[t][6]=t%2==0);for(var r=8;r<i-8;r+=1)null==o[6][r]&&(o[6][r]=r%2==0)},s=function(){for(var t=B.getPatternPosition(e),r=0;r<t.length;r+=1)for(var n=0;n<t.length;n+=1){var i=t[r],a=t[n];if(null==o[i][a])for(var u=-2;u<=2;u+=1)for(var f=-2;f<=2;f+=1)o[i+u][a+f]=-2==u||2==u||-2==f||2==f||0==u&&0==f}},v=function(t){for(var r=B.getBCHTypeNumber(e),n=0;n<18;n+=1){var a=!t&&1==(r>>n&1);o[Math.floor(n/3)][n%3+i-8-3]=a}for(n=0;n<18;n+=1){a=!t&&1==(r>>n&1);o[n%3+i-8-3][Math.floor(n/3)]=a}},d=function(t,r){for(var e=n<<3|r,a=B.getBCHTypeInfo(e),u=0;u<15;u+=1){var f=!t&&1==(a>>u&1);u<6?o[u][8]=f:u<8?o[u+1][8]=f:o[i-15+u][8]=f}for(u=0;u<15;u+=1){f=!t&&1==(a>>u&1);u<8?o[8][i-u-1]=f:u<9?o[8][15-u-1+1]=f:o[8][15-u-1]=f}o[i-8][8]=!t},w=function(t,r){for(var e=-1,n=i-1,a=7,u=0,f=B.getMaskFunction(r),c=i-1;c>0;c-=2)for(6==c&&(c-=1);;){for(var g=0;g<2;g+=1)if(null==o[n][c-g]){var l=!1;u<t.length&&(l=1==(t[u]>>>a&1)),f(n,c-g)&&(l=!l),o[n][c-g]=l,-1==(a-=1)&&(u+=1,a=7)}if((n+=e)<0||i<=n){n-=e,e=-e;break}}},p=function(t,r,e){for(var n=A.getRSBlocks(t,r),o=b(),i=0;i<e.length;i+=1){var a=e[i];o.put(a.getMode(),4),o.put(a.getLength(),B.getLengthInBits(a.getMode(),t)),a.write(o)}var u=0;for(i=0;i<n.length;i+=1)u+=n[i].dataCount;if(o.getLengthInBits()>8*u)throw"code length overflow. ("+o.getLengthInBits()+">"+8*u+")";for(o.getLengthInBits()+4<=8*u&&o.put(0,4);o.getLengthInBits()%8!=0;)o.putBit(!1);for(;!(o.getLengthInBits()>=8*u||(o.put(236,8),o.getLengthInBits()>=8*u));)o.put(17,8);return function(t,r){for(var e=0,n=0,o=0,i=new Array(r.length),a=new Array(r.length),u=0;u<r.length;u+=1){var f=r[u].dataCount,c=r[u].totalCount-f;n=Math.max(n,f),o=Math.max(o,c),i[u]=new Array(f);for(var g=0;g<i[u].length;g+=1)i[u][g]=255&t.getBuffer()[g+e];e+=f;var l=B.getErrorCorrectPolynomial(c),h=k(i[u],l.getLength()-1).mod(l);for(a[u]=new Array(l.getLength()-1),g=0;g<a[u].length;g+=1){var s=g+h.getLength()-a[u].length;a[u][g]=s>=0?h.getAt(s):0}}var v=0;for(g=0;g<r.length;g+=1)v+=r[g].totalCount;var d=new Array(v),w=0;for(g=0;g<n;g+=1)for(u=0;u<r.length;u+=1)g<i[u].length&&(d[w]=i[u][g],w+=1);for(g=0;g<o;g+=1)for(u=0;u<r.length;u+=1)g<a[u].length&&(d[w]=a[u][g],w+=1);return d}(o,n)};f.addData=function(t,r){var e=null;switch(r=r||"Byte"){case"Numeric":e=M(t);break;case"Alphanumeric":e=x(t);break;case"Byte":e=m(t);break;case"Kanji":e=L(t);break;default:throw"mode:"+r}u.push(e),a=null},f.isDark=function(t,r){if(t<0||i<=t||r<0||i<=r)throw t+","+r;return o[t][r]},f.getModuleCount=function(){return i},f.make=function(){if(e<1){for(var t=1;t<40;t++){for(var r=A.getRSBlocks(t,n),o=b(),i=0;i<u.length;i++){var a=u[i];o.put(a.getMode(),4),o.put(a.getLength(),B.getLengthInBits(a.getMode(),t)),a.write(o)}var g=0;for(i=0;i<r.length;i++)g+=r[i].dataCount;if(o.getLengthInBits()<=8*g)break}e=t}c(!1,function(){for(var t=0,r=0,e=0;e<8;e+=1){c(!0,e);var n=B.getLostPoint(f);(0==e||t>n)&&(t=n,r=e)}return r}())},f.createTableTag=function(t,r){t=t||2;var e="";e+='<table style="',e+=" border-width: 0px; border-style: none;",e+=" border-collapse: collapse;",e+=" padding: 0px; margin: "+(r=void 0===r?4*t:r)+"px;",e+='">',e+="<tbody>";for(var n=0;n<f.getModuleCount();n+=1){e+="<tr>";for(var o=0;o<f.getModuleCount();o+=1)e+='<td style="',e+=" border-width: 0px; border-style: none;",e+=" border-collapse: collapse;",e+=" padding: 0px; margin: 0px;",e+=" width: "+t+"px;",e+=" height: "+t+"px;",e+=" background-color: ",e+=f.isDark(n,o)?"#000000":"#ffffff",e+=";",e+='"/>';e+="</tr>"}return e+="</tbody>",e+="</table>"},f.createSvgTag=function(t,r,e,n){var o={};"object"==typeof arguments[0]&&(t=(o=arguments[0]).cellSize,r=o.margin,e=o.alt,n=o.title),t=t||2,r=void 0===r?4*t:r,(e="string"==typeof e?{text:e}:e||{}).text=e.text||null,e.id=e.text?e.id||"qrcode-description":null,(n="string"==typeof n?{text:n}:n||{}).text=n.text||null,n.id=n.text?n.id||"qrcode-title":null;var i,a,u,c,g=f.getModuleCount()*t+2*r,l="";for(c="l"+t+",0 0,"+t+" -"+t+",0 0,-"+t+"z ",l+='<svg version="1.1" xmlns="http://www.w3.org/2000/svg"',l+=o.scalable?"":' width="'+g+'px" height="'+g+'px"',l+=' viewBox="0 0 '+g+" "+g+'" ',l+=' preserveAspectRatio="xMinYMin meet"',l+=n.text||e.text?' role="img" aria-labelledby="'+y([n.id,e.id].join(" ").trim())+'"':"",l+=">",l+=n.text?'<title id="'+y(n.id)+'">'+y(n.text)+"</title>":"",l+=e.text?'<description id="'+y(e.id)+'">'+y(e.text)+"</description>":"",l+='<rect width="100%" height="100%" fill="white" cx="0" cy="0"/>',l+='<path d="',a=0;a<f.getModuleCount();a+=1)for(u=a*t+r,i=0;i<f.getModuleCount();i+=1)f.isDark(a,i)&&(l+="M"+(i*t+r)+","+u+c);return l+='" stroke="transparent" fill="black"/>',l+="</svg>"},f.createDataURL=function(t,r){t=t||2,r=void 0===r?4*t:r;var e=f.getModuleCount()*t+2*r,n=r,o=e-r;return I(e,e,function(r,e){if(n<=r&&r<o&&n<=e&&e<o){var i=Math.floor((r-n)/t),a=Math.floor((e-n)/t);return f.isDark(a,i)?0:1}return 1})},f.createImgTag=function(t,r,e){t=t||2,r=void 0===r?4*t:r;var n=f.getModuleCount()*t+2*r,o="";return o+="<img",o+=' src="',o+=f.createDataURL(t,r),o+='"',o+=' width="',o+=n,o+='"',o+=' height="',o+=n,o+='"',e&&(o+=' alt="',o+=y(e),o+='"'),o+="/>"};var y=function(t){for(var r="",e=0;e<t.length;e+=1){var n=t.charAt(e);switch(n){case"<":r+="&lt;";break;case">":r+="&gt;";break;case"&":r+="&amp;";break;case'"':r+="&quot;";break;default:r+=n}}return r};return f.createASCII=function(t,r){if((t=t||1)<2)return function(t){t=void 0===t?2:t;var r,e,n,o,i,a=1*f.getModuleCount()+2*t,u=t,c=a-t,g={"██":"█","█ ":"▀"," █":"▄","  ":" "},l={"██":"▀","█ ":"▀"," █":" ","  ":" "},h="";for(r=0;r<a;r+=2){for(n=Math.floor((r-u)/1),o=Math.floor((r+1-u)/1),e=0;e<a;e+=1)i="█",u<=e&&e<c&&u<=r&&r<c&&f.isDark(n,Math.floor((e-u)/1))&&(i=" "),u<=e&&e<c&&u<=r+1&&r+1<c&&f.isDark(o,Math.floor((e-u)/1))?i+=" ":i+="█",h+=t<1&&r+1>=c?l[i]:g[i];h+="\n"}return a%2&&t>0?h.substring(0,h.length-a-1)+Array(a+1).join("▀"):h.substring(0,h.length-1)}(r);t-=1,r=void 0===r?2*t:r;var e,n,o,i,a=f.getModuleCount()*t+2*r,u=r,c=a-r,g=Array(t+1).join("██"),l=Array(t+1).join("  "),h="",s="";for(e=0;e<a;e+=1){for(o=Math.floor((e-u)/t),s="",n=0;n<a;n+=1)i=1,u<=n&&n<c&&u<=e&&e<c&&f.isDark(o,Math.floor((n-u)/t))&&(i=0),s+=i?g:l;for(o=0;o<t;o+=1)h+=s+"\n"}return h.substring(0,h.length-1)},f.renderTo2dContext=function(t,r){r=r||2;for(var e=f.getModuleCount(),n=0;n<e;n++)for(var o=0;o<e;o++)t.fillStyle=f.isDark(n,o)?"black":"white",t.fillRect(o*r,n*r,r,r)},f};t.stringToBytes=(t.stringToBytesFuncs={default:function(t){for(var r=[],e=0;e<t.length;e+=1){var n=t.charCodeAt(e);r.push(255&n)}return r}}).default,t.createStringToBytes=function(t,r){var e=function(){for(var e=S(t),n=function(){var t=e.read();if(-1==t)throw"eof";return t},o=0,i={};;){var a=e.read();if(-1==a)break;var u=n(),f=n()<<8|n();i[String.fromCharCode(a<<8|u)]=f,o+=1}if(o!=r)throw o+" != "+r;return i}(),n="?".charCodeAt(0);return function(t){for(var r=[],o=0;o<t.length;o+=1){var i=t.charCodeAt(o);if(i<128)r.push(i);else{var a=e[t.charAt(o)];"number"==typeof a?(255&a)==a?r.push(a):(r.push(a>>>8),r.push(255&a)):r.push(n)}}return r}};var r,e,n,o,i,a=1,u=2,f=4,c=8,g={L:1,M:0,Q:3,H:2},l=0,h=1,s=2,v=3,d=4,w=5,p=6,y=7,B=(r=[[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50],[6,30,54],[6,32,58],[6,34,62],[6,26,46,66],[6,26,48,70],[6,26,50,74],[6,30,54,78],[6,30,56,82],[6,30,58,86],[6,34,62,90],[6,28,50,72,94],[6,26,50,74,98],[6,30,54,78,102],[6,28,54,80,106],[6,32,58,84,110],[6,30,58,86,114],[6,34,62,90,118],[6,26,50,74,98,122],[6,30,54,78,102,126],[6,26,52,78,104,130],[6,30,56,82,108,134],[6,34,60,86,112,138],[6,30,58,86,114,142],[6,34,62,90,118,146],[6,30,54,78,102,126,150],[6,24,50,76,102,128,154],[6,28,54,80,106,132,158],[6,32,58,84,110,136,162],[6,26,54,82,110,138,166],[6,30,58,86,114,142,170]],e=1335,n=7973,i=function(t){for(var r=0;0!=t;)r+=1,t>>>=1;return r},(o={}).getBCHTypeInfo=function(t){for(var r=t<<10;i(r)-i(e)>=0;)r^=e<<i(r)-i(e);return 21522^(t<<10|r)},o.getBCHTypeNumber=function(t){for(var r=t<<12;i(r)-i(n)>=0;)r^=n<<i(r)-i(n);return t<<12|r},o.getPatternPosition=function(t){return r[t-1]},o.getMaskFunction=function(t){switch(t){case l:return function(t,r){return(t+r)%2==0};case h:return function(t,r){return t%2==0};case s:return function(t,r){return r%3==0};case v:return function(t,r){return(t+r)%3==0};case d:return function(t,r){return(Math.floor(t/2)+Math.floor(r/3))%2==0};case w:return function(t,r){return t*r%2+t*r%3==0};case p:return function(t,r){return(t*r%2+t*r%3)%2==0};case y:return function(t,r){return(t*r%3+(t+r)%2)%2==0};default:throw"bad maskPattern:"+t}},o.getErrorCorrectPolynomial=function(t){for(var r=k([1],0),e=0;e<t;e+=1)r=r.multiply(k([1,C.gexp(e)],0));return r},o.getLengthInBits=function(t,r){if(1<=r&&r<10)switch(t){case a:return 10;case u:return 9;case f:case c:return 8;default:throw"mode:"+t}else if(r<27)switch(t){case a:return 12;case u:return 11;case f:return 16;case c:return 10;default:throw"mode:"+t}else{if(!(r<41))throw"type:"+r;switch(t){case a:return 14;case u:return 13;case f:return 16;case c:return 12;default:throw"mode:"+t}}},o.getLostPoint=function(t){for(var r=t.getModuleCount(),e=0,n=0;n<r;n+=1)for(var o=0;o<r;o+=1){for(var i=0,a=t.isDark(n,o),u=-1;u<=1;u+=1)if(!(n+u<0||r<=n+u))for(var f=-1;f<=1;f+=1)o+f<0||r<=o+f||0==u&&0==f||a==t.isDark(n+u,o+f)&&(i+=1);i>5&&(e+=3+i-5)}for(n=0;n<r-1;n+=1)for(o=0;o<r-1;o+=1){var c=0;t.isDark(n,o)&&(c+=1),t.isDark(n+1,o)&&(c+=1),t.isDark(n,o+1)&&(c+=1),t.isDark(n+1,o+1)&&(c+=1),0!=c&&4!=c||(e+=3)}for(n=0;n<r;n+=1)for(o=0;o<r-6;o+=1)t.isDark(n,o)&&!t.isDark(n,o+1)&&t.isDark(n,o+2)&&t.isDark(n,o+3)&&t.isDark(n,o+4)&&!t.isDark(n,o+5)&&t.isDark(n,o+6)&&(e+=40);for(o=0;o<r;o+=1)for(n=0;n<r-6;n+=1)t.isDark(n,o)&&!t.isDark(n+1,o)&&t.isDark(n+2,o)&&t.isDark(n+3,o)&&t.isDark(n+4,o)&&!t.isDark(n+5,o)&&t.isDark(n+6,o)&&(e+=40);var g=0;for(o=0;o<r;o+=1)for(n=0;n<r;n+=1)t.isDark(n,o)&&(g+=1);return e+=Math.abs(100*g/r/r-50)/5*10},o),C=function(){for(var t=new Array(256),r=new Array(256),e=0;e<8;e+=1)t[e]=1<<e;for(e=8;e<256;e+=1)t[e]=t[e-4]^t[e-5]^t[e-6]^t[e-8];for(e=0;e<255;e+=1)r[t[e]]=e;var n={glog:function(t){if(t<1)throw"glog("+t+")";return r[t]},gexp:function(r){for(;r<0;)r+=255;for(;r>=256;)r-=255;return t[r]}};return n}();function k(t,r){if(void 0===t.length)throw t.length+"/"+r;var e=function(){for(var e=0;e<t.length&&0==t[e];)e+=1;for(var n=new Array(t.length-e+r),o=0;o<t.length-e;o+=1)n[o]=t[o+e];return n}(),n={getAt:function(t){return e[t]},getLength:function(){return e.length},multiply:function(t){for(var r=new Array(n.getLength()+t.getLength()-1),e=0;e<n.getLength();e+=1)for(var o=0;o<t.getLength();o+=1)r[e+o]^=C.gexp(C.glog(n.getAt(e))+C.glog(t.getAt(o)));return k(r,0)},mod:function(t){if(n.getLength()-t.getLength()<0)return n;for(var r=C.glog(n.getAt(0))-C.glog(t.getAt(0)),e=new Array(n.getLength()),o=0;o<n.getLength();o+=1)e[o]=n.getAt(o);for(o=0;o<t.getLength();o+=1)e[o]^=C.gexp(C.glog(t.getAt(o))+r);return k(e,0).mod(t)}};return n}var A=function(){var t=[[1,26,19],[1,26,16],[1,26,13],[1,26,9],[1,44,34],[1,44,28],[1,44,22],[1,44,16],[1,70,55],[1,70,44],[2,35,17],[2,35,13],[1,100,80],[2,50,32],[2,50,24],[4,25,9],[1,134,108],[2,67,43],[2,33,15,2,34,16],[2,33,11,2,34,12],[2,86,68],[4,43,27],[4,43,19],[4,43,15],[2,98,78],[4,49,31],[2,32,14,4,33,15],[4,39,13,1,40,14],[2,121,97],[2,60,38,2,61,39],[4,40,18,2,41,19],[4,40,14,2,41,15],[2,146,116],[3,58,36,2,59,37],[4,36,16,4,37,17],[4,36,12,4,37,13],[2,86,68,2,87,69],[4,69,43,1,70,44],[6,43,19,2,44,20],[6,43,15,2,44,16],[4,101,81],[1,80,50,4,81,51],[4,50,22,4,51,23],[3,36,12,8,37,13],[2,116,92,2,117,93],[6,58,36,2,59,37],[4,46,20,6,47,21],[7,42,14,4,43,15],[4,133,107],[8,59,37,1,60,38],[8,44,20,4,45,21],[12,33,11,4,34,12],[3,145,115,1,146,116],[4,64,40,5,65,41],[11,36,16,5,37,17],[11,36,12,5,37,13],[5,109,87,1,110,88],[5,65,41,5,66,42],[5,54,24,7,55,25],[11,36,12,7,37,13],[5,122,98,1,123,99],[7,73,45,3,74,46],[15,43,19,2,44,20],[3,45,15,13,46,16],[1,135,107,5,136,108],[10,74,46,1,75,47],[1,50,22,15,51,23],[2,42,14,17,43,15],[5,150,120,1,151,121],[9,69,43,4,70,44],[17,50,22,1,51,23],[2,42,14,19,43,15],[3,141,113,4,142,114],[3,70,44,11,71,45],[17,47,21,4,48,22],[9,39,13,16,40,14],[3,135,107,5,136,108],[3,67,41,13,68,42],[15,54,24,5,55,25],[15,43,15,10,44,16],[4,144,116,4,145,117],[17,68,42],[17,50,22,6,51,23],[19,46,16,6,47,17],[2,139,111,7,140,112],[17,74,46],[7,54,24,16,55,25],[34,37,13],[4,151,121,5,152,122],[4,75,47,14,76,48],[11,54,24,14,55,25],[16,45,15,14,46,16],[6,147,117,4,148,118],[6,73,45,14,74,46],[11,54,24,16,55,25],[30,46,16,2,47,17],[8,132,106,4,133,107],[8,75,47,13,76,48],[7,54,24,22,55,25],[22,45,15,13,46,16],[10,142,114,2,143,115],[19,74,46,4,75,47],[28,50,22,6,51,23],[33,46,16,4,47,17],[8,152,122,4,153,123],[22,73,45,3,74,46],[8,53,23,26,54,24],[12,45,15,28,46,16],[3,147,117,10,148,118],[3,73,45,23,74,46],[4,54,24,31,55,25],[11,45,15,31,46,16],[7,146,116,7,147,117],[21,73,45,7,74,46],[1,53,23,37,54,24],[19,45,15,26,46,16],[5,145,115,10,146,116],[19,75,47,10,76,48],[15,54,24,25,55,25],[23,45,15,25,46,16],[13,145,115,3,146,116],[2,74,46,29,75,47],[42,54,24,1,55,25],[23,45,15,28,46,16],[17,145,115],[10,74,46,23,75,47],[10,54,24,35,55,25],[19,45,15,35,46,16],[17,145,115,1,146,116],[14,74,46,21,75,47],[29,54,24,19,55,25],[11,45,15,46,46,16],[13,145,115,6,146,116],[14,74,46,23,75,47],[44,54,24,7,55,25],[59,46,16,1,47,17],[12,151,121,7,152,122],[12,75,47,26,76,48],[39,54,24,14,55,25],[22,45,15,41,46,16],[6,151,121,14,152,122],[6,75,47,34,76,48],[46,54,24,10,55,25],[2,45,15,64,46,16],[17,152,122,4,153,123],[29,74,46,14,75,47],[49,54,24,10,55,25],[24,45,15,46,46,16],[4,152,122,18,153,123],[13,74,46,32,75,47],[48,54,24,14,55,25],[42,45,15,32,46,16],[20,147,117,4,148,118],[40,75,47,7,76,48],[43,54,24,22,55,25],[10,45,15,67,46,16],[19,148,118,6,149,119],[18,75,47,31,76,48],[34,54,24,34,55,25],[20,45,15,61,46,16]],r=function(t,r){var e={};return e.totalCount=t,e.dataCount=r,e},e={};return e.getRSBlocks=function(e,n){var o=function(r,e){switch(e){case g.L:return t[4*(r-1)+0];case g.M:return t[4*(r-1)+1];case g.Q:return t[4*(r-1)+2];case g.H:return t[4*(r-1)+3];default:return}}(e,n);if(void 0===o)throw"bad rs block @ typeNumber:"+e+"/errorCorrectionLevel:"+n;for(var i=o.length/3,a=[],u=0;u<i;u+=1)for(var f=o[3*u+0],c=o[3*u+1],l=o[3*u+2],h=0;h<f;h+=1)a.push(r(c,l));return a},e}(),b=function(){var t=[],r=0,e={getBuffer:function(){return t},getAt:function(r){var e=Math.floor(r/8);return 1==(t[e]>>>7-r%8&1)},put:function(t,r){for(var n=0;n<r;n+=1)e.putBit(1==(t>>>r-n-1&1))},getLengthInBits:function(){return r},putBit:function(e){var n=Math.floor(r/8);t.length<=n&&t.push(0),e&&(t[n]|=128>>>r%8),r+=1}};return e},M=function(t){var r=a,e=t,n={getMode:function(){return r},getLength:function(t){return e.length},write:function(t){for(var r=e,n=0;n+2<r.length;)t.put(o(r.substring(n,n+3)),10),n+=3;n<r.length&&(r.length-n==1?t.put(o(r.substring(n,n+1)),4):r.length-n==2&&t.put(o(r.substring(n,n+2)),7))}},o=function(t){for(var r=0,e=0;e<t.length;e+=1)r=10*r+i(t.charAt(e));return r},i=function(t){if("0"<=t&&t<="9")return t.charCodeAt(0)-"0".charCodeAt(0);throw"illegal char :"+t};return n},x=function(t){var r=u,e=t,n={getMode:function(){return r},getLength:function(t){return e.length},write:function(t){for(var r=e,n=0;n+1<r.length;)t.put(45*o(r.charAt(n))+o(r.charAt(n+1)),11),n+=2;n<r.length&&t.put(o(r.charAt(n)),6)}},o=function(t){if("0"<=t&&t<="9")return t.charCodeAt(0)-"0".charCodeAt(0);if("A"<=t&&t<="Z")return t.charCodeAt(0)-"A".charCodeAt(0)+10;switch(t){case" ":return 36;case"$":return 37;case"%":return 38;case"*":return 39;case"+":return 40;case"-":return 41;case".":return 42;case"/":return 43;case":":return 44;default:throw"illegal char :"+t}};return n},m=function(r){var e=f,n=t.stringToBytes(r),o={getMode:function(){return e},getLength:function(t){return n.length},write:function(t){for(var r=0;r<n.length;r+=1)t.put(n[r],8)}};return o},L=function(r){var e=c,n=t.stringToBytesFuncs.SJIS;if(!n)throw"sjis not supported.";!function(){var t=n("友");if(2!=t.length||38726!=(t[0]<<8|t[1]))throw"sjis not supported."}();var o=n(r),i={getMode:function(){return e},getLength:function(t){return~~(o.length/2)},write:function(t){for(var r=o,e=0;e+1<r.length;){var n=(255&r[e])<<8|255&r[e+1];if(33088<=n&&n<=40956)n-=33088;else{if(!(57408<=n&&n<=60351))throw"illegal char at "+(e+1)+"/"+n;n-=49472}n=192*(n>>>8&255)+(255&n),t.put(n,13),e+=2}if(e<r.length)throw"illegal char at "+(e+1)}};return i},D=function(){var t=[],r={writeByte:function(r){t.push(255&r)},writeShort:function(t){r.writeByte(t),r.writeByte(t>>>8)},writeBytes:function(t,e,n){e=e||0,n=n||t.length;for(var o=0;o<n;o+=1)r.writeByte(t[o+e])},writeString:function(t){for(var e=0;e<t.length;e+=1)r.writeByte(t.charCodeAt(e))},toByteArray:function(){return t},toString:function(){var r="";r+="[";for(var e=0;e<t.length;e+=1)e>0&&(r+=","),r+=t[e];return r+="]"}};return r},S=function(t){var r=t,e=0,n=0,o=0,i={read:function(){for(;o<8;){if(e>=r.length){if(0==o)return-1;throw"unexpected end of file./"+o}var t=r.charAt(e);if(e+=1,"="==t)return o=0,-1;t.match(/^\s$/)||(n=n<<6|a(t.charCodeAt(0)),o+=6)}var i=n>>>o-8&255;return o-=8,i}},a=function(t){if(65<=t&&t<=90)return t-65;if(97<=t&&t<=122)return t-97+26;if(48<=t&&t<=57)return t-48+52;if(43==t)return 62;if(47==t)return 63;throw"c:"+t};return i},I=function(t,r,e){for(var n=function(t,r){var e=t,n=r,o=new Array(t*r),i={setPixel:function(t,r,n){o[r*e+t]=n},write:function(t){t.writeString("GIF87a"),t.writeShort(e),t.writeShort(n),t.writeByte(128),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(255),t.writeByte(255),t.writeByte(255),t.writeString(","),t.writeShort(0),t.writeShort(0),t.writeShort(e),t.writeShort(n),t.writeByte(0);var r=a(2);t.writeByte(2);for(var o=0;r.length-o>255;)t.writeByte(255),t.writeBytes(r,o,255),o+=255;t.writeByte(r.length-o),t.writeBytes(r,o,r.length-o),t.writeByte(0),t.writeString(";")}},a=function(t){for(var r=1<<t,e=1+(1<<t),n=t+1,i=u(),a=0;a<r;a+=1)i.add(String.fromCharCode(a));i.add(String.fromCharCode(r)),i.add(String.fromCharCode(e));var f,c,g,l=D(),h=(f=l,c=0,g=0,{write:function(t,r){if(t>>>r!=0)throw"length over";for(;c+r>=8;)f.writeByte(255&(t<<c|g)),r-=8-c,t>>>=8-c,g=0,c=0;g|=t<<c,c+=r},flush:function(){c>0&&f.writeByte(g)}});h.write(r,n);var s=0,v=String.fromCharCode(o[s]);for(s+=1;s<o.length;){var d=String.fromCharCode(o[s]);s+=1,i.contains(v+d)?v+=d:(h.write(i.indexOf(v),n),i.size()<4095&&(i.size()==1<<n&&(n+=1),i.add(v+d)),v=d)}return h.write(i.indexOf(v),n),h.write(e,n),h.flush(),l.toByteArray()},u=function(){var t={},r=0,e={add:function(n){if(e.contains(n))throw"dup key:"+n;t[n]=r,r+=1},size:function(){return r},indexOf:function(r){return t[r]},contains:function(r){return void 0!==t[r]}};return e};return i}(t,r),o=0;o<r;o+=1)for(var i=0;i<t;i+=1)n.setPixel(i,o,e(i,o));var a=D();n.write(a);for(var u=function(){var t=0,r=0,e=0,n="",o={},i=function(t){n+=String.fromCharCode(a(63&t))},a=function(t){if(t<0);else{if(t<26)return 65+t;if(t<52)return t-26+97;if(t<62)return t-52+48;if(62==t)return 43;if(63==t)return 47}throw"n:"+t};return o.writeByte=function(n){for(t=t<<8|255&n,r+=8,e+=1;r>=6;)i(t>>>r-6),r-=6},o.flush=function(){if(r>0&&(i(t<<6-r),t=0,r=0),e%3!=0)for(var o=3-e%3,a=0;a<o;a+=1)n+="="},o.toString=function(){return n},o}(),f=a.toByteArray(),c=0;c<f.length;c+=1)u.writeByte(f[c]);return u.flush(),"data:image/gif;base64,"+u};return t}();qrcode.stringToBytesFuncs["UTF-8"]=function(t){return function(t){for(var r=[],e=0;e<t.length;e++){var n=t.charCodeAt(e);n<128?r.push(n):n<2048?r.push(192|n>>6,128|63&n):n<55296||n>=57344?r.push(224|n>>12,128|n>>6&63,128|63&n):(e++,n=65536+((1023&n)<<10|1023&t.charCodeAt(e)),r.push(240|n>>18,128|n>>12&63,128|n>>6&63,128|63&n))}return r}(t)},function(t){"function"==typeof define&&define.amd?define([],t):"object"==typeof exports&&(module.exports=t())}(function(){return qrcode});
 </script>
@@ -36,7 +32,6 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   nav button .ic{width:18px;text-align:center;font-size:15px}
   nav button .badge{margin-left:auto;background:var(--red);color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:10px}
   nav button.active .badge{background:#1a1206;color:var(--amber)}
-  .navsep{font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted2);padding:14px 14px 6px;font-weight:600}
   .navgrp-hd{display:flex;align-items:center;justify-content:space-between;padding:10px 13px 6px;margin-top:4px;font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted2);font-weight:600;cursor:pointer;border-radius:8px}
   .navgrp-hd:hover{color:var(--muted)}
   .navgrp-hd .navgrp-hd-l{display:flex;align-items:center;gap:6px}
@@ -44,7 +39,6 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   .navgrp-hd .badge{background:var(--red);color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:10px}
   .navgrp-body button{padding-left:13px}
   .navgrp-divider{border-top:1px solid var(--line);margin:10px 6px 6px}
-  .side-foot{padding:14px 18px;border-top:1px solid var(--line);font-size:10.5px;color:var(--muted2);line-height:1.6}
   main{flex:1;background:var(--content);color:#1c1c1c;min-width:0}
   .topbar{background:#fff;border-bottom:2px solid #e4dfd4;padding:16px 30px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:20;gap:16px;flex-wrap:wrap}
   .topbar h2{font-size:19px;font-weight:700}
@@ -133,7 +127,6 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   .editphoto{width:120px;height:120px;border-radius:10px;object-fit:cover;border:1px solid #e4dfd4;display:block}
   .editphoto.ph{display:flex;align-items:center;justify-content:center;background:#faf8f3;color:#a09a8d;font-size:12px;text-align:center}
   .refline{font-size:11px;color:#8a7a55;margin-top:4px;line-height:1.4}
-  .consphoto{width:150px;height:150px;border-radius:12px;object-fit:cover;border:1px solid #e4dfd4;flex-shrink:0}
   .danger-zone{background:#fdf2f2;border:1px solid #f3c9c9;border-radius:12px;padding:20px}
   .danger-zone h3{color:#b03030}
   .tabs{display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid #e4dfd4}
@@ -153,8 +146,6 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   #gate{position:fixed;inset:0;background:var(--bg);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto}
   .gate-card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:30px;max-width:520px;width:100%;color:var(--ink)}
   .gate-card h1{font-size:20px;display:flex;align-items:center;gap:10px;margin-bottom:6px}
-  .gate-step{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:15px;margin-bottom:13px}
-  .gate-step .gt{font-weight:600;font-size:13px;margin-bottom:9px}
   @media print{aside,.topbar,.noprint{display:none!important}main{background:#fff}}
   @media(max-width:860px){.cards>.card{flex-basis:42%}.row.c4,.row.c3{grid-template-columns:1fr 1fr}}
   .pill.pendente{background:#fff3da;color:#a8731a} .pill.aprovada{background:#e3f7ee;color:#1c7a52} .pill.rejeitada{background:#fde8e8;color:#c0392b} .pill.cancelada{background:#eee;color:#777}
@@ -252,7 +243,6 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     .scan-box{padding:18px}
     .scan-box input{font-size:18px;padding:13px 12px;letter-spacing:1px}
     .filebox{padding:20px}
-    .consphoto{width:96px;height:96px}
     .stepper .st .lbl{font-size:8.5px}
     /* modais viram "folha" ocupando a largura toda */
     .ovl{padding:0;align-items:flex-end}
@@ -351,7 +341,7 @@ const SUPABASE_URL='https://qjmqburjyqlgwjihvlgp.supabase.co';
 const SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqbXFidXJqeXFsZ3dqaWh2bGdwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4NzU0NzIsImV4cCI6MjEwNDQ1MTQ3Mn0.cOdmVw3W0HCilACqZIVFMCwsr6zxA0g_3CreKIuk9kw';
 const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
 
-/* ===== Carregamento sob demanda de libs pesadas (xlsx, html5-qrcode) ===== */
+/* ===== Carregamento sob demanda de libs pesadas ===== */
 function loadScriptOnce(src){ return new Promise((resolve,reject)=>{
   if(document.querySelector(`script[src="${src}"]`)){ resolve(); return; }
   const s=document.createElement('script'); s.src=src;
@@ -361,6 +351,10 @@ const XLSX_SRC='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min
 const HTML5QRCODE_SRC='https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js';
 async function ensureXLSX(){ if(typeof XLSX!=='undefined')return; await loadScriptOnce(XLSX_SRC); }
 async function ensureHtml5Qrcode(){ if(typeof Html5Qrcode!=='undefined')return; await loadScriptOnce(HTML5QRCODE_SRC); }
+const CHART_SRC='https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js';
+const JSBARCODE_SRC='https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js';
+// Executa fn assim que o JsBarcode estiver disponível (baixa só na primeira vez)
+function withBarcode(fn){ if(window.JsBarcode){ fn(); return; } loadScriptOnce(JSBARCODE_SRC).then(fn).catch(()=>{}); }
 let session=null, profile=null;
 function isAdmin(){ return !!profile && profile.papel==='admin' && profile.ativo; }
 function isEncarregado(){ return !!profile && (profile.papel==='admin'||profile.papel==='encarregado') && profile.ativo; }
@@ -418,10 +412,12 @@ const Store={
 };
 let state={ obras:[], aplicacoes:[], products:[], estoque:{}, movements:[], notas:[], seq:{baixa:0,transfer:0}, config:{supHash:null}, currentObra:null };
 let photos={};
+// Garante a estrutura mínima do state (usado no load e quando chega atualização em tempo real)
+function normalizeState(){ if(!state.obras)state.obras=[]; if(!state.aplicacoes)state.aplicacoes=[]; if(!state.estoque)state.estoque={}; if(!state.movements)state.movements=[]; if(!state.notas)state.notas=[]; if(!state.seq)state.seq={baixa:0,transfer:0}; if(!state.config)state.config={supHash:null}; if(!state.empresas)state.empresas=[]; if(!state.aplicTipos||!state.aplicTipos.length)state.aplicTipos=[{id:'equipamento',label:'EQUIPAMENTO',icone:'⚙',usaSetor:false},{id:'veiculo',label:'VEÍCULO',icone:'🚚',usaSetor:false},{id:'sede',label:'SEDE',icone:'🏢',usaSetor:true}]; if(!state.setores||!state.setores.length)state.setores=[{id:'oficina',nome:'OFICINA'},{id:'escritorio',nome:'ESCRITÓRIO / ADM'},{id:'lavajato',nome:'LAVAJATO'},{id:'diretoria',nome:'DIRETORIA'}]; }
 async function load(){ const d=await Store.get(KEY);
   if(d===undefined){ if(loadCache())toast('Sem conexão — carregando última cópia salva neste aparelho.','warn'); }
   else if(d&&d.products){state=d;}
-  if(!state.obras)state.obras=[]; if(!state.aplicacoes)state.aplicacoes=[]; if(!state.estoque)state.estoque={}; if(!state.movements)state.movements=[]; if(!state.notas)state.notas=[]; if(!state.seq)state.seq={baixa:0,transfer:0}; if(!state.config)state.config={supHash:null}; if(!state.empresas)state.empresas=[]; if(!state.aplicTipos||!state.aplicTipos.length)state.aplicTipos=[{id:'equipamento',label:'EQUIPAMENTO',icone:'⚙',usaSetor:false},{id:'veiculo',label:'VEÍCULO',icone:'🚚',usaSetor:false},{id:'sede',label:'SEDE',icone:'🏢',usaSetor:true}]; if(!state.setores||!state.setores.length)state.setores=[{id:'oficina',nome:'OFICINA'},{id:'escritorio',nome:'ESCRITÓRIO / ADM'},{id:'lavajato',nome:'LAVAJATO'},{id:'diretoria',nome:'DIRETORIA'}];
+  normalizeState();
   state.movements.forEach(m=>{ if(!m.id)m.id=uid(); });
   if(d!==undefined){ await loadMovimentosEDaldos(); } /* fonte de verdade agora são as tabelas, não o JSON — só pula isso se estiver offline usando o cache local */
   if(!state.currentObra || !state.obras.some(o=>o.id===state.currentObra)) state.currentObra=state.obras[0]?state.obras[0].id:null;
@@ -461,13 +457,17 @@ async function processOfflineQueue(){
 window.addEventListener('online',()=>{ isOnline=true; updateOfflineBadge(); if(getQueue().length){toast('Conexão de volta — sincronizando pendências...','ok'); processOfflineQueue();} });
 window.addEventListener('offline',()=>{ isOnline=false; updateOfflineBadge(); toast('Sem conexão — as próximas ações ficam guardadas neste aparelho.','warn'); });
 const SAFE_REFRESH_TABS=['obras','aplic','produtos','consulta','relatorios'];
+// Junta várias atualizações disparadas em sequência (ex.: separar 10 itens) numa só rodada de consultas
+const _pendRefresh=new Set(); let _refreshTimer=null;
+function queueRefresh(...fns){ fns.forEach(f=>_pendRefresh.add(f)); clearTimeout(_refreshTimer);
+  _refreshTimer=setTimeout(()=>{ const l=[..._pendRefresh]; _pendRefresh.clear(); l.forEach(f=>{ try{ f(); }catch(e){ console.warn(e); } }); },500); }
 function subscribeRealtime(){
   sb.channel('app_kv_sync').on('postgres_changes',{event:'UPDATE',schema:'public',table:'app_kv',filter:'key=eq.'+KEY},payload=>{
     if(!payload.new||!payload.new.value)return;
     const prevMovements=state.movements, prevEstoque=state.estoque; /* movements/estoque não vêm mais dentro deste documento — preserva o que já está em memória em vez de zerar */
     state=payload.new.value;
     state.movements=prevMovements||[]; state.estoque=prevEstoque||{};
-    if(!state.obras)state.obras=[]; if(!state.aplicacoes)state.aplicacoes=[]; if(!state.notas)state.notas=[]; if(!state.seq)state.seq={baixa:0,transfer:0}; if(!state.empresas)state.empresas=[]; if(!state.aplicTipos||!state.aplicTipos.length)state.aplicTipos=[{id:'equipamento',label:'EQUIPAMENTO',icone:'⚙',usaSetor:false},{id:'veiculo',label:'VEÍCULO',icone:'🚚',usaSetor:false},{id:'sede',label:'SEDE',icone:'🏢',usaSetor:true}]; if(!state.setores||!state.setores.length)state.setores=[{id:'oficina',nome:'OFICINA'},{id:'escritorio',nome:'ESCRITÓRIO / ADM'},{id:'lavajato',nome:'LAVAJATO'},{id:'diretoria',nome:'DIRETORIA'}];
+    normalizeState();
     if(!state.currentObra||!state.obras.some(o=>o.id===state.currentObra))state.currentObra=state.obras[0]?state.obras[0].id:null;
     refreshBadge(); refreshAprovBadge(); refreshGlobalAlerts();
     if(SAFE_REFRESH_TABS.includes(activeTab))go(activeTab);
@@ -476,33 +476,42 @@ function subscribeRealtime(){
   // sem passar pelo app_kv — sem isto, uma exclusão/decisão feita por outra pessoa (ou em outra
   // aba) só aparecia depois de sair e voltar na tela. Isso mantém tudo ao vivo.
   sb.channel('requisicoes_sync').on('postgres_changes',{event:'*',schema:'public',table:'requisicoes'},()=>{
-    if(activeTab==='baixa'){ drawMinhasFrotasPendentes(); drawMinhasEmAndamento(); }
-    if(activeTab==='aprovacoes'){ drawAprovPend(); drawAprovHist(); }
-    if(activeTab==='separacao'&&typeof drawSeparacaoList==='function')drawSeparacaoList();
-    if(activeTab==='expedicao'&&typeof drawExpedicaoList==='function')drawExpedicaoList();
-    if(activeTab==='retiradas'&&typeof drawRetiradaPendente==='function')drawRetiradaPendente();
-    if(activeTab==='notificacoes'&&typeof drawNotificacoes==='function')drawNotificacoes();
-    refreshAprovBadge(); refreshSeparacaoBadge(); refreshExpedBadge(); refreshRetiradasBadge(); refreshComprasBadge(); refreshMinhasBadge(); refreshGlobalAlerts();
+    const t=activeTab;
+    queueRefresh(refreshAprovBadge,refreshSeparacaoBadge,refreshExpedBadge,refreshRetiradasBadge,refreshComprasBadge,refreshMinhasBadge,refreshGlobalAlerts);
+    if(t==='baixa')queueRefresh(drawMinhasFrotasPendentes,drawMinhasEmAndamento);
+    if(t==='aprovacoes')queueRefresh(drawAprovPend,drawAprovHist);
+    if(t==='separacao'&&typeof drawSeparacaoList==='function')queueRefresh(drawSeparacaoList);
+    if(t==='expedicao'&&typeof drawExpedicaoList==='function')queueRefresh(drawExpedicaoList);
+    if(t==='retiradas'&&typeof drawRetiradaPendente==='function')queueRefresh(drawRetiradaPendente);
+    if(t==='notificacoes'&&typeof drawNotificacoes==='function')queueRefresh(drawNotificacoes);
   }).subscribe();
-  // requisicao_itens_status é o que muda quando um item é separado (quantidade_separada) — é o
-  // gatilho de "aguardando retirada" e do Painel de Notificações; sem isto, essas telas só
-  // atualizavam no polling de 15s em vez de na hora.
+  // requisicao_itens_status muda a cada item separado — gatilho de "aguardando retirada" e das notificações.
   sb.channel('itens_status_sync').on('postgres_changes',{event:'*',schema:'public',table:'requisicao_itens_status'},()=>{
-    if(activeTab==='retiradas'&&typeof drawRetiradaPendente==='function')drawRetiradaPendente();
-    if(activeTab==='separacao'&&typeof drawSeparacaoList==='function')drawSeparacaoList();
-    if(activeTab==='notificacoes'&&typeof drawNotificacoes==='function')drawNotificacoes();
-    refreshRetiradasBadge(); refreshSeparacaoBadge();
+    const t=activeTab;
+    queueRefresh(refreshRetiradasBadge,refreshSeparacaoBadge);
+    if(t==='retiradas'&&typeof drawRetiradaPendente==='function')queueRefresh(drawRetiradaPendente);
+    if(t==='separacao'&&typeof drawSeparacaoList==='function')queueRefresh(drawSeparacaoList);
+    if(t==='notificacoes'&&typeof drawNotificacoes==='function')queueRefresh(drawNotificacoes);
   }).subscribe();
-  // Movimentações e saldos agora são tabelas próprias (não mais o JSON de app_kv) — mantém
-  // outras abas/sessões ao vivo quando alguém lança entrada, baixa, ajuste, transferência etc.
-  let _movSyncTimer=null;
-  sb.channel('mov_saldo_sync').on('postgres_changes',{event:'*',schema:'public',table:'movimentos_estoque'},()=>{
-    clearTimeout(_movSyncTimer); _movSyncTimer=setTimeout(async()=>{ await loadMovimentosEDaldos();
-      if(activeTab==='baixa')drawBaixaHist(); if(activeTab==='transfer'&&typeof drawTrHist==='function')drawTrHist();
-      if(SAFE_REFRESH_TABS.includes(activeTab))go(activeTab); refreshBadge();
-    },400);
-  }).on('postgres_changes',{event:'*',schema:'public',table:'saldos_estoque'},()=>{
-    clearTimeout(_movSyncTimer); _movSyncTimer=setTimeout(async()=>{ await loadMovimentosEDaldos(); refreshBadge(); },400);
+  // Movimentações e saldos: aplica só a linha que mudou em vez de recarregar tudo do banco.
+  let _movRenderTimer=null;
+  const rerenderMov=()=>{ clearTimeout(_movRenderTimer); _movRenderTimer=setTimeout(()=>{
+    if(activeTab==='baixa')drawBaixaHist(); if(activeTab==='transfer'&&typeof drawTrHist==='function')drawTrHist();
+    if(SAFE_REFRESH_TABS.includes(activeTab))go(activeTab); refreshBadge(); cacheState(); },400); };
+  const fullReload=async()=>{ await loadMovimentosEDaldos(); rerenderMov(); };
+  sb.channel('mov_saldo_sync').on('postgres_changes',{event:'*',schema:'public',table:'movimentos_estoque'},pl=>{
+    try{
+      if(pl.eventType==='DELETE'){ const id=pl.old&&pl.old.id; if(!id)return fullReload(); state.movements=state.movements.filter(m=>m.id!==id); }
+      else { const m=rowToMov(pl.new); const i=state.movements.findIndex(x=>x.id===m.id);
+        if(i>=0)state.movements[i]=m; else { const k=state.movements.findIndex(x=>x.ts<=m.ts); if(k<0)state.movements.push(m); else state.movements.splice(k,0,m); } }
+      rerenderMov();
+    }catch(e){ fullReload(); }
+  }).on('postgres_changes',{event:'*',schema:'public',table:'saldos_estoque'},pl=>{
+    const r=pl.eventType==='DELETE'?pl.old:pl.new;
+    if(!r||!r.obra_id||r.code==null)return fullReload();
+    if(!state.estoque[r.obra_id])state.estoque[r.obra_id]={};
+    if(pl.eventType==='DELETE')delete state.estoque[r.obra_id][r.code]; else state.estoque[r.obra_id][r.code]=Number(r.saldo)||0;
+    rerenderMov();
   }).subscribe();
 }
 
@@ -559,7 +568,6 @@ async function refreshDevolucoesBloqueio(){
   const novo={}; (data||[]).forEach(d=>{ if(!novo[d.obra_id])novo[d.obra_id]={}; (d.itens||[]).forEach(it=>{ novo[d.obra_id][it.code]=(novo[d.obra_id][it.code]||0)+Number(it.qty||0); }); });
   devolucoesBloqueio=novo;
 }
-function estoqueObraDaEmpresa(empresaNome){ if(!empresaNome)return null; return state.obras.find(o=>o.ehEstoque && o.empresa && o.empresa.trim().toLowerCase()===empresaNome.trim().toLowerCase()); }
 function obraEstoqueParaRequisicao(r){
   return r.mutuo_estoque_obra_id ? r.mutuo_estoque_obra_id : r.obra_id;
 }
@@ -579,20 +587,56 @@ function rowToMov(r){ return {id:r.id,ts:Number(r.ts),tipo:r.tipo,obra:r.obra||u
 function pushMov(m){ if(!m.id)m.id=uid(); if(!m.ts)m.ts=Date.now(); state.movements.unshift(m);
   sb.from('movimentos_estoque').insert(movToRow(m)).then(({error})=>{ if(error) toast('Erro ao gravar movimentação no banco (recarregue a página para conferir): '+error.message,'err'); });
   return m; }
+async function fetchAllRows(mk,page=1000){ let all=[], from=0;
+  while(true){ const {data,error}=await mk().range(from,from+page-1); if(error)return {data:null,error};
+    all=all.concat(data||[]); if(!data||data.length<page)break; from+=page; }
+  return {data:all,error:null}; }
+// Movimentações: carrega só a janela recente na abertura e busca o resto sob demanda (período da tela, produto, inventário).
+// movLoadedFrom = ts a partir do qual state.movements está completo (0 = histórico inteiro já em memória).
+const MOV_JANELA_DIAS=90;
+let movLoadedFrom=null, movPares=new Set(), _movFetch=Promise.resolve();
+function mergeMovs(rows){ const have=new Set(state.movements.map(m=>m.id)); let add=false;
+  (rows||[]).forEach(r=>{ if(!have.has(r.id)){ state.movements.push(rowToMov(r)); have.add(r.id); add=true; } });
+  if(add)state.movements.sort((a,b)=>b.ts-a.ts); }
 async function loadMovimentosEDaldos(){
   try{
-    const [{data:mv,error:e1},{data:sd,error:e2}]=await Promise.all([
-      sb.from('movimentos_estoque').select('*').order('ts',{ascending:false}),
-      sb.from('saldos_estoque').select('*')
+    const desde=movLoadedFrom!=null?movLoadedFrom:Date.now()-MOV_JANELA_DIAS*864e5;
+    const [{data:mv,error:e1},{data:sd,error:e2},{data:pr,error:e3}]=await Promise.all([
+      fetchAllRows(()=>{ let q=sb.from('movimentos_estoque').select('*'); if(desde>0)q=q.gte('ts',desde); return q.order('ts',{ascending:false}).order('id'); }),
+      fetchAllRows(()=>sb.from('saldos_estoque').select('*').order('obra_id').order('code')),
+      sb.rpc('pares_movimentados')
     ]);
-    if(!e1&&mv) state.movements=mv.map(rowToMov);
+    if(!e1&&mv){ state.movements=mv.map(rowToMov); movLoadedFrom=desde; }
     if(!e2&&sd){ const est={}; sd.forEach(r=>{ if(!est[r.obra_id])est[r.obra_id]={}; est[r.obra_id][r.code]=Number(r.saldo)||0; }); state.estoque=est; }
+    if(!e3&&pr) movPares=new Set(pr.map(r=>r.obra+'|'+r.code));
   }catch(e){ console.warn('loadMovimentosEDaldos falhou, usando o que veio do app_kv/cache:',e); }
 }
+// Garante em memória as movimentações desde f. Devolve true se precisou buscar e deu certo.
+function ensureMovsSince(f){
+  const run=async()=>{
+    if(movLoadedFrom==null||f>=movLoadedFrom||!isOnline)return false;
+    const ate=movLoadedFrom;
+    const {data,error}=await fetchAllRows(()=>{ let q=sb.from('movimentos_estoque').select('*').lt('ts',ate); if(f>0)q=q.gte('ts',f); return q.order('ts',{ascending:false}).order('id'); });
+    if(error){ toast('Erro ao carregar o histórico do período: '+error.message,'err'); return false; }
+    mergeMovs(data); movLoadedFrom=Math.max(f,0); return true; };
+  _movFetch=_movFetch.then(run,run); return _movFetch; }
+function precisaHistorico(f){ return isOnline&&movLoadedFrom!=null&&f<movLoadedFrom; }
+// Histórico completo de um produto (a consulta mostra tudo, não só a janela)
+async function movsDoProduto(code){
+  const local=state.movements.filter(m=>String(m.code)===String(code));
+  if(movLoadedFrom===0||!isOnline)return local;
+  const {data,error}=await fetchAllRows(()=>sb.from('movimentos_estoque').select('*').eq('code',code).order('ts',{ascending:false}).order('id'));
+  return error?local:data.map(rowToMov); }
+// Inventário: traz lançamentos antigos das contagens em tela, para não lançar o mesmo ajuste duas vezes
+async function ensureMovsInv(keys){ keys=[...new Set((keys||[]).filter(Boolean))]; if(!keys.length||movLoadedFrom===0||!isOnline)return;
+  for(let i=0;i<keys.length;i+=100){ const {data}=await sb.from('movimentos_estoque').select('*').in('inv_id',keys.slice(i,i+100)); if(data)mergeMovs(data); } }
+function valorAtualEstoque(obraId){ const cm={}; state.products.forEach(p=>cm[p.code]=p.custo||0); let v=0;
+  (obraId==='__all'?Object.keys(state.estoque):[obraId]).forEach(ob=>Object.entries(state.estoque[ob]||{}).forEach(([c,q])=>{ v+=(Number(q)||0)*(cm[c]||0); }));
+  return v; }
 function statusOf(p,saldo){ if(saldo<=p.min)return'low'; if(p.max>0&&saldo>=p.max)return'high'; return'good'; }
 /* Reposição só faz sentido para item que já teve estoque/movimento na obra. Mín/Máx é cadastrado no produto (global):
    sem essa checagem, todo item com mínimo > 0 aparecia como "Repor" em obra que nunca o recebeu. */
-function buildTracked(){ const t=new Set();
+function buildTracked(){ const t=new Set(movPares);
   (state.movements||[]).forEach(m=>{ if(m.obra)t.add(m.obra+'|'+m.code); if(m.obraDest)t.add(m.obraDest+'|'+m.code); });
   Object.keys(state.estoque||{}).forEach(ob=>Object.entries(state.estoque[ob]||{}).forEach(([c,v])=>{ if(v)t.add(ob+'|'+c); }));
   return t; }
@@ -855,7 +899,8 @@ let evoChartObj=null;
 function emiMap(){ const m={}; state.notas.forEach(n=>{ if(n.dataEmissao)m[n.id]=new Date(n.dataEmissao+'T12:00:00').getTime(); }); return m; }
 function mdate(m,emi){ if(m.tipo==='entrada'&&m.notaId&&emi[m.notaId])return emi[m.notaId]; return m.ts; }
 function drawDashboard(){
-  const [f,t]=periodTs(); const fobra=curObra(); const isAll=fobra==='__all'||!fobra; const emi=emiMap();
+  const [f,t]=periodTs();
+  if(precisaHistorico(f)){ toast('Carregando histórico do período...','ok'); ensureMovsSince(f).then(ok=>{ if(ok&&activeTab==='painel')drawDashboard(); }); return; } const fobra=curObra(); const isAll=fobra==='__all'||!fobra; const emi=emiMap();
   const touchesObra=m=> isAll || m.obra===fobra || (m.tipo==='transferencia'&&m.obraDest===fobra);
   const inP=state.movements.filter(m=>{const d=mdate(m,emi); return d>=f&&d<=t && touchesObra(m);});
   const valEntr=inP.filter(m=>m.tipo==='entrada').reduce((s,m)=>s+m.valorTotal,0);
@@ -886,11 +931,13 @@ function drawDashboard(){
   if($('#evoTitle'))$('#evoTitle').textContent='Evolução do estoque — '+esc(fobraLbl);
   const all=[...state.movements].map(m=>({m,d:mdate(m,emi)})).sort((a,b)=>a.d-b.d);
   const co=isAll?'__all':fobra;
-  let running=0; all.forEach(x=>{ if(x.d<f)running+=movDeltaVal(x.m,co); });
+  // valor no início do período = valor atual (saldos × custo) menos o que entrou/saiu do início do período até hoje
+  let running=valorAtualEstoque(co); all.forEach(x=>{ if(x.d>=f)running-=movDeltaVal(x.m,co); });
   const labels=[], data=[]; labels.push(new Date(f).toLocaleDateString('pt-BR')); data.push(running);
   all.forEach(x=>{ if(x.d>=f&&x.d<=t){ running+=movDeltaVal(x.m,co); labels.push(new Date(x.d).toLocaleDateString('pt-BR')); data.push(running); } });
   labels.push(new Date(t).toLocaleDateString('pt-BR')); data.push(running);
-  const cv=$('#evoChart'); if(cv&&window.Chart){ if(evoChartObj){evoChartObj.destroy();}
+  const cv=$('#evoChart'); if(cv&&!window.Chart){ loadScriptOnce(CHART_SRC).then(()=>{ if(activeTab==='painel'&&$('#evoChart'))drawDashboard(); }).catch(()=>{}); }
+  if(cv&&window.Chart){ if(evoChartObj){evoChartObj.destroy();}
     evoChartObj=new Chart(cv.getContext('2d'),{type:'line',data:{labels,datasets:[{label:'Valor em estoque (R$)',data,borderColor:'#f5a623',backgroundColor:'rgba(245,166,35,.12)',fill:true,tension:.2,pointRadius:data.length>40?0:3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>money(c.parsed.y)}}},scales:{y:{ticks:{callback:v=>'R$ '+Number(v).toLocaleString('pt-BR')}}}}}); }
 }
 
@@ -981,10 +1028,12 @@ function renderAplic(){
   if(!state.aplicacoes.length){ html+=`<div class="tbl-wrap"><div class="empty"><div class="ico">⚙</div>Nenhuma aplicação cadastrada.<br><button class="btn primary" onclick="aplicModal()">+ Cadastrar primeira</button></div></div>`; $('#view').innerHTML=html; return; }
   html+=`<div class="tbl-wrap"><table><thead><tr><th>Nome</th><th>Tipo</th><th>Placa / Tag</th><th class="num">Consumos</th><th></th></tr></thead><tbody>`;
   state.aplicacoes.forEach(a=>{ const usos=state.movements.filter(m=>m.tipo==='baixa'&&m.aplic===a.id).length;
-    html+=`<tr><td><b>${esc(a.nome)}</b></td><td>${esc(aplicTipoLabel(a.tipo,a.sub))}</td><td class="mono">${esc(a.tag||'—')}</td><td class="num">${usos}</td>
+    html+=`<tr><td><b>${esc(a.nome)}</b></td><td>${esc(aplicTipoLabel(a.tipo,a.sub))}</td><td class="mono">${esc(a.tag||'—')}</td><td class="num" data-usos="${esc(a.id)}">${usos}</td>
     <td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="aplicModal('${a.id}')">✎</button> <button class="btn danger sm" onclick="delAplic('${a.id}')">✕</button></td></tr>`; });
   html+=`</tbody></table></div>`;
   $('#view').innerHTML=html;
+  if(isOnline&&movLoadedFrom!==0) sb.rpc('consumos_por_aplicacao').then(({data,error})=>{ if(error||!data)return; const m={}; data.forEach(r=>m[r.aplic]=r.qtd);
+    document.querySelectorAll('[data-usos]').forEach(td=>{ td.textContent=numf(m[td.dataset.usos]||0); }); });
 }
 function aplicModal(id){ const a=id?state.aplicacoes.find(x=>x.id===id):null;
   if(!state.aplicTipos||!state.aplicTipos.length){ toast('Cadastre ao menos um tipo de aplicação primeiro.','err'); go('tiposetor'); return; }
@@ -1220,7 +1269,7 @@ function renderProdutos(){
       <td class="num">${money(p.custo||0)}</td>
       <td class="num">${p.preco?money(p.preco):'—'}</td>
       <td class="num" style="white-space:nowrap"><button class="btn ghost sm" title="Editar (custo, venda, foto, equipamento)" onclick="editProductModal('${esc(p.code)}')">✎</button> <button class="btn danger sm" title="Excluir (supervisor)" onclick="delProduct('${esc(p.code)}')">✕</button></td></tr>`;}).join('')||`<tr><td colspan="10" class="empty" style="padding:28px">Nada encontrado.</td></tr>`;
-    list.forEach(p=>{try{JsBarcode('#bc_'+CSS.escape(p.code),String(p.code),{format:'CODE128',width:1.3,height:32,fontSize:0,margin:2,displayValue:false});}catch(e){}}); };
+    withBarcode(()=>list.forEach(p=>{try{JsBarcode('#bc_'+CSS.escape(p.code),String(p.code),{format:'CODE128',width:1.3,height:32,fontSize:0,margin:2,displayValue:false});}catch(e){}})); };
   draw(); ['prodSearch','prodZero'].forEach(id=>{const el=$('#'+id); if(el){el.oninput=draw; el.onchange=draw;}});
 }
 function setField(code,f,v){ const p=findProduct(code); if(!p)return; p[f]=parseFloat(v)||0; save();
@@ -1544,7 +1593,6 @@ function drawBaixaHist(){ const list=state.movements.filter(m=>m.tipo==='baixa')
 function reportBaixaGroup(gid){ const ms=state.movements.filter(m=>m.tipo==='baixa'&&(m.baixaId||m.id)===gid); if(!ms.length)return; const m0=ms[0];
   const itens=ms.map(m=>{const p=findProduct(m.code); return {code:m.code,aux:p?p.aux:'',desc:m.desc,qty:m.qty,unit:p?p.unit:'',valor:m.valorUnit};});
   printSignReport({titulo:'Comprovante de Saída de Material',numero:seqf(m0.seq),subtitulo:'Baixa de estoque',data:fmtDate(m0.ts),obra:obraName(m0.obra),aplicacao:aplicName(m0.aplic),doc:m0.doc,obs:m0.obs,itens,assinaturas:['Solicitante','Responsável pelo almoxarifado','Recebedor']}); }
-function delBaixaMov(id){ const m=state.movements.find(x=>x.id===id&&x.tipo==='baixa'); if(!m)return; requireSupervisor('Excluir baixa Nº '+seqf(m.seq),()=>{ addSaldo(m.obra,m.code,m.qty); state.movements=state.movements.filter(x=>x.id!==id); sb.from('movimentos_estoque').delete().eq('id',id).then(({error})=>{ if(error)toast('Erro ao excluir movimentação no banco: '+error.message,'err'); }); save('Baixa Nº '+seqf(m.seq)+' excluída e estornada'); drawBaixaHist(); toast('Baixa excluída e estornada.','warn'); }); }
 /* --- scanner --- */
 function drawScanResults(q){ const box=$('#scanResults'); if(!box)return; q=(q||'').trim(); if(!q){box.innerHTML='';return;}
   const o=curObra()==='__all'?state.obras[0].id:curObra();
@@ -1737,7 +1785,7 @@ async function refreshInvBadge(){ if(!isEncarregado())return; const b=$('#navBad
 async function renderInventario(){
   if(!isEncarregado()||isEncFrotas()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito a encarregados/administradores.</div></div>'; return; }
   $('#view').innerHTML='<div class="panel"><div class="muted">Carregando ajustes da contagem...</div></div>';
-  try{ invRows=await invCarregar(); }
+  try{ invRows=await invCarregar(); await ensureMovsInv(invRows.map(r=>r.key)); }
   catch(e){ $('#view').innerHTML='<div class="panel"><h3>Inventário</h3><p class="desc">Não consegui ler as tabelas da contagem ('+esc(e.message)+'). Confira se os arquivos SQL da contagem cíclica foram executados neste projeto.</p></div>'; return; }
   invDraw(); refreshInvBadge();
 }
@@ -2590,7 +2638,6 @@ function fecharPeriodoMutuo(periodo,origem,destino,total){
 }
 
 /* ===== DEVOLUÇÃO DE MATERIAIS ===== */
-function devolStatusLabel(s){ return {aguardando_nota:'Aguardando nota de devolução',em_envio:'Em envio ao fornecedor',concluida:'Concluída',cancelada:'Cancelada'}[s]||s; }
 async function refreshDevolucaoBadge(){ if(!isAlmoxarife())return; const b=$('#navBadgeDevol'); if(!b)return;
   const {count}=await sb.from('devolucoes').select('id',{count:'exact',head:true}).in('status',['aguardando_nota','em_envio']);
   if(count){b.textContent=count;b.style.display='';}else b.style.display='none'; }
@@ -2731,8 +2778,8 @@ function drawConsList(q){ q=q.toLowerCase().trim(); const box=$('#consResult'); 
   if(q&&list.length===1){ showConsulta(list[0]); return; }
   box.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>Foto</th><th>Cód. barras</th><th>Cód. aux.</th><th>Produto</th><th class="num">${all?'Saldo total':'Saldo em '+esc(obraName(o))}</th><th class="num">Custo</th><th class="num">Venda</th><th></th></tr></thead><tbody>`+list.map(p=>`<tr><td>${thumb(p.code)}</td><td class="mono">${esc(p.code)}</td><td class="mono">${esc(p.aux||'—')}</td><td>${esc(p.desc)}</td><td class="num">${numf(sal(p.code))}</td><td class="num">${money(p.custo||0)}</td><td class="num">${p.preco?money(p.preco):'—'}</td><td class="num"><button class="btn ghost sm" onclick='showConsultaCode("${esc(p.code)}")'>Detalhes</button></td></tr>`).join('')+`</tbody></table></div>`; }
 function showConsultaCode(c){ const p=findProduct(c); if(p)showConsulta(p); }
-function showConsulta(p){ const o=curObra(); const all=o==='__all'||!o;
-  const movsAll=state.movements.filter(m=>String(m.code)===String(p.code));
+async function showConsulta(p){ const o=curObra(); const all=o==='__all'||!o;
+  const movsAll=await movsDoProduto(p.code);
   const movs=all?movsAll:movsAll.filter(m=>m.obra===o||(m.tipo==='transferencia'&&m.obraDest===o));
   const totIn=movs.filter(m=>m.tipo==='entrada').reduce((s,m)=>s+m.qty,0), totOut=movs.filter(m=>m.tipo==='baixa').reduce((s,m)=>s+m.qty,0);
   const valIn=movs.filter(m=>m.tipo==='entrada').reduce((s,m)=>s+m.valorTotal,0), valOut=movs.filter(m=>m.tipo==='baixa').reduce((s,m)=>s+m.valorTotal,0);
@@ -2760,7 +2807,7 @@ function showConsulta(p){ const o=curObra(); const all=o==='__all'||!o;
       const sign=m.tipo==='entrada'?'+':m.tipo==='baixa'?'−':'⇄'; const cls=m.tipo==='entrada'?'pos':m.tipo==='baixa'?'neg':'';
       return `<tr><td class="muted" style="font-size:12px">${fmtDate(m.ts)}</td><td>${tp}</td><td style="font-size:12.5px">${obraCell}</td><td style="font-size:12.5px">${esc(m.doc||'')}${m.aplic?' · '+esc(aplicName(m.aplic)):''}</td><td class="num ${cls}">${sign}${numf(m.qty)}</td><td class="num">${money(m.valorUnit)}</td><td class="num">${money(m.valorTotal)}</td></tr>`;}).join('')
       :`<tr><td colspan="7" class="empty" style="padding:24px">Sem movimentações.</td></tr>`)+`</tbody></table></div>`;
-  try{JsBarcode('#consBc',String(p.code),{format:'CODE128',width:1.6,height:46,fontSize:13,margin:4});}catch(e){}
+  withBarcode(()=>{try{JsBarcode('#consBc',String(p.code),{format:'CODE128',width:1.6,height:46,fontSize:13,margin:4});}catch(e){}});
 }
 
 /* ===== IMPORTAR PLANILHA ===== */
@@ -2843,26 +2890,19 @@ async function saveUserRole(id){ const papel=$('#up_'+id).value; const setor=$('
   await sb.rpc('log_event',{p_acao:'usuario_atualizado',p_entidade:'profiles',p_entidade_id:id,p_detalhes:{papel,setor,ativo}});
   _comprasAssignees=null; toast('Usuário atualizado.','ok'); renderAdmin(); }
 function deleteNotaId(id,fromEntrada){ const n=state.notas.find(x=>x.id===id); if(!n)return; requireSupervisor(`Excluir NF ${n.numero}`,async()=>{
-  state.movements.filter(m=>m.notaId===id).forEach(m=>addSaldo(m.obra,m.code,-m.qty));
+  const {data:mvNota,error:eN}=await sb.from('movimentos_estoque').select('*').eq('nota_id',id);
+  if(eN){ toast('Erro ao buscar as movimentações da nota: '+eN.message,'err'); return; }
+  (mvNota||[]).map(rowToMov).forEach(m=>addSaldo(m.obra,m.code,-m.qty));
   state.movements=state.movements.filter(m=>m.notaId!==id);
   await sb.from('movimentos_estoque').delete().eq('nota_id',id);
   state.notas=state.notas.filter(x=>x.id!==id); save('NF '+n.numero+' excluída e estornada'); if(fromEntrada)drawNfHist(); else renderAdmin(); toast('Nota excluída e estornada.','warn'); }); }
 function wipeAll(){ requireSupervisor('Zerar todo o estoque',()=>{ modal(`<h3 style="color:#b03030">Confirmar exclusão total</h3><p class="mp">Apaga <b>${state.products.length} produto(s)</b>, todos os saldos, histórico, fotos, <b>requisições, compras pendentes, caixas e embarques</b>. <b>Não há como desfazer.</b></p><div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn danger" onclick="doWipe()">Apagar tudo</button></div>`); }); }
 async function doWipe(){
-  state.products=[]; state.movements=[]; state.estoque={}; state.notas=[]; photos={}; savePhotos();
+  // A limpeza das tabelas é feita no banco (RPC restrita a admin); se falhar, nada é apagado.
+  const {error}=await sb.rpc('zerar_estoque_admin');
+  if(error){ toast('Não foi possível zerar: '+error.message,'err'); return; }
+  state.products=[]; state.movements=[]; state.estoque={}; state.notas=[]; photos={}; movPares=new Set(); movLoadedFrom=0; savePhotos();
   await save('Estoque zerado (zona de risco)');
-  try{
-    await sb.from('itens_caixa').delete().gt('id',-1);
-    await sb.from('caixas').delete().gt('id',-1);
-    await sb.from('compras_pendentes').delete().gt('id',-1);
-    await sb.from('requisicao_itens_status').delete().gt('id',-1);
-    await sb.from('retiradas_internas').delete().gt('id',-1);
-    await sb.from('embarques').delete().gt('id',-1);
-    await sb.from('notas_fiscais_saida').delete().gt('id',-1);
-    await sb.from('requisicoes').delete().gt('id',-1);
-    await sb.from('movimentos_estoque').delete().gte('ts',0);
-    await sb.from('saldos_estoque').delete().not('obra_id','is',null);
-  }catch(e){ toast('Estoque zerado, mas houve erro limpando requisições/compras: '+(e&&e.message||e),'err'); }
   closeModal(); renderAdmin(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshMinhasBadge(); refreshGlobalAlerts();
   toast('Estoque e requisições zerados.','warn');
 }
@@ -3006,7 +3046,8 @@ function movOS(m){ if(m.os)return m.os; const src=((m.doc||'')+' '+(m.obs||''));
 function produtoPassaFiltros(p,gf,lf,pf){ if(gf&&produtoGrupo(p.code)!==gf)return false; if(lf&&produtoLocal(p.code)!==lf)return false; if(pf&&!(p.desc.toLowerCase().includes(pf)||String(p.code).toLowerCase().includes(pf)||(p.aux&&String(p.aux).toLowerCase().includes(pf))))return false; return true; }
 function produtoLocal(code){ const p=findProduct(code); const l=p&&p.localizacao&&p.localizacao.trim()?p.localizacao.trim():'(sem localização)'; return l; }
 function drawRelatorio(){ const box=$('#relView'); if(!box)return;
-  const [f,t]=relPeriod(); const emi=emiMap(); const fobra=$('#relObra')?$('#relObra').value:'__all'; const isAll=fobra==='__all';
+  const [f,t]=relPeriod();
+  if(precisaHistorico(f)){ box.innerHTML='<div class="empty" style="padding:24px">Carregando histórico do período...</div>'; ensureMovsSince(f).then(ok=>{ if(ok&&activeTab==='relatorios')drawRelatorio(); }); return; } const emi=emiMap(); const fobra=$('#relObra')?$('#relObra').value:'__all'; const isAll=fobra==='__all';
   const gf=$('#relGrupo')?$('#relGrupo').value:'';
   const lf=$('#relLocal')?$('#relLocal').value:'';
   const taf=$('#relTipoAplic')?$('#relTipoAplic').value:'';
