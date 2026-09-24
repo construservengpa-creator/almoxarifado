@@ -378,7 +378,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-09-24T17:30:00-03:00';
+const APP_VERSION='2026-09-24T19:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -2110,7 +2110,13 @@ function definirTipoEnvio(reqId,ehMutuo){ const sel=document.querySelector('inpu
     if(win) imprimirRomaneioMutuo(reqId,win);
     toast(tipo==='interna'?'Retirada no balcão — indo direto pra embalagem (sem romaneio).':'Tipo de envio definido.','ok');
     drawSeparacaoList(); drawExpedicaoList(); refreshExpedBadge(); }); }
+const _separandoItens=new Set();
 async function separarItem(id){
+  if(_separandoItens.has(id))return; /* clique duplo / repetido no mesmo item */
+  _separandoItens.add(id);
+  try{ await _separarItem(id); } finally { _separandoItens.delete(id); }
+}
+async function _separarItem(id){
   const {data:item,error:e1}=await sb.from('requisicao_itens_status').select('*').eq('id',id).maybeSingle();
   if(e1||!item){toast('Erro ao carregar item.','err');return;}
   if(!(item.quantidade_disponivel>0)){toast('Nada disponível pra separar neste item.','err');return;}
@@ -2119,6 +2125,15 @@ async function separarItem(id){
   const p=findProduct(item.code); const vu=p?(p.custo||0):0;
   const qtdSeparar=item.quantidade_disponivel;
   const obraSaldo=obraEstoqueParaRequisicao(r);
+  const novaSeparada=item.quantidade_separada+qtdSeparar;
+  const novoStatus=novaSeparada>=item.quantidade_solicitada?'separado':'faltante';
+  /* "reserva" o item ANTES de mexer no saldo: só passa se ninguém separou este item nesse meio-tempo
+     (evita baixa em dobro por clique duplo ou dois aparelhos ao mesmo tempo) */
+  const {data:claim,error:eC}=await sb.from('requisicao_itens_status')
+    .update({quantidade_disponivel:0,quantidade_separada:novaSeparada,status:novoStatus,atualizado_em:new Date().toISOString()})
+    .eq('id',id).eq('quantidade_disponivel',item.quantidade_disponivel).eq('quantidade_separada',item.quantidade_separada).select('id');
+  if(eC){toast('Erro ao separar: '+eC.message,'err');return;}
+  if(!claim||!claim.length){toast('Este item já foi separado por outra pessoa/aba — atualizando a lista.','warn'); drawSeparacaoList(); return;}
   addSaldo(obraSaldo,item.code,-qtdSeparar);
   const {data:numData,error:eNum}=await sb.rpc('proximo_numero_documento',{p_tipo:'baixa'});
   const numero=eNum?0:numData;
@@ -2130,9 +2145,6 @@ async function separarItem(id){
     const {error:e3}=await sb.from('mutuos_intercompany').insert({periodo:periodoAtual(),empresa_origem:r.mutuo_empresa_origem,empresa_destino:r.mutuo_empresa_destino,obra_origem_nome:estObra?estObra.nome:'',obra_destino_nome:r.obra_nome,descricao:item.descricao+' (REQ-'+String(r.id).padStart(5,'0')+')',requisicao_id:r.id,item_code:item.code,valor:qtdSeparar*vu,registrado_por:session.user.id,registrado_por_nome:profile.nome||profile.email});
     if(e3)toast('Baixa feita, mas houve erro ao registrar o mútuo: '+e3.message,'err');
   }
-  const novaSeparada=item.quantidade_separada+qtdSeparar;
-  const novoStatus=novaSeparada>=item.quantidade_solicitada?'separado':'faltante';
-  await sb.from('requisicao_itens_status').update({quantidade_disponivel:0,quantidade_separada:novaSeparada,status:novoStatus,atualizado_em:new Date().toISOString()}).eq('id',id);
   const {count}=await sb.from('requisicao_itens_status').select('id',{count:'exact',head:true}).eq('requisicao_id',r.id).neq('status','separado');
   if(!count){ await sb.from('requisicoes').update({status:'separado'}).eq('id',r.id); toast('Todos os itens separados! Requisição pronta para embalamento.','ok'); refreshExpedBadge(); refreshRetiradasBadge(); }
   else toast(novoStatus==='separado'?'Item totalmente separado.':'Separado o que estava disponível — o restante continua aguardando compra.','ok');
