@@ -2123,7 +2123,7 @@ async function separarItem(id){
   await save('Separação REQ-'+String(r.id).padStart(5,'0')+': '+item.descricao);
   if(r.mutuo_empresa_destino){
     const estObra=state.obras.find(x=>x.id===r.mutuo_estoque_obra_id);
-    const {error:e3}=await sb.from('mutuos_intercompany').insert({periodo:periodoAtual(),empresa_origem:r.mutuo_empresa_origem,empresa_destino:r.mutuo_empresa_destino,obra_origem_nome:estObra?estObra.nome:'',obra_destino_nome:r.obra_nome,descricao:item.descricao+' (REQ-'+String(r.id).padStart(5,'0')+')',valor:qtdSeparar*vu,registrado_por:session.user.id,registrado_por_nome:profile.nome||profile.email});
+    const {error:e3}=await sb.from('mutuos_intercompany').insert({periodo:periodoAtual(),empresa_origem:r.mutuo_empresa_origem,empresa_destino:r.mutuo_empresa_destino,obra_origem_nome:estObra?estObra.nome:'',obra_destino_nome:r.obra_nome,descricao:item.descricao+' (REQ-'+String(r.id).padStart(5,'0')+')',requisicao_id:r.id,item_code:item.code,valor:qtdSeparar*vu,registrado_por:session.user.id,registrado_por_nome:profile.nome||profile.email});
     if(e3)toast('Baixa feita, mas houve erro ao registrar o mútuo: '+e3.message,'err');
   }
   const novaSeparada=item.quantidade_separada+qtdSeparar;
