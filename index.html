@@ -378,7 +378,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-09-24T19:00:00-03:00';
+const APP_VERSION='2026-09-24T21:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -2088,11 +2088,12 @@ async function drawSeparacaoList(){ const box=$('#sepList'); if(!box)return;
       return `<div class="panel" style="margin-bottom:14px">
         <div class="sechead" style="margin-bottom:10px"><h3 style="font-size:14px">REQ-${String(r.id).padStart(5,'0')} — ${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</h3><span class="pill ${r.status}">✓ Tudo separado</span></div>
         ${!r.tipo_envio?`<p class="mp" style="font-size:12px">Como este material vai ser entregue?</p>
-          <div style="display:flex;gap:16px;margin:6px 0 12px">
+          <div style="display:flex;gap:16px;margin:6px 0 12px;flex-wrap:wrap">
             <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:500;margin:0"><input type="radio" name="tipoEnvioPre_${r.id}" value="despacho" checked style="width:auto"> Despacho (transportadora)</label>
-            <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:500;margin:0"><input type="radio" name="tipoEnvioPre_${r.id}" value="interna" style="width:auto"> Tramitação interna (retirada)</label></div>
+            <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:500;margin:0"><input type="radio" name="tipoEnvioPre_${r.id}" value="interna" style="width:auto"> Tramitação interna (retirada no balcão)</label>
+            <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:500;margin:0"><input type="radio" name="tipoEnvioPre_${r.id}" value="aplicacao_direta" style="width:auto"> Retirada no balcão — compra p/ aplicação direta</label></div>
           <button class="btn primary sm" onclick="definirTipoEnvio(${r.id},${r.mutuo_empresa_destino?'true':'false'})">Confirmar e emitir romaneio</button>`
-        :`<p class="mp" style="font-size:12px">${r.tipo_envio==='despacho'?'🚚 Despacho':'🤝 Tramitação interna'} — pronto para emitir o romaneio.</p>
+        :`<p class="mp" style="font-size:12px">${envioTipoLabel(r.tipo_envio)} — pronto para emitir o romaneio.</p>
           <button class="btn primary sm" onclick="emitirRomaneio(${r.id},${r.mutuo_empresa_destino?'true':'false'})">Emitir romaneio${r.mutuo_empresa_destino?' 🖨':''}</button>`}
         </div>`;
     }
@@ -2104,11 +2105,11 @@ async function drawSeparacaoList(){ const box=$('#sepList'); if(!box)return;
   }).join('');
 }
 function definirTipoEnvio(reqId,ehMutuo){ const sel=document.querySelector('input[name=tipoEnvioPre_'+reqId+']:checked'); const tipo=sel?sel.value:'despacho';
-  const payload=tipo==='interna'?{tipo_envio:tipo,status:'romaneio_emitido'}:{tipo_envio:tipo};
-  const win=(ehMutuo&&tipo==='interna')?abrirJanelaImpressao():null; /* na retirada interna o romaneio é emitido aqui mesmo */
+  const payload=ehBalcao(tipo)?{tipo_envio:tipo,status:'romaneio_emitido'}:{tipo_envio:tipo};
+  const win=(ehMutuo&&ehBalcao(tipo))?abrirJanelaImpressao():null; /* na retirada interna o romaneio é emitido aqui mesmo */
   sb.from('requisicoes').update(payload).eq('id',reqId).then(({error})=>{ if(error){ if(win)win.close(); toast('Erro: '+error.message,'err');return;}
     if(win) imprimirRomaneioMutuo(reqId,win);
-    toast(tipo==='interna'?'Retirada no balcão — indo direto pra embalagem (sem romaneio).':'Tipo de envio definido.','ok');
+    toast(ehBalcao(tipo)?'Retirada no balcão — indo direto pra embalagem (sem romaneio).':'Tipo de envio definido.','ok');
     drawSeparacaoList(); drawExpedicaoList(); refreshExpedBadge(); }); }
 const _separandoItens=new Set();
 async function separarItem(id){
@@ -2203,7 +2204,7 @@ function renderExpedModal(){
   const {r,itens,caixas,itensCaixa,nf,emb,ret}=window._expedCtx;
   const restante=itens.filter(i=>i.quantidade_separada-i.quantidade_embalada>0.0001);
   let html=`<h3>Expedição — REQ-${String(r.id).padStart(5,'0')}</h3>
-    <p class="mp">${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}${r.aplicacao_nome?' · '+esc(r.aplicacao_nome):''}${r.tipo_envio?' · '+(r.tipo_envio==='despacho'?'🚚 Despacho':'🤝 Retirada no balcão'):''}</p>
+    <p class="mp">${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}${r.aplicacao_nome?' · '+esc(r.aplicacao_nome):''}${r.tipo_envio?' · '+envioTipoLabel(r.tipo_envio):''}</p>
     ${expedStepperHTML(r,caixas)}${r.mutuo_empresa_destino?`<div style="text-align:right;margin:6px 0 4px"><button class="btn ghost sm" onclick="imprimirRomaneioMutuo(${r.id})">🖨 Romaneio do mútuo</button></div>`:''}`;
 
   const backMap={romaneio_emitido:'separado',embalado:'romaneio_emitido',faturado:'embalado',embarcado:'faturado',retirado:'faturado'};
@@ -2253,9 +2254,9 @@ function renderExpedModal(){
 
   const todasEtiquetadas=caixas.length>0 && caixas.every(c=>c.status!=='em_montagem'&&c.status!=='fechada');
   if(r.status==='faturado' && todasEtiquetadas){
-    html+=`<div class="sechead" style="margin-top:16px"><h3 style="font-size:13px">🚚 Informar envio — ${r.tipo_envio==='interna'?'Retirada no balcão':'Despacho (transportadora)'}</h3></div>
+    html+=`<div class="sechead" style="margin-top:16px"><h3 style="font-size:13px">🚚 Informar envio — ${ehBalcao(r.tipo_envio)?envioTipoLabel(r.tipo_envio).replace(/^\S+\s/,''):'Despacho (transportadora)'}</h3></div>
     <input type="hidden" id="envioTipoFixo" value="${r.tipo_envio||'despacho'}">
-    ${r.tipo_envio==='interna'?`<div class="row c2"><div class="field"><label>Colaborador que retirou</label><input id="envColab"></div><div class="field"><label>Documento (opcional)</label><input id="envColabDoc"></div></div>`
+    ${ehBalcao(r.tipo_envio)?`<div class="row c2"><div class="field"><label>Colaborador que retirou</label><input id="envColab"></div><div class="field"><label>Documento (opcional)</label><input id="envColabDoc"></div></div>`
       :`<div class="row c2"><div class="field"><label>Transportadora</label><input id="envTransp"></div><div class="field"><label>Data prevista de entrega</label><input id="envPrevisao" type="date"></div></div>`}
     <div class="field"><label>Observação</label><input id="envObs"></div>
     <button class="btn primary sm" onclick="registrarEnvio(${r.id})">Confirmar</button>`;
@@ -2313,10 +2314,10 @@ async function excluirCaixa(caixaId){
   if(error){toast('Erro: '+error.message,'err');return;} toast('Caixa excluída.','warn'); await abrirExpedicao(window._expedCtx.r.id); }
 async function concluirEmbalamento(reqId){
   const tipoEnvio=window._expedCtx&&window._expedCtx.r?window._expedCtx.r.tipo_envio:null;
-  const novoStatus=tipoEnvio==='interna'?'faturado':'embalado';
+  const novoStatus=ehBalcao(tipoEnvio)?'faturado':'embalado';
   const {error}=await sb.from('requisicoes').update({status:novoStatus}).eq('id',reqId);
   if(error){toast('Erro: '+error.message,'err');return;}
-  toast(tipoEnvio==='interna'?'Embalamento concluído — retirada no balcão, sem nota fiscal.':'Embalamento concluído.','ok');
+  toast(ehBalcao(tipoEnvio)?'Embalamento concluído — retirada no balcão, sem nota fiscal.':'Embalamento concluído.','ok');
   await abrirExpedicao(reqId); drawExpedicaoList(); refreshExpedBadge(); refreshRetiradasBadge(); }
 /* ===== Romaneio de remessa com mútuo (impressão) ===== */
 function abrirJanelaImpressao(){ const w=window.open('','_blank'); if(!w){toast('Permita pop-ups para imprimir o romaneio.','err');return null;} w.document.write('<p style="font-family:Arial;padding:30px">Gerando romaneio...</p>'); return w; }
@@ -2334,7 +2335,7 @@ async function imprimirRomaneioMutuo(reqId,win){ win=win||abrirJanelaImpressao()
     data:fmtDate(Date.now()),
     obra:oOrig+(r.mutuo_empresa_origem?' ('+r.mutuo_empresa_origem+')':''),
     obraDest:(r.obra_nome||'')+(r.mutuo_empresa_destino?' ('+r.mutuo_empresa_destino+')':''),
-    aplicacao:r.aplicacao_nome||'',doc:reqN+(r.ordem_servico?' · OS '+r.ordem_servico:'')+(r.tipo_envio?' · '+(r.tipo_envio==='despacho'?'Despacho':'Retirada interna'):''),
+    aplicacao:r.aplicacao_nome||'',doc:reqN+(r.ordem_servico?' · OS '+r.ordem_servico:'')+(r.tipo_envio?' · '+envioTipoLabel(r.tipo_envio).replace(/^\S+\s/,''):''),
     obs:[r.observacao,'Material fornecido em regime de mútuo: o valor total acima passa a ser devido pela empresa de destino à empresa de origem.'].filter(Boolean).join('\n'),
     itens,assinaturas:['Almoxarifado (empresa origem)','Transportador / Conferente','Recebedor (empresa destino)']});
 }
@@ -2404,7 +2405,10 @@ async function refreshRetiradasBadge(){ if(!podeVerRetiradas())return; const b=$
   const count=reqIds.size;
   if(count){b.textContent=count;b.style.display='';}else b.style.display='none'; refreshFluxoGroupBadge(); }
 function diasParado(ts){ return Math.max(0,Math.floor((Date.now()-ts)/86400000)); }
-function envioTipoLabel(tipo){ return tipo==='despacho'?'🚚 Despacho':tipo==='interna'?'🤝 Retirada no balcão':'❓ Envio não definido'; }
+/* Tipos de envio: despacho (transportadora) · interna (retirada no balcão) · aplicacao_direta (retirada no balcão — compra p/ aplicação direta).
+   interna e aplicacao_direta seguem o MESMO fluxo (sem romaneio de transporte, sem NF); a diferença é só a classificação. */
+function ehBalcao(t){ return t==='interna'||t==='aplicacao_direta'; }
+function envioTipoLabel(tipo){ return tipo==='despacho'?'🚚 Despacho':tipo==='interna'?'🤝 Retirada no balcão':tipo==='aplicacao_direta'?'🔧 Balcão — compra p/ aplicação direta':'❓ Envio não definido'; }
 async function renderRetiradaPendente(){
   if(!podeVerRetiradas()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito ao almoxarifado e encarregados/administradores.</div></div>'; return; }
   $('#view').innerHTML=`<div class="panel" style="margin-bottom:14px"><div class="field" style="max-width:280px;margin:0"><label>Filtrar por tipo de envio</label>
@@ -2412,6 +2416,7 @@ async function renderRetiradaPendente(){
       <option value="" ${_retiradasFiltro===''?'selected':''}>Todos</option>
       <option value="despacho" ${_retiradasFiltro==='despacho'?'selected':''}>🚚 Despacho</option>
       <option value="interna" ${_retiradasFiltro==='interna'?'selected':''}>🤝 Retirada no balcão</option>
+      <option value="aplicacao_direta" ${_retiradasFiltro==='aplicacao_direta'?'selected':''}>🔧 Balcão — compra p/ aplicação direta</option>
       <option value="_indef" ${_retiradasFiltro==='_indef'?'selected':''}>❓ Envio não definido</option>
     </select></div></div>
     <div id="retList"><div class="empty">Carregando...</div></div>`;
@@ -2431,7 +2436,7 @@ async function drawRetiradaPendente(){ const box=$('#retList'); if(!box)return;
   if(!lista.length){box.innerHTML='<div class="tbl-wrap"><div class="empty">Nenhum material separado aguardando retirada no momento.</div></div>';return;}
   box.innerHTML=lista.map(g=>{ const r=g.r; const dias=diasParado(new Date(g.maisAntigo).getTime());
     const corDias=dias>=7?'low':dias>=3?'high':'good';
-    const corEnvio=r.tipo_envio==='despacho'?'tr':r.tipo_envio==='interna'?'good':'high';
+    const corEnvio=r.tipo_envio==='despacho'?'tr':ehBalcao(r.tipo_envio)?'good':'high';
     return `<div class="panel" style="margin-bottom:14px;cursor:pointer" onclick="abrirExpedicao(${r.id})">
       <div class="sechead" style="margin-bottom:6px;flex-wrap:wrap;gap:8px"><h3 style="font-size:14px">REQ-${String(r.id).padStart(5,'0')} — ${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</h3>
         <span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>
@@ -2473,13 +2478,14 @@ function renderNotificacoes(){
       <div><h3 style="margin:0">🔔 Painel de Notificações</h3><p class="desc" style="margin:4px 0 0">Deixe esta tela aberta num monitor. Toca um alarme sempre que uma requisição nova entra em separação ou fica pronta para retirada — o que já está aguardando ao abrir a tela aparece listado, sem alarme; o som toca só para o que chegar depois.</p></div>
       <button class="btn" onclick="notifModoApresentacao()">🖥 Modo apresentação</button>
     </div>
-    <div class="notif-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <div class="notif-grid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
       <div><div class="sechead"><h3>🔧 Aguardando Separação</h3></div><div id="notifSep"><div class="empty">Carregando...</div></div></div>
       <div><div class="sechead"><h3>📦 Aguardando Retirada</h3></div><div id="notifRet"><div class="empty">Carregando...</div></div></div>
+      <div><div class="sechead"><h3>🔧 Retirada — Aplicação Direta</h3></div><div id="notifApd"><div class="empty">Carregando...</div></div></div>
     </div>
     <button class="notif-fab" id="notifSomFab" title="Ativar alarme sonoro" onclick="notifAtivarSom()">🔕</button>
     <button class="notif-fab notif-exit-fab" title="Sair da apresentação" onclick="notifSairApresentacao()">✕</button>
-    <style>@media(max-width:860px){.notif-grid{grid-template-columns:1fr!important}}
+    <style>@media(max-width:1100px){.notif-grid{grid-template-columns:1fr!important}}
       @keyframes notifPulse{0%{box-shadow:0 0 0 0 rgba(200,120,20,.55)}70%{box-shadow:0 0 0 16px rgba(200,120,20,0)}100%{box-shadow:0 0 0 0 rgba(200,120,20,0)}}
       .notif-new{animation:notifPulse 1.4s ease-out 3}
       .notif-fab{position:fixed;bottom:18px;right:18px;z-index:60;width:42px;height:42px;border-radius:50%;border:1px solid var(--line);background:#fff;opacity:.4;display:flex;align-items:center;justify-content:center;font-size:17px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.15);transition:opacity .15s,transform .15s;padding:0}
@@ -2495,11 +2501,11 @@ function renderNotificacoes(){
       body.apresentacao .notif-grid>div:first-child{border-right:2px solid #e4dfd4;padding-right:5vw}
       body.apresentacao .notif-grid .sechead{margin-bottom:18px}
       body.apresentacao .notif-grid .sechead h3{font-size:30px!important}
-      body.apresentacao #notifSep,body.apresentacao #notifRet{display:flex;flex-direction:column;gap:18px}
-      body.apresentacao #notifSep .panel,body.apresentacao #notifRet .panel{padding:24px 28px!important;margin-bottom:0!important}
-      body.apresentacao #notifSep .panel h3,body.apresentacao #notifRet .panel h3{font-size:22px!important}
-      body.apresentacao #notifSep .panel .muted,body.apresentacao #notifRet .panel .muted{font-size:16px!important}
-      body.apresentacao #notifSep .empty,body.apresentacao #notifRet .empty{font-size:24px;padding:70px 20px!important;color:#b9b2a2}
+      body.apresentacao #notifSep,body.apresentacao #notifRet,body.apresentacao #notifApd{display:flex;flex-direction:column;gap:18px}
+      body.apresentacao #notifSep .panel,body.apresentacao #notifRet .panel,body.apresentacao #notifApd .panel{padding:24px 28px!important;margin-bottom:0!important}
+      body.apresentacao #notifSep .panel h3,body.apresentacao #notifRet .panel h3,body.apresentacao #notifApd .panel h3{font-size:22px!important}
+      body.apresentacao #notifSep .panel .muted,body.apresentacao #notifRet .panel .muted,body.apresentacao #notifApd .panel .muted{font-size:16px!important}
+      body.apresentacao #notifSep .empty,body.apresentacao #notifRet .empty,body.apresentacao #notifApd .empty{font-size:24px;padding:70px 20px!important;color:#b9b2a2}
     </style>`;
   drawNotificacoes();
   stopNotifPolling(); _notifTimer=setInterval(drawNotificacoes,15000);
@@ -2520,7 +2526,7 @@ async function drawNotifSeparacao(){ const box=$('#notifSep'); if(!box)return;
     </div>`; }).join('');
 }
 async function drawNotifRetirada(){ const box=$('#notifRet'); if(!box)return;
-  const {data,error}=await sb.from('requisicao_itens_status').select('*, requisicoes(id,obra_nome,ordem_servico,status,tipo_envio,criado_em)').gt('quantidade_separada',0).order('atualizado_em',{ascending:true});
+  const {data,error}=await sb.from('requisicao_itens_status').select('*, requisicoes(id,obra_nome,ordem_servico,status,tipo_envio,criado_em,aplicacao_nome)').gt('quantidade_separada',0).order('atualizado_em',{ascending:true});
   if(error){ box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>'; return; }
   const itens=(data||[]).filter(i=>i.requisicoes&&STATUS_AINDA_NAO_SAIU.includes(i.requisicoes.status));
   const grupos={}; itens.forEach(i=>{ const r=i.requisicoes; if(!grupos[r.id])grupos[r.id]={r,itens:[]}; grupos[r.id].itens.push(i); });
@@ -2528,12 +2534,15 @@ async function drawNotifRetirada(){ const box=$('#notifRet'); if(!box)return;
   const novos=lista.filter(g=>!_notifRetKnown.has(g.r.id));
   lista.forEach(g=>_notifRetKnown.add(g.r.id));
   if(!_notifFirstLoad&&novos.length)notifAlarmRetirada();
-  if(!lista.length){ box.innerHTML='<div class="tbl-wrap"><div class="empty">Nada aguardando retirada.</div></div>'; return; }
-  box.innerHTML=lista.map(g=>{ const r=g.r; const isNew=novos.some(n=>n.r.id===r.id);
+  const cardRet=g=>{ const r=g.r; const isNew=novos.some(n=>n.r.id===r.id);
     return `<div class="panel ${isNew?'notif-new':''}" style="margin-bottom:10px;cursor:pointer" onclick="go('retiradas')">
       <div class="sechead" style="margin-bottom:2px;flex-wrap:wrap;gap:6px"><h3 style="font-size:14px">REQ-${String(r.id).padStart(5,'0')} — ${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</h3><span>${envioTipoLabel(r.tipo_envio)}</span></div>
       <div class="muted" style="font-size:12px">${g.itens.map(i=>esc(i.descricao)+' ('+numf(i.quantidade_separada)+' '+esc(i.unidade||'')+')').join(', ')}</div>
-    </div>`; }).join('');
+    </div>`; };
+  const normais=lista.filter(g=>g.r.tipo_envio!=='aplicacao_direta'), apd=lista.filter(g=>g.r.tipo_envio==='aplicacao_direta');
+  box.innerHTML=normais.length?normais.map(cardRet).join(''):'<div class="tbl-wrap"><div class="empty">Nada aguardando retirada.</div></div>';
+  const boxA=$('#notifApd');
+  if(boxA) boxA.innerHTML=apd.length?apd.map(g=>{ const html=cardRet(g); const ap=g.r.aplicacao_nome?`<div style="font-size:12px;font-weight:600;margin-top:3px">🎯 ${esc(g.r.aplicacao_nome)}</div>`:''; return html.replace(/<div class="muted"/,ap+'<div class="muted"'); }).join(''):'<div class="tbl-wrap"><div class="empty">Nada aguardando retirada.</div></div>';
 }
 
 
@@ -3091,7 +3100,7 @@ sb.auth.onAuthStateChange((event,s)=>{ session=s;
 
 /* ===== RELATÓRIOS ===== */
 let _rel=null, relTipo='aplicacao';
-const REL_VISAO={aplicacao:'Por aplicação',tipo:'Por tipo de aplicação',obra:'Por obra',produto:'Por produto',grupo:'Insumos por grupo',os:'Por Ordem de Serviço',consorcio:'P/ Consórcio (débito)'};
+const REL_VISAO={aretirar:'A retirar por aplicação (posição atual)',aplicacao:'Por aplicação',tipo:'Por tipo de aplicação',obra:'Por obra',produto:'Por produto',grupo:'Insumos por grupo',os:'Por Ordem de Serviço',consorcio:'P/ Consórcio (débito)'};
 function renderRelatorios(){ if(needObra())return;
   const d2=new Date(),d1=new Date(); d1.setDate(d1.getDate()-90);
   const grupos=[...new Set(state.products.map(p=>p.grupo&&p.grupo.trim()?p.grupo.trim():'(sem grupo)'))].sort((a,b)=>a==='(sem grupo)'?1:b==='(sem grupo)'?-1:a.localeCompare(b,'pt-BR'));
@@ -3128,19 +3137,73 @@ function renderRelatorios(){ if(needObra())return;
       <button id="rtGrupo" onclick="setRelTipo('grupo')">Insumos por grupo</button>
       <button id="rtOS" onclick="setRelTipo('os')">Por Ordem de Serviço</button>
       <button id="rtCons" onclick="setRelTipo('consorcio')">P/ Consórcio (débito)</button>
+      <button id="rtARet" onclick="setRelTipo('aretirar')">A retirar por aplicação</button>
     </div>
   </div>
   <div id="relView"></div>`;
   setRelTipo(relTipo);
   ['relFrom','relTo','relObra','relGrupo','relLocal','relTipoAplic','relAplicEsp','relProdutoTxt','relOSTxt','relABC'].forEach(id=>{const el=$('#'+id); if(el){el.onchange=drawRelatorio; if(el.tagName==='INPUT'&&el.type!=='date')el.oninput=drawRelatorio;}});
 }
-function setRelTipo(t){ relTipo=t; [['aplicacao','rtAplic'],['tipo','rtTipo'],['obra','rtObra'],['produto','rtProd'],['grupo','rtGrupo'],['os','rtOS'],['consorcio','rtCons']].forEach(([k,id])=>{const b=$('#'+id); if(b)b.classList.toggle('on',k===t);}); drawRelatorio(); }
+function setRelTipo(t){ relTipo=t; [['aplicacao','rtAplic'],['tipo','rtTipo'],['obra','rtObra'],['produto','rtProd'],['grupo','rtGrupo'],['os','rtOS'],['consorcio','rtCons'],['aretirar','rtARet']].forEach(([k,id])=>{const b=$('#'+id); if(b)b.classList.toggle('on',k===t);}); drawRelatorio(); }
 function relPeriod(){ const f=$('#relFrom')&&$('#relFrom').value?new Date($('#relFrom').value+'T00:00:00').getTime():0; const t=$('#relTo')&&$('#relTo').value?new Date($('#relTo').value+'T23:59:59').getTime():Date.now(); return [f,t]; }
 function produtoGrupo(code){ const p=findProduct(code); const g=p&&p.grupo&&p.grupo.trim()?p.grupo.trim():'(sem grupo)'; return g; }
 function movOS(m){ if(m.os)return m.os; const src=((m.doc||'')+' '+(m.obs||'')); const mt=src.match(/OS[\s:]*([^\s·]+)/i); return mt?mt[1]:''; }
 function produtoPassaFiltros(p,gf,lf,pf){ if(gf&&produtoGrupo(p.code)!==gf)return false; if(lf&&produtoLocal(p.code)!==lf)return false; if(pf&&!(p.desc.toLowerCase().includes(pf)||String(p.code).toLowerCase().includes(pf)||(p.aux&&String(p.aux).toLowerCase().includes(pf))))return false; return true; }
 function produtoLocal(code){ const p=findProduct(code); const l=p&&p.localizacao&&p.localizacao.trim()?p.localizacao.trim():'(sem localização)'; return l; }
+/* ===== Relatório: material separado aguardando retirada, por aplicação (posição atual, não usa o período) ===== */
+let _relARetEnvio='';
+async function drawRelARetirar(){ const box=$('#relView'); if(!box)return;
+  box.innerHTML='<div class="empty" style="padding:24px">Carregando...</div>';
+  const {data,error}=await sb.from('requisicao_itens_status').select('*, requisicoes(id,obra_id,obra_nome,mutuo_estoque_obra_id,ordem_servico,status,tipo_envio,criado_em,aplicacao_id,aplicacao_nome,solicitante_nome)').gt('quantidade_separada',0);
+  if(relTipo!=='aretirar')return;
+  if(error){ box.innerHTML='<div class="empty" style="padding:24px">Erro: '+esc(error.message)+'</div>'; return; }
+  const fobra=$('#relObra')?$('#relObra').value:'__all'; const isAll=fobra==='__all';
+  const taf=$('#relTipoAplic')?$('#relTipoAplic').value:'';
+  const aef=$('#relAplicEsp')?$('#relAplicEsp').value:'';
+  const atx=(!aef&&$('#relAplicTxt'))?$('#relAplicTxt').value.trim():''; const aset=atx?new Set(relAplicMatch(atx).map(a=>a.id)):null;
+  const gf=$('#relGrupo')?$('#relGrupo').value:'';
+  const pf=($('#relProdutoTxt')?$('#relProdutoTxt').value:'').toLowerCase().trim();
+  const osf=($('#relOSTxt')?$('#relOSTxt').value:'').toLowerCase().trim();
+  let itens=(data||[]).filter(i=>i.requisicoes&&STATUS_AINDA_NAO_SAIU.includes(i.requisicoes.status));
+  if(!isAll)itens=itens.filter(i=>i.requisicoes.obra_id===fobra||i.requisicoes.mutuo_estoque_obra_id===fobra);
+  if(_relARetEnvio==='_indef')itens=itens.filter(i=>!i.requisicoes.tipo_envio); else if(_relARetEnvio)itens=itens.filter(i=>i.requisicoes.tipo_envio===_relARetEnvio);
+  if(aef)itens=itens.filter(i=>i.requisicoes.aplicacao_id===aef); else if(aset)itens=itens.filter(i=>aset.has(i.requisicoes.aplicacao_id));
+  if(taf)itens=itens.filter(i=>{ const a=state.aplicacoes.find(x=>x.id===i.requisicoes.aplicacao_id); return a&&a.tipo===taf; });
+  if(gf)itens=itens.filter(i=>produtoGrupo(i.code)===gf);
+  if(pf)itens=itens.filter(i=>{ const p=findProduct(i.code); return String(i.descricao||'').toLowerCase().includes(pf)||String(i.code).toLowerCase().includes(pf)||(p&&p.aux&&String(p.aux).toLowerCase().includes(pf)); });
+  if(osf)itens=itens.filter(i=>String(i.requisicoes.ordem_servico||'').toLowerCase().includes(osf));
+  const g={};
+  itens.forEach(i=>{ const r=i.requisicoes; const k=r.aplicacao_id||('__'+(r.aplicacao_nome||'sem')); const p=findProduct(i.code); const vu=p?(p.custo||0):0; const q=Number(i.quantidade_separada)||0;
+    if(!g[k])g[k]={key:k,nome:r.aplicacao_nome||'(sem aplicação)',reqs:new Set(),itens:0,valor:0,det:[]};
+    g[k].reqs.add(r.id); g[k].itens++; g[k].valor+=q*vu;
+    g[k].det.push({req:'REQ-'+String(r.id).padStart(5,'0'),data:new Date(r.criado_em).getTime(),desc:i.descricao,qty:q,unit:i.unidade||(p?p.unit:''),valor:q*vu,os:r.ordem_servico||'',envio:envioTipoLabel(r.tipo_envio).replace(/^\S+\s/,''),obra:r.obra_nome}); });
+  const arr=Object.values(g).map(a=>{ const ap=state.aplicacoes.find(x=>x.id===a.key); return {...a,tag:ap&&ap.tag?ap.tag:'',tipo:ap?aplicTipoLabel(ap.tipo,ap.sub):'—',nreq:a.reqs.size,det:a.det.sort((x,y)=>x.data-y.data)}; }).sort((a,b)=>b.valor-a.valor);
+  const totItens=arr.reduce((s,a)=>s+a.itens,0), totValor=arr.reduce((s,a)=>s+a.valor,0), totReq=new Set(itens.map(i=>i.requisicoes.id)).size;
+  const titulo='Material a retirar por aplicação';
+  const envLbl={'':'',despacho:'Despacho',interna:'Retirada no balcão',aplicacao_direta:'Balcão — aplicação direta',_indef:'Envio não definido'}[_relARetEnvio];
+  const sub='Posição em '+fmtDate(Date.now())+(isAll?' · todas as obras':' · '+obraName(fobra))+(envLbl?' · '+envLbl:'')+(taf?' · tipo aplic.: '+aplicTipoLabel(taf):'')+(aef?' · aplicação: '+aplicName(aef):'')+(gf?' · grupo: '+gf:'');
+  _rel={titulo,sub,view:'aretirar',align:'llllrrr',headers:['Aplicação','Prefixo','Tipo','Requisições','Nº itens','Valor total'].slice(0,6),rows:arr.map(a=>[a.nome,a.tag||'—',a.tipo,String(a.nreq),String(a.itens),money(a.valor)]),foot:['Total','','',String(totReq),String(totItens),money(totValor)],
+    detailHeaders:['REQ','Desde','Item','Qtd','Valor','OS','Envio'],detailAlign:'lllrrll',detail:arr.map(a=>a.det.map(d=>[d.req,fmtDate(d.data),d.desc,numf(d.qty)+' '+(d.unit||''),money(d.valor),d.os||'—',d.envio]))};
+  _rel.align='lllrrr';
+  const th='style="font-size:10.5px"';
+  box.innerHTML=`<div class="sechead" style="flex-wrap:wrap;gap:8px"><h3>${esc(titulo)}</h3><span style="font-size:12px;color:#8a8377">${esc(sub)} · o período (De/Até) não se aplica</span>
+      <select style="width:auto;font-size:12.5px;padding:6px 8px" onchange="_relARetEnvio=this.value;drawRelARetirar()">
+        <option value="" ${!_relARetEnvio?'selected':''}>Todos os tipos de envio</option>
+        <option value="aplicacao_direta" ${_relARetEnvio==='aplicacao_direta'?'selected':''}>🔧 Balcão — aplicação direta</option>
+        <option value="interna" ${_relARetEnvio==='interna'?'selected':''}>🤝 Retirada no balcão</option>
+        <option value="despacho" ${_relARetEnvio==='despacho'?'selected':''}>🚚 Despacho</option>
+        <option value="_indef" ${_relARetEnvio==='_indef'?'selected':''}>❓ Envio não definido</option></select>
+      <button class="btn ghost sm" onclick="toggleAllRelAplic()">Expandir / recolher itens</button></div>
+    <div class="tbl-wrap"><table><thead><tr><th style="width:24px"></th><th>Aplicação</th><th>Prefixo</th><th>Tipo</th><th class="num">Requisições</th><th class="num">Nº itens</th><th class="num">Valor total</th></tr></thead><tbody>${
+      arr.length?arr.map((a,i)=>`<tr class="rel-ap-row" style="cursor:pointer" onclick="toggleRelAplicRow(${i})"><td class="num" id="relApChev${i}" style="color:#8a8377">▸</td><td>${esc(a.nome)}</td><td class="mono" style="font-size:12.5px">${esc(a.tag||'—')}</td><td>${esc(a.tipo)}</td><td class="num">${a.nreq}</td><td class="num">${a.itens}</td><td class="num">${money(a.valor)}</td></tr>
+        <tr id="relApDet${i}" style="display:none"><td></td><td colspan="6" style="padding:0 0 10px 0"><table style="width:100%;background:#faf8f3"><thead><tr><th ${th}>REQ</th><th ${th}>Desde</th><th ${th}>Item</th><th ${th} class="num">Qtd</th><th ${th} class="num">Valor</th><th ${th}>OS</th><th ${th}>Envio</th></tr></thead><tbody>${
+          a.det.map(d=>`<tr><td class="mono" style="font-size:12.5px">${d.req}</td><td style="font-size:12.5px">${fmtDate(d.data)}</td><td style="font-size:12.5px">${esc(d.desc)}</td><td class="num" style="font-size:12.5px">${numf(d.qty)} ${esc(d.unit||'')}</td><td class="num" style="font-size:12.5px">${money(d.valor)}</td><td style="font-size:12.5px">${esc(d.os||'—')}</td><td style="font-size:12.5px">${esc(d.envio)}</td></tr>`).join('')
+        }</tbody></table></td></tr>`).join(''):`<tr><td colspan="7" class="empty" style="padding:24px">Nada separado aguardando retirada.</td></tr>`
+    }</tbody>${arr.length?`<tfoot><tr><td></td><td><b>Total</b></td><td></td><td></td><td class="num"><b>${totReq}</b></td><td class="num"><b>${totItens}</b></td><td class="num"><b>${money(totValor)}</b></td></tr></tfoot>`:''}</table></div>
+    <p class="muted" style="font-size:11.5px;margin-top:8px">Considera itens já separados que ainda não saíram do almoxarifado. Valor = quantidade separada × custo cadastrado do produto.</p>`;
+}
 function drawRelatorio(){ const box=$('#relView'); if(!box)return;
+  if(relTipo==='aretirar'){ drawRelARetirar(); return; }
   const [f,t]=relPeriod();
   if(precisaHistorico(f)){ box.innerHTML='<div class="empty" style="padding:24px">Carregando histórico do período...</div>'; ensureMovsSince(f).then(ok=>{ if(ok&&activeTab==='relatorios')drawRelatorio(); }); return; } const emi=emiMap(); const fobra=$('#relObra')?$('#relObra').value:'__all'; const isAll=fobra==='__all';
   const gf=$('#relGrupo')?$('#relGrupo').value:'';
