@@ -543,7 +543,7 @@ function pickAplic(id){ const hid=$('#saidaAplic'); if(!hid)return; hid.value=id
   const vis=$('#saidaAplicSearch'); if(vis)vis.value=aplicName(id);
   const box=$('#saidaAplicResults'); if(box){box.innerHTML=''; box.style.display='none';}
   onAplicChange(); }
-function printSignReport(opt){ const w=window.open('','_blank'); if(!w){toast('Permita pop-ups para gerar o relatório.','err');return;}
+function printSignReport(opt){ const w=opt.win||window.open('','_blank'); if(!w){toast('Permita pop-ups para gerar o relatório.','err');return;} if(opt.win){ try{ w.document.open(); }catch(e){} }
   let total=0; const conf=!!opt.conferencia;
   const linhas=opt.itens.map((it,i)=>{const vu=it.valor||0;const vt=it.qty*vu;total+=vt;return `<tr><td>${i+1}</td><td class="mono">${esc(it.code||'')}</td><td class="mono">${esc(it.aux||'—')}</td><td>${esc(it.desc)}</td><td style="text-align:right">${numf(it.qty)} ${esc(it.unit||'')}</td><td style="text-align:right">${money(vu)}</td><td style="text-align:right">${money(vt)}</td>${conf?'<td class="chk"></td>':''}</tr>`;}).join('');
   const asn=(opt.assinaturas||[]).map(a=>`<div class="sig"><div class="line"></div><div>${esc(a)}</div></div>`).join('');
@@ -2089,9 +2089,9 @@ async function drawSeparacaoList(){ const box=$('#sepList'); if(!box)return;
           <div style="display:flex;gap:16px;margin:6px 0 12px">
             <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:500;margin:0"><input type="radio" name="tipoEnvioPre_${r.id}" value="despacho" checked style="width:auto"> Despacho (transportadora)</label>
             <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:500;margin:0"><input type="radio" name="tipoEnvioPre_${r.id}" value="interna" style="width:auto"> Tramitação interna (retirada)</label></div>
-          <button class="btn primary sm" onclick="definirTipoEnvio(${r.id})">Confirmar e emitir romaneio</button>`
+          <button class="btn primary sm" onclick="definirTipoEnvio(${r.id},${r.mutuo_empresa_destino?'true':'false'})">Confirmar e emitir romaneio</button>`
         :`<p class="mp" style="font-size:12px">${r.tipo_envio==='despacho'?'🚚 Despacho':'🤝 Tramitação interna'} — pronto para emitir o romaneio.</p>
-          <button class="btn primary sm" onclick="emitirRomaneio(${r.id})">Emitir romaneio</button>`}
+          <button class="btn primary sm" onclick="emitirRomaneio(${r.id},${r.mutuo_empresa_destino?'true':'false'})">Emitir romaneio${r.mutuo_empresa_destino?' 🖨':''}</button>`}
         </div>`;
     }
     return `<div class="panel" style="margin-bottom:14px">
@@ -2101,9 +2101,11 @@ async function drawSeparacaoList(){ const box=$('#sepList'); if(!box)return;
       }</tbody></table></div>`;
   }).join('');
 }
-function definirTipoEnvio(reqId){ const sel=document.querySelector('input[name=tipoEnvioPre_'+reqId+']:checked'); const tipo=sel?sel.value:'despacho';
+function definirTipoEnvio(reqId,ehMutuo){ const sel=document.querySelector('input[name=tipoEnvioPre_'+reqId+']:checked'); const tipo=sel?sel.value:'despacho';
   const payload=tipo==='interna'?{tipo_envio:tipo,status:'romaneio_emitido'}:{tipo_envio:tipo};
-  sb.from('requisicoes').update(payload).eq('id',reqId).then(({error})=>{ if(error){toast('Erro: '+error.message,'err');return;}
+  const win=(ehMutuo&&tipo==='interna')?abrirJanelaImpressao():null; /* na retirada interna o romaneio é emitido aqui mesmo */
+  sb.from('requisicoes').update(payload).eq('id',reqId).then(({error})=>{ if(error){ if(win)win.close(); toast('Erro: '+error.message,'err');return;}
+    if(win) imprimirRomaneioMutuo(reqId,win);
     toast(tipo==='interna'?'Retirada no balcão — indo direto pra embalagem (sem romaneio).':'Tipo de envio definido.','ok');
     drawSeparacaoList(); drawExpedicaoList(); refreshExpedBadge(); }); }
 async function separarItem(id){
@@ -2188,7 +2190,7 @@ function renderExpedModal(){
   const restante=itens.filter(i=>i.quantidade_separada-i.quantidade_embalada>0.0001);
   let html=`<h3>Expedição — REQ-${String(r.id).padStart(5,'0')}</h3>
     <p class="mp">${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}${r.aplicacao_nome?' · '+esc(r.aplicacao_nome):''}${r.tipo_envio?' · '+(r.tipo_envio==='despacho'?'🚚 Despacho':'🤝 Retirada no balcão'):''}</p>
-    ${expedStepperHTML(r,caixas)}`;
+    ${expedStepperHTML(r,caixas)}${r.mutuo_empresa_destino?`<div style="text-align:right;margin:6px 0 4px"><button class="btn ghost sm" onclick="imprimirRomaneioMutuo(${r.id})">🖨 Romaneio do mútuo</button></div>`:''}`;
 
   const backMap={romaneio_emitido:'separado',embalado:'romaneio_emitido',faturado:'embalado',embarcado:'faturado',retirado:'faturado'};
   if(backMap[r.status]) html+=`<div style="margin-top:8px"><button class="btn ghost sm" onclick="voltarEtapa(${r.id})">◀ Voltar etapa</button></div>`;
@@ -2302,8 +2304,30 @@ async function concluirEmbalamento(reqId){
   if(error){toast('Erro: '+error.message,'err');return;}
   toast(tipoEnvio==='interna'?'Embalamento concluído — retirada no balcão, sem nota fiscal.':'Embalamento concluído.','ok');
   await abrirExpedicao(reqId); drawExpedicaoList(); refreshExpedBadge(); refreshRetiradasBadge(); }
-async function emitirRomaneio(reqId){ const {error}=await sb.from('requisicoes').update({status:'romaneio_emitido'}).eq('id',reqId);
-  if(error){toast('Erro: '+error.message,'err');return;} toast('Romaneio emitido — pronto para embalar.','ok');
+/* ===== Romaneio de remessa com mútuo (impressão) ===== */
+function abrirJanelaImpressao(){ const w=window.open('','_blank'); if(!w){toast('Permita pop-ups para imprimir o romaneio.','err');return null;} w.document.write('<p style="font-family:Arial;padding:30px">Gerando romaneio...</p>'); return w; }
+async function imprimirRomaneioMutuo(reqId,win){ win=win||abrirJanelaImpressao(); if(!win)return;
+  const {data:r,error:e1}=await sb.from('requisicoes').select('*').eq('id',reqId).maybeSingle();
+  if(e1||!r){win.close();toast('Erro ao carregar a requisição.','err');return;}
+  const {data:its}=await sb.from('requisicao_itens_status').select('*').eq('requisicao_id',reqId);
+  const itens=(its||[]).filter(i=>Number(i.quantidade_separada)>0).map(i=>{ const p=findProduct(i.code);
+    return {code:i.code,aux:p?p.aux:'',desc:i.descricao,qty:Number(i.quantidade_separada),unit:i.unidade||(p?p.unit:''),valor:p?(p.custo||0):0}; });
+  if(!itens.length){win.close();toast('Nenhum item separado nesta requisição.','err');return;}
+  const reqN='REQ-'+String(r.id).padStart(5,'0');
+  const oOrig=r.mutuo_estoque_obra_id?obraName(r.mutuo_estoque_obra_id):'';
+  printSignReport({win,titulo:'Romaneio de Remessa — Mútuo entre Empresas',numero:reqN,conferencia:true,recebimento:true,
+    subtitulo:(r.mutuo_empresa_origem||'')+' → '+(r.mutuo_empresa_destino||''),
+    data:fmtDate(Date.now()),
+    obra:oOrig+(r.mutuo_empresa_origem?' ('+r.mutuo_empresa_origem+')':''),
+    obraDest:(r.obra_nome||'')+(r.mutuo_empresa_destino?' ('+r.mutuo_empresa_destino+')':''),
+    aplicacao:r.aplicacao_nome||'',doc:reqN+(r.ordem_servico?' · OS '+r.ordem_servico:'')+(r.tipo_envio?' · '+(r.tipo_envio==='despacho'?'Despacho':'Retirada interna'):''),
+    obs:[r.observacao,'Material fornecido em regime de mútuo: o valor total acima passa a ser devido pela empresa de destino à empresa de origem.'].filter(Boolean).join('\n'),
+    itens,assinaturas:['Almoxarifado (empresa origem)','Transportador / Conferente','Recebedor (empresa destino)']});
+}
+async function emitirRomaneio(reqId,ehMutuo){ const win=ehMutuo?abrirJanelaImpressao():null;
+  const {error}=await sb.from('requisicoes').update({status:'romaneio_emitido'}).eq('id',reqId);
+  if(error){ if(win)win.close(); toast('Erro: '+error.message,'err');return;} toast('Romaneio emitido — pronto para embalar.','ok');
+  if(win) imprimirRomaneioMutuo(reqId,win);
   drawSeparacaoList(); drawExpedicaoList(); refreshSeparacaoBadge(); refreshExpedBadge(); refreshRetiradasBadge(); }
 async function emitirNF(reqId){ const numero=$('#nfNumero').value.trim(); const chave=$('#nfChave').value.trim(); const valor=parseFloat($('#nfValor').value)||null; const data=$('#nfData').value||new Date().toISOString().slice(0,10);
   if(!numero){toast('Informe o número da NF.','err');return;}
