@@ -1555,14 +1555,13 @@ function setBaixaMode(m){ baixaMode=m; if($('#bmScan'))$('#bmScan').classList.to
     <div class="search" style="max-width:none"><span class="si">⌕</span><input id="saidaAplicSearch" placeholder="Digite qualquer informação e pesquise..." autocomplete="off" oninput="onAplicInput(this.value)" onfocus="drawAplicResults(this.value)"></div>
     <div id="saidaAplicResults" style="display:none"></div>`:`<input disabled placeholder="cadastre em Aplicações">`}</div><div class="field" id="osFieldWrap" style="margin:0;display:none"><label>Ordem de Serviço <span style="color:#c0392b">(obrigatório)</span></label><input id="saidaOS" placeholder="Nº da OS"></div>`;
   const outrosEstoques=obrasOutrasEmpresas(oObra);
-  const _estCentrais=outrosEstoques.filter(x=>x.ehEstoque), _outrasObras=outrosEstoques.filter(x=>!x.ehEstoque);
   const _optMut=x=>`<option value="${x.id}">${esc(x.nome)} (${esc(x.empresa)})</option>`;
   const mutuoSelectHtml=outrosEstoques.length
-    ?`<select id="saidaMutuoObra" onchange="onSaidaMutuoChange()"><option value="">— selecione a obra/estoque que vai fornecer —</option>${_estCentrais.length?`<optgroup label="Estoques centrais">${_estCentrais.map(_optMut).join('')}</optgroup>`:''}${_outrasObras.length?`<optgroup label="Outras obras">${_outrasObras.map(_optMut).join('')}</optgroup>`:''}</select>`
+    ?`<select id="saidaMutuoObra" onchange="onSaidaMutuoChange()"><option value="">— selecione a obra de destino —</option>${outrosEstoques.slice().sort((a,b)=>String(a.nome).localeCompare(String(b.nome),'pt-BR')).map(_optMut).join('')}</select><div class="muted" id="saidaMutuoResumo" style="font-size:11.5px;margin-top:6px"></div>`
     :`<select id="saidaMutuoObra" disabled><option value="">— nenhuma obra de outra empresa cadastrada —</option></select><div class="muted" style="font-size:11.5px;margin-top:6px">Para aparecer aqui, a obra precisa estar vinculada a uma <b>empresa diferente</b> de ${esc(oObra&&oObra.empresa||'')}. Confira o campo Empresa no cadastro de <a href="javascript:void(0)" onclick="go('obras')">Obras</a>.</div>`;
   const mutuoRow=(oObra&&oObra.empresa)?`<div class="panel" style="padding:12px 18px;margin-bottom:12px;border-color:#d8c8a0;background:#fff9ee">
-    <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-weight:500;font-size:13px;margin:0;color:#1c1c1c"><input type="checkbox" id="saidaMutuo" style="width:auto" onchange="toggleSaidaMutuo()"> O material será fornecido pelo estoque de outra empresa (registra o mútuo automaticamente na separação)</label>
-    <div id="saidaMutuoFields" style="display:none;margin-top:10px"><div class="field" style="margin:0"><label>Estoque de qual empresa vai atender?</label>${mutuoSelectHtml}</div></div></div>`:'';
+    <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-weight:500;font-size:13px;margin:0;color:#1c1c1c"><input type="checkbox" id="saidaMutuo" style="width:auto" onchange="toggleSaidaMutuo()"> O material vai para uma obra de outra empresa (registra o mútuo automaticamente na separação)</label>
+    <div id="saidaMutuoFields" style="display:none;margin-top:10px"><div class="field" style="margin:0"><label>Para qual obra (de outra empresa) o material vai?</label>${mutuoSelectHtml}</div></div></div>`:'';
   if(m==='scanner'){
     pane.innerHTML=`
       ${state.aplicacoes.length?`<div class="panel" style="padding:14px 18px;margin-bottom:12px"><div class="row c3">${aplicOsRow}<div class="field" style="margin:0"><label>Observação (opcional)</label><textarea id="saidaObs" rows="2" placeholder="Ex.: manutenção... (Enter = nova linha)"></textarea></div></div></div>`:`<div class="panel" style="padding:14px 18px;margin-bottom:12px;border-color:#f0c060;background:#fff7e8"><b style="color:#8a5a00">⚠ Cadastre uma aplicação primeiro</b><p class="desc" style="margin:6px 0 8px">O consumo exige informar o equipamento/veículo de destino.</p><button class="btn dark sm" onclick="go('aplic')">Cadastrar aplicação</button></div>`}
@@ -1641,9 +1640,12 @@ function addSaida(code){ const o=curObra()==='__all'?state.obras[0].id:curObra()
 function rmSaida(code){ saidaCart=saidaCart.filter(i=>i.code!==code); const o=curObra()==='__all'?state.obras[0].id:curObra(); drawSaidaCart(o); }
 function setSaidaQty(code,v){ const it=saidaCart.find(i=>i.code===code); if(it)it.qty=parseFloat(v)||0; const p=findProduct(code); const cell=$('#sv_'+CSS.escape(code)); if(cell&&p)cell.textContent=money((it?it.qty:0)*((p.custo)||0)); updateSaidaTotal(); }
 /* Obra de onde o saldo vai sair: a do mútuo (se marcado e selecionado) ou a obra atual */
-function obraFonteSaida(o){ const chk=$('#saidaMutuo'), sel=$('#saidaMutuoObra'); return (chk&&chk.checked&&sel&&sel.value)?sel.value:o; }
-function onSaidaMutuoChange(){ const o=curObra()==='__all'?state.obras[0].id:curObra(); drawSaidaCart(o); }
-function drawSaidaCart(o){ const b=$('#saidaCartBody'); if(!b)return; const oSrc=obraFonteSaida(o);
+/* No mútuo o saldo SEMPRE sai da obra atual (quem envia); o select escolhe a obra de destino (quem recebe/deve) */
+function onSaidaMutuoChange(){ const o=curObra()==='__all'?state.obras[0].id:curObra(); const box=$('#saidaMutuoResumo'); const sel=$('#saidaMutuoObra'); const chk=$('#saidaMutuo');
+  if(box){ const d=(chk&&chk.checked&&sel&&sel.value)?state.obras.find(x=>x.id===sel.value):null; const org=state.obras.find(x=>x.id===o);
+    box.innerHTML=d?`Sai do estoque de <b>${esc(obraName(o))}</b> (${esc(org&&org.empresa||'')}) → vai para <b>${esc(d.nome)}</b> (${esc(d.empresa)}). A empresa de destino passa a dever o valor à de origem.`:''; }
+  drawSaidaCart(o); }
+function drawSaidaCart(o){ const b=$('#saidaCartBody'); if(!b)return; const oSrc=o;
   if(!saidaCart.length){ b.innerHTML=`<tr><td colspan="5" class="empty" style="padding:20px">Nenhum item. Pesquise acima e adicione.</td></tr>`; updateSaidaTotal(); return; }
   b.innerHTML=saidaCart.map(i=>{const p=findProduct(i.code);const s=saldoOf(oSrc,i.code);const tot=(i.qty||0)*((p.custo)||0);return `<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''}</span></td><td class="num ${s<(i.qty||0)?'neg':''}">${numf(s)} ${esc(p.unit||'')}${oSrc!==o?`<div class="muted" style="font-size:10.5px;font-family:inherit">em ${esc(obraName(oSrc))}</div>`:''}</td><td class="num"><input class="inline-edit" type="number" step="any" min="0" value="${i.qty}" oninput="setSaidaQty('${esc(i.code)}',this.value)"></td><td class="num" id="sv_${esc(i.code)}">${money(tot)}</td><td class="num"><button class="btn danger sm" onclick="rmSaida('${esc(i.code)}')">✕</button></td></tr>`;}).join(''); updateSaidaTotal(); }
 function confirmSaida(){ const o=curObra()==='__all'?state.obras[0].id:curObra(); if(!saidaCart.length){toast('Adicione itens à solicitação.','err');return;}
@@ -1654,12 +1656,12 @@ function confirmSaida(){ const o=curObra()==='__all'?state.obras[0].id:curObra()
   const resp=($('#saidaResp')?$('#saidaResp').value.trim():''); const obs=($('#saidaObs')?$('#saidaObs').value.trim():'');
   const mutuoChk=$('#saidaMutuo'); let mutuoFields={};
   if(mutuoChk&&mutuoChk.checked){
-    const estObraId=$('#saidaMutuoObra')?$('#saidaMutuoObra').value:'';
-    if(!estObraId){toast('Selecione o estoque de qual empresa vai atender.','err');return;}
-    const cc=state.obras.find(x=>x.id===o), oEst=state.obras.find(x=>x.id===estObraId);
-    if(!oEst||!oEst.empresa){toast('A obra selecionada não tem empresa vinculada.','err');return;}
-    if(mesmaEmpresa(oEst,cc)){toast('A obra que vai fornecer é da mesma empresa — nesse caso não há mútuo.','err');return;}
-    mutuoFields={mutuo_empresa_origem:oEst.empresa,mutuo_empresa_destino:cc.empresa,mutuo_estoque_obra_id:estObraId};
+    const destObraId=$('#saidaMutuoObra')?$('#saidaMutuoObra').value:'';
+    if(!destObraId){toast('Selecione para qual obra o material vai.','err');return;}
+    const oOrig=state.obras.find(x=>x.id===o), oDest=state.obras.find(x=>x.id===destObraId);
+    if(!oDest||!oDest.empresa){toast('A obra de destino não tem empresa vinculada.','err');return;}
+    if(mesmaEmpresa(oDest,oOrig)){toast('A obra de destino é da mesma empresa — nesse caso não há mútuo.','err');return;}
+    mutuoFields={obra_id:destObraId,obra_nome:obraName(destObraId),mutuo_empresa_origem:oOrig.empresa,mutuo_empresa_destino:oDest.empresa,mutuo_estoque_obra_id:o};
   }
 
   const payload={obra_id:o,obra_nome:obraName(o),solicitante_id:session.user.id,solicitante_nome:profile.nome||profile.email,
