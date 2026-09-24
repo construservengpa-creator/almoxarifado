@@ -378,7 +378,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-09-24T21:00:00-03:00';
+const APP_VERSION='2026-09-24T22:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -2885,8 +2885,13 @@ function showConsultaCode(c){ const p=findProduct(c); if(p)showConsulta(p); }
 async function showConsulta(p){ const o=curObra(); const all=o==='__all'||!o;
   const movsAll=await movsDoProduto(p.code);
   const movs=all?movsAll:movsAll.filter(m=>m.obra===o||(m.tipo==='transferencia'&&m.obraDest===o));
-  const totIn=movs.filter(m=>m.tipo==='entrada').reduce((s,m)=>s+m.qty,0), totOut=movs.filter(m=>m.tipo==='baixa').reduce((s,m)=>s+m.qty,0);
-  const valIn=movs.filter(m=>m.tipo==='entrada').reduce((s,m)=>s+m.valorTotal,0), valOut=movs.filter(m=>m.tipo==='baixa').reduce((s,m)=>s+m.valorTotal,0);
+  /* efeito de cada movimento no saldo (da obra filtrada, ou do total quando "todas") — ajustes e devoluções também contam */
+  const efeito=m=>{ const q=Number(m.qty)||0;
+    if(m.tipo==='entrada')return q; if(m.tipo==='ajuste')return q; if(m.tipo==='baixa'||m.tipo==='devolucao')return -q;
+    if(m.tipo==='transferencia'){ if(all)return 0; return (m.obraDest===o?q:0)-(m.obra===o?q:0); } return 0; };
+  const valMov=m=>{ const q=Number(m.qty)||0; return Math.abs(m.valorTotal||(q*(m.valorUnit||0))); };
+  let totIn=0,totOut=0,valIn=0,valOut=0;
+  movs.forEach(m=>{ const e=efeito(m); if(e>0){totIn+=e;valIn+=valMov(m);} else if(e<0){totOut+=-e;valOut+=valMov(m);} });
   const tot=all?totalSaldo(p.code):saldoOf(o,p.code);
   const box=$('#consResult');
   let obrasRows=(all?state.obras:state.obras.filter(ob=>ob.id===o)).map(ob=>{const s=saldoOf(ob.id,p.code);const st=statusOf(p,s);return s>0?`<tr><td>${esc(ob.nome)}</td><td class="num"><b class="${st==='low'?'neg':''}">${numf(s)}</b> ${esc(p.unit||'')}</td><td class="num">${money(s*(p.custo||0))}</td><td>${st==='low'?'<span class="pill low">Abaixo do mín</span>':st==='high'?'<span class="pill high">Acima do máx</span>':'<span class="pill good">Normal</span>'}</td></tr>`:'';}).join('');
@@ -2906,10 +2911,10 @@ async function showConsulta(p){ const o=curObra(); const all=o==='__all'||!o;
     <div class="tbl-wrap" style="margin-bottom:22px"><table><thead><tr><th>Obra</th><th class="num">Saldo</th><th class="num">Valor</th><th>Situação</th></tr></thead><tbody>${obrasRows||`<tr><td colspan="4" class="empty" style="padding:20px">Sem saldo.</td></tr>`}</tbody></table></div>
     <div class="sechead"><h3>Histórico de movimentações${all?'':' · '+esc(obraName(o))}</h3></div>
     <div class="tbl-wrap"><table><thead><tr><th>Data</th><th>Tipo</th><th>Obra</th><th>Documento</th><th class="num">Qtd</th><th class="num">Valor un.</th><th class="num">Total</th></tr></thead><tbody>`+
-    (movs.length?movs.map(m=>{ const tp=m.tipo==='entrada'?'<span class="pill in">Entrada</span>':m.tipo==='baixa'?'<span class="pill out">Baixa</span>':'<span class="pill tr">Transf.</span>';
+    (movs.length?movs.map(m=>{ const tp=m.tipo==='entrada'?'<span class="pill in">Entrada</span>':m.tipo==='baixa'?'<span class="pill out">Baixa</span>':m.tipo==='ajuste'?'<span class="pill high">Ajuste</span>':m.tipo==='devolucao'?'<span class="pill out">Devolução</span>':'<span class="pill tr">Transf.</span>';
       const obraCell=m.tipo==='transferencia'?`${esc(obraName(m.obra))} → ${esc(obraName(m.obraDest))}`:esc(obraName(m.obra));
-      const sign=m.tipo==='entrada'?'+':m.tipo==='baixa'?'−':'⇄'; const cls=m.tipo==='entrada'?'pos':m.tipo==='baixa'?'neg':'';
-      return `<tr><td class="muted" style="font-size:12px">${fmtDate(m.ts)}</td><td>${tp}</td><td style="font-size:12.5px">${obraCell}</td><td style="font-size:12.5px">${esc(m.doc||'')}${m.aplic?' · '+esc(aplicName(m.aplic)):''}</td><td class="num ${cls}">${sign}${numf(m.qty)}</td><td class="num">${money(m.valorUnit)}</td><td class="num">${money(m.valorTotal)}</td></tr>`;}).join('')
+      const e=efeito(m); const qtdTxt=(m.tipo==='transferencia'&&all)?'⇄'+numf(m.qty):(e>0?'+':e<0?'−':'')+numf(Math.abs(e||m.qty)); const cls=e>0?'pos':e<0?'neg':'';
+      return `<tr><td class="muted" style="font-size:12px">${fmtDate(m.ts)}</td><td>${tp}</td><td style="font-size:12.5px">${obraCell}</td><td style="font-size:12.5px">${esc(m.doc||'')}${m.aplic?' · '+esc(aplicName(m.aplic)):''}</td><td class="num ${cls}">${qtdTxt}</td><td class="num">${money(m.valorUnit)}</td><td class="num">${money(m.valorTotal)}</td></tr>`;}).join('')
       :`<tr><td colspan="7" class="empty" style="padding:24px">Sem movimentações.</td></tr>`)+`</tbody></table></div>`;
   withBarcode(()=>{try{JsBarcode('#consBc',String(p.code),{format:'CODE128',width:1.6,height:46,fontSize:13,margin:4});}catch(e){}});
 }
