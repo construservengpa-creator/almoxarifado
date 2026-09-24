@@ -420,12 +420,12 @@ async function load(){ const d=await Store.get(KEY);
   normalizeState();
   state.movements.forEach(m=>{ if(!m.id)m.id=uid(); });
   if(d!==undefined){ await loadMovimentosEDaldos(); } /* fonte de verdade agora são as tabelas, não o JSON — só pula isso se estiver offline usando o cache local */
-  if(!state.currentObra || !state.obras.some(o=>o.id===state.currentObra)) state.currentObra=state.obras[0]?state.obras[0].id:null;
+  restaurarObraLocal(state.currentObra);
   cacheState();
 }
 async function loadPhotos(){ const d=await Store.get(KEY+':fotos'); if(d&&typeof d==='object'){ photos=d; Object.keys(photos).forEach(k=>{ if(typeof photos[k]==='string')photos[k]=[photos[k]]; if(!Array.isArray(photos[k]))delete photos[k]; }); } }
 async function savePhotos(){ await Store.set(KEY+':fotos', photos, 'Fotos atualizadas'); }
-async function save(label){ const {movements,estoque,...toPersist}=state; await Store.set(KEY, toPersist, label); cacheState(); refreshBadge(); }
+async function save(label){ const {movements,estoque,currentObra,...toPersist}=state; /* currentObra é escolha de cada usuário — não vai pro documento compartilhado */ await Store.set(KEY, toPersist, label); cacheState(); refreshBadge(); }
 
 /* ===== Modo offline: cache local + fila de sincronização ===== */
 let isOnline=navigator.onLine;
@@ -464,11 +464,11 @@ function queueRefresh(...fns){ fns.forEach(f=>_pendRefresh.add(f)); clearTimeout
 function subscribeRealtime(){
   sb.channel('app_kv_sync').on('postgres_changes',{event:'UPDATE',schema:'public',table:'app_kv',filter:'key=eq.'+KEY},payload=>{
     if(!payload.new||!payload.new.value)return;
-    const prevMovements=state.movements, prevEstoque=state.estoque; /* movements/estoque não vêm mais dentro deste documento — preserva o que já está em memória em vez de zerar */
+    const prevMovements=state.movements, prevEstoque=state.estoque, prevObra=state.currentObra; /* movements/estoque não vêm mais dentro deste documento — preserva o que já está em memória em vez de zerar */
     state=payload.new.value;
     state.movements=prevMovements||[]; state.estoque=prevEstoque||{};
     normalizeState();
-    if(!state.currentObra||!state.obras.some(o=>o.id===state.currentObra))state.currentObra=state.obras[0]?state.obras[0].id:null;
+    restaurarObraLocal(prevObra); /* atualização de outro usuário não troca a obra selecionada aqui */
     refreshBadge(); refreshAprovBadge(); refreshGlobalAlerts();
     if(SAFE_REFRESH_TABS.includes(activeTab))go(activeTab);
   }).subscribe();
@@ -655,7 +655,11 @@ function obraOptions(sel,all){ let h=all?`<option value="__all">Todas as obras (
   state.obras.forEach(o=>h+=`<option value="${o.id}"${o.id===sel?' selected':''}>${esc(o.nome)}</option>`); return h; }
 function obraSelectorHTML(all,label){ if(!state.obras.length)return''; 
   return `<div class="obrasel"><label>${label||'Obra'}</label><select onchange="setObra(this.value)">${obraOptions(curObra(),all)}</select></div>`; }
-function setObra(id){ state.currentObra=(id==='__all')?'__all':id; save(); go(activeTab); }
+const OBRA_LOCAL_KEY='estoque_obra_atual_v1';
+function obraLocal(){ try{ return localStorage.getItem(OBRA_LOCAL_KEY); }catch(e){ return null; } }
+function obraValida(id){ return id==='__all'||state.obras.some(o=>o.id===id); }
+function restaurarObraLocal(fallback){ const l=obraLocal(); state.currentObra=(l&&obraValida(l))?l:((fallback&&obraValida(fallback))?fallback:(state.obras[0]?state.obras[0].id:null)); }
+function setObra(id){ state.currentObra=(id==='__all')?'__all':id; try{ localStorage.setItem(OBRA_LOCAL_KEY,state.currentObra); }catch(e){} cacheState(); go(activeTab); }
 
 /* ===== Fotos ===== */
 function resizeImage(file,max,cb){ const r=new FileReader(); r.onload=e=>{ const img=new Image();
@@ -1597,7 +1601,7 @@ function setBaixaMode(m){ baixaMode=m; if($('#bmScan'))$('#bmScan').classList.to
 }
 function toggleSaidaMutuo(){ const chk=$('#saidaMutuo'); const box=$('#saidaMutuoFields'); if(box)box.style.display=chk&&chk.checked?'':'none'; onSaidaMutuoChange(); }
 function updateSaidaTotal(){ const el=$('#saidaTotal'); if(!el)return; let t=0; saidaCart.forEach(i=>{const p=findProduct(i.code); t+=(i.qty||0)*((p&&p.custo)||0);}); el.textContent=money(t); }
-function drawBaixaHist(){ const list=state.movements.filter(m=>m.tipo==='baixa').slice(0,40);
+function drawBaixaHist(){ const _o=curObra(); const list=state.movements.filter(m=>m.tipo==='baixa'&&(_o==='__all'||m.obra===_o)).slice(0,40);
   $('#baixaHist').innerHTML=list.length?list.map(m=>`<tr><td class="muted" style="font-size:12px">${fmtDate(m.ts)}</td><td class="mono">${m.seq?seqf(m.seq):'—'}</td><td>${esc(obraName(m.obra))}</td><td>${esc(m.desc)}${m.aplic?`<br><span class="muted" style="font-size:11px">→ ${esc(aplicName(m.aplic))}</span>`:''}${m.os?`<br><span class="muted" style="font-size:11px">OS ${esc(m.os)}</span>`:''}${m.obs?`<br><span class="muted" style="font-size:11px">obs: ${esc(m.obs)}</span>`:''}</td><td class="num neg">−${numf(m.qty)}</td><td class="num">${money(m.valorTotal)}</td><td class="num"><button class="btn ghost sm" title="Comprovante (agrupado)" onclick="reportBaixaGroup('${m.baixaId||m.id}')">🖨</button> ${reqIdFromDoc(m.doc)?`<button class="btn ghost sm" title="Ver requisição" onclick="abrirRequisicao(${reqIdFromDoc(m.doc)})">👁</button>`:''}</td></tr>`).join(''):`<tr><td colspan="7" class="empty" style="padding:24px">Nenhuma baixa.</td></tr>`; }
 function reportBaixaGroup(gid){ const ms=state.movements.filter(m=>m.tipo==='baixa'&&(m.baixaId||m.id)===gid); if(!ms.length)return; const m0=ms[0];
   const itens=ms.map(m=>{const p=findProduct(m.code); return {code:m.code,aux:p?p.aux:'',desc:m.desc,qty:m.qty,unit:p?p.unit:'',valor:m.valorUnit};});
@@ -2566,7 +2570,7 @@ function updateTrTotal(){ const el=$('#trTotal'); if(!el)return; let t=0; trCart
 function drawTrCart(){ const b=$('#trCartBody'); if(!b)return; const orig=trOrigId();
   if(!trCart.length){ b.innerHTML=`<tr><td colspan="5" class="empty" style="padding:20px">Nenhum item. Pesquise acima e adicione.</td></tr>`; updateTrTotal(); return; }
   b.innerHTML=trCart.map(i=>{const p=findProduct(i.code);const s=saldoOf(orig,i.code);const tot=(i.qty||0)*((p.custo)||0);return `<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''}</span></td><td class="num ${i.qty>s?'neg':''}">${numf(s)} ${esc(p.unit||'')}</td><td class="num"><input class="inline-edit" type="number" step="any" min="0" value="${i.qty}" oninput="setTrQty('${esc(i.code)}',this.value)"></td><td class="num" id="tv_${esc(i.code)}">${money(tot)}</td><td class="num"><button class="btn danger sm" onclick="rmTr('${esc(i.code)}')">✕</button></td></tr>`;}).join(''); updateTrTotal(); }
-function drawTrHist(){ const list=state.movements.filter(m=>m.tipo==='transferencia').slice(0,40);
+function drawTrHist(){ const _o=curObra(); const list=state.movements.filter(m=>m.tipo==='transferencia'&&(_o==='__all'||m.obra===_o||m.obraDest===_o)).slice(0,40);
   $('#trHist').innerHTML=list.length?list.map(m=>`<tr><td class="muted" style="font-size:12px">${fmtDate(m.ts)}</td><td class="mono">${m.seq?seqf(m.seq):'—'}</td><td style="font-size:12.5px">${esc(obraName(m.obra))} → ${esc(obraName(m.obraDest))}</td><td>${esc(m.desc)}${m.obs?`<br><span class="muted" style="font-size:11px">obs: ${esc(m.obs)}</span>`:''}</td><td class="num"><span class="pill tr">${numf(m.qty)}</span></td><td class="num">${money(m.valorTotal)}</td><td class="num"><button class="btn ghost sm" title="Romaneio (agrupado)" onclick="reportRomaneio('${m.romaneioId||m.id}')">🖨</button> <button class="btn danger sm" title="Excluir e estornar (supervisor)" onclick="delTrMov('${m.id}')">🗑</button></td></tr>`).join(''):`<tr><td colspan="7" class="empty" style="padding:24px">Nenhuma transferência.</td></tr>`; }
 function delTrMov(id){ const m=state.movements.find(x=>x.id===id&&x.tipo==='transferencia'); if(!m)return; requireSupervisor('Excluir transferência Nº '+seqf(m.seq),()=>{ addSaldo(m.obra,m.code,m.qty); addSaldo(m.obraDest,m.code,-m.qty); state.movements=state.movements.filter(x=>x.id!==id); sb.from('movimentos_estoque').delete().eq('id',id).then(({error})=>{ if(error)toast('Erro ao excluir movimentação no banco: '+error.message,'err'); }); save('Transferência Nº '+seqf(m.seq)+' excluída e estornada'); drawTrHist(); toast('Transferência excluída e estornada.','warn'); }); }
 async function confirmTransfer(){ const orig=$('#trOrig').value, dest=$('#trDest').value;
