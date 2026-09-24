@@ -378,11 +378,11 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-09-22T20:45:00-03:00';
+const APP_VERSION='2026-09-24T17:30:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
-  _versionCheckTimer=setInterval(checkAppVersion,5*60*1000);
+  _versionCheckTimer=setInterval(checkAppVersion,2*60*1000);
   document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible')checkAppVersion(); });
   window.addEventListener('focus',checkAppVersion);
   setTimeout(checkAppVersion,20000);
@@ -401,8 +401,10 @@ function showVersionBanner(){
   if(_versionBannerShown)return; _versionBannerShown=true;
   const b=document.createElement('div');
   b.id='versionBanner';
-  b.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#1a2129;color:#fff;padding:13px 18px;display:flex;align-items:center;justify-content:center;gap:14px;font-size:13.5px;flex-wrap:wrap;box-shadow:0 -4px 20px rgba(0,0,0,.3)';
-  b.innerHTML='🔄 Existe uma versão mais nova deste sistema publicada — esta aba está desatualizada. <button id="versionReloadBtn" style="background:#f5a623;color:#1a1206;border:none;border-radius:7px;padding:8px 18px;font-weight:600;cursor:pointer">Atualizar agora</button>';
+  /* Bloqueia a tela: uma aba antiga pode estar rodando regras de acesso/lógica que já foram corrigidas */
+  b.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(20,26,32,.92);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:24px;text-align:center;font-size:15px';
+  b.innerHTML='<div style="font-size:34px">🔄</div><div><b>Existe uma versão mais nova do sistema.</b><br><span style="font-size:13.5px;opacity:.85">Esta aba está desatualizada e foi bloqueada. Atualize para continuar.</span></div><button id="versionReloadBtn" style="background:#f5a623;color:#1a1206;border:none;border-radius:8px;padding:11px 26px;font-weight:700;font-size:14px;cursor:pointer">Atualizar agora</button>';
+  try{ if(typeof stopNotifPolling==='function')stopNotifPolling(); }catch(e){}
   document.body.appendChild(b);
   $('#versionReloadBtn').onclick=()=>location.reload();
 }
