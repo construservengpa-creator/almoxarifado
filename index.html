@@ -287,7 +287,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     <div class="navgrp-hd" data-grp-toggle="fluxo"><span class="navgrp-hd-l">Fluxo de Requisição<span class="badge" id="navBadgeFluxo" style="display:none"></span></span><span class="navgrp-chev">▾</span></div>
     <div class="navgrp-body" id="navgrpBody-fluxo">
-      <button data-tab="notificacoes" data-role="retiradas_acesso"><span class="ic">🔔</span><span>Painel de Notificações</span></button>
+      <button data-tab="notificacoes" data-role="notif_acesso"><span class="ic">🔔</span><span>Painel de Notificações</span></button>
       <button data-tab="aprovacoes" data-role="encarregado"><span class="ic">✔</span><span>Aprovações</span><span class="badge" id="navBadgeAprov" style="display:none"></span></button>
       <button data-tab="separacao" data-role="almoxarife"><span class="ic">📦</span><span>Separação</span><span class="badge" id="navBadgeSeparacao" style="display:none"></span></button>
       <button data-tab="compras" data-role="separacao_acesso"><span class="ic">🛒</span><span>Compras</span><span class="badge" id="navBadgeCompras" style="display:none"></span></button>
@@ -371,14 +371,18 @@ function isEncFrotas(){ return !!profile && profile.papel==='encarregado' && pro
 function podeAprovarObra(obraId){ if(isAdminOuEncAlmox())return true; if(!isEncarregado())return false;
   const vinc=Array.isArray(profile.obras_vinculadas)?profile.obras_vinculadas:[]; return vinc.includes(obraId); }
 function podeVerCompras(){ return isAlmoxarife()||isCompras()||isFrotas(); }
-function podeVerRetiradas(){ return isAlmoxarife()||isEncarregado(); }
+/* Operar retirada/expedição: almoxarifado e encarregados. Ver (só leitura): também o setor de compras */
+function podeOperarRetiradas(){ return isAlmoxarife()||isEncarregado(); }
+function podeVerRetiradas(){ return podeOperarRetiradas()||isCompras(); }
+/* Painel de Notificações: só leitura — almoxarifado, encarregados/admin e o setor de compras */
+function podeVerNotificacoes(){ return podeVerRetiradas()||isCompras(); }
 
 /* ===== Persistência (Supabase: tabela app_kv + auditoria via RPC) ===== */
 const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-09-24T22:00:00-03:00';
+const APP_VERSION='2026-09-24T22:45:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -768,7 +772,7 @@ function refreshFluxoGroupBadge(){ const ids=['navBadgeAprov','navBadgeSeparacao
 function applyRoleNav(){
   document.querySelectorAll('#nav button[data-role]').forEach(b=>{
     const need=b.dataset.role;
-    const ok=need==='auditoria'?(isEncarregado()&&!isEncAlmox()):need==='sem_encalmox'?!isEncAlmox():need==='admin'?isAdmin():need==='almoxarife'?isAlmoxarife():need==='compras'?isCompras():need==='separacao_acesso'?podeVerCompras():need==='retiradas_acesso'?podeVerRetiradas():isEncarregado()&&!(isEncFrotas()&&ABAS_BLOQUEADAS_ENCFROTAS.includes(b.dataset.tab));
+    const ok=need==='auditoria'?(isEncarregado()&&!isEncAlmox()):need==='sem_encalmox'?!isEncAlmox():need==='admin'?isAdmin():need==='almoxarife'?isAlmoxarife():need==='compras'?isCompras():need==='separacao_acesso'?podeVerCompras():need==='retiradas_acesso'?podeVerRetiradas():need==='notif_acesso'?podeVerNotificacoes():isEncarregado()&&!(isEncFrotas()&&ABAS_BLOQUEADAS_ENCFROTAS.includes(b.dataset.tab));
     b.style.display=ok?'':'none';
   });
   $('#uAvatar').textContent=(profile.nome||'?').trim().charAt(0).toUpperCase();
@@ -2410,7 +2414,7 @@ function diasParado(ts){ return Math.max(0,Math.floor((Date.now()-ts)/86400000))
 function ehBalcao(t){ return t==='interna'||t==='aplicacao_direta'; }
 function envioTipoLabel(tipo){ return tipo==='despacho'?'🚚 Despacho':tipo==='interna'?'🤝 Retirada no balcão':tipo==='aplicacao_direta'?'🔧 Balcão — compra p/ aplicação direta':'❓ Envio não definido'; }
 async function renderRetiradaPendente(){
-  if(!podeVerRetiradas()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito ao almoxarifado e encarregados/administradores.</div></div>'; return; }
+  if(!podeVerRetiradas()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito ao almoxarifado, compras e encarregados/administradores.</div></div>'; return; }
   $('#view').innerHTML=`<div class="panel" style="margin-bottom:14px"><div class="field" style="max-width:280px;margin:0"><label>Filtrar por tipo de envio</label>
     <select id="retFiltro" onchange="_retiradasFiltro=this.value;drawRetiradaPendente()">
       <option value="" ${_retiradasFiltro===''?'selected':''}>Todos</option>
@@ -2437,7 +2441,7 @@ async function drawRetiradaPendente(){ const box=$('#retList'); if(!box)return;
   box.innerHTML=lista.map(g=>{ const r=g.r; const dias=diasParado(new Date(g.maisAntigo).getTime());
     const corDias=dias>=7?'low':dias>=3?'high':'good';
     const corEnvio=r.tipo_envio==='despacho'?'tr':ehBalcao(r.tipo_envio)?'good':'high';
-    return `<div class="panel" style="margin-bottom:14px;cursor:pointer" onclick="abrirExpedicao(${r.id})">
+    return `<div class="panel" style="margin-bottom:14px;${podeOperarRetiradas()?'cursor:pointer':''}" ${podeOperarRetiradas()?`onclick="abrirExpedicao(${r.id})"`:'title="Somente visualização"'}>
       <div class="sechead" style="margin-bottom:6px;flex-wrap:wrap;gap:8px"><h3 style="font-size:14px">REQ-${String(r.id).padStart(5,'0')} — ${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</h3>
         <span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>
         <span class="pill ${corEnvio}">${envioTipoLabel(r.tipo_envio)}</span>
@@ -2471,7 +2475,7 @@ function notifSairApresentacao(){
 }
 document.addEventListener('fullscreenchange',()=>{ if(!document.fullscreenElement)document.body.classList.remove('apresentacao'); });
 function renderNotificacoes(){
-  if(!podeVerRetiradas()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito ao almoxarifado e encarregados/administradores.</div></div>'; return; }
+  if(!podeVerNotificacoes()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito ao almoxarifado, compras e encarregados/administradores.</div></div>'; return; }
   _notifSepKnown=new Set(); _notifRetKnown=new Set(); _notifFirstLoad=true;
   $('#view').innerHTML=`
     <div class="panel" id="notifHeader" style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:16px">
@@ -2520,7 +2524,7 @@ async function drawNotifSeparacao(){ const box=$('#notifSep'); if(!box)return;
   if(!_notifFirstLoad&&novos.length)notifAlarmSeparacao();
   if(!reqs||!reqs.length){ box.innerHTML='<div class="tbl-wrap"><div class="empty">Nada aguardando separação.</div></div>'; return; }
   box.innerHTML=reqs.map(r=>{ const isNew=novos.some(n=>n.id===r.id);
-    return `<div class="panel ${isNew?'notif-new':''}" style="margin-bottom:10px;cursor:pointer" onclick="go('separacao')">
+    return `<div class="panel ${isNew?'notif-new':''}" style="margin-bottom:10px;${podeVerCompras()?'cursor:pointer':''}" ${podeVerCompras()?`onclick="go('separacao')"`:''}>
       <div class="sechead" style="margin-bottom:2px;flex-wrap:wrap;gap:6px"><h3 style="font-size:14px">REQ-${String(r.id).padStart(5,'0')} — ${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</h3><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span></div>
       <div class="muted" style="font-size:12px">Solicitante: ${esc(r.solicitante_nome)} · ${fmtDate(new Date(r.criado_em).getTime())}</div>
     </div>`; }).join('');
@@ -2535,7 +2539,7 @@ async function drawNotifRetirada(){ const box=$('#notifRet'); if(!box)return;
   lista.forEach(g=>_notifRetKnown.add(g.r.id));
   if(!_notifFirstLoad&&novos.length)notifAlarmRetirada();
   const cardRet=g=>{ const r=g.r; const isNew=novos.some(n=>n.r.id===r.id);
-    return `<div class="panel ${isNew?'notif-new':''}" style="margin-bottom:10px;cursor:pointer" onclick="go('retiradas')">
+    return `<div class="panel ${isNew?'notif-new':''}" style="margin-bottom:10px;${podeVerRetiradas()?'cursor:pointer':''}" ${podeVerRetiradas()?`onclick="go('retiradas')"`:''}>
       <div class="sechead" style="margin-bottom:2px;flex-wrap:wrap;gap:6px"><h3 style="font-size:14px">REQ-${String(r.id).padStart(5,'0')} — ${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</h3><span>${envioTipoLabel(r.tipo_envio)}</span></div>
       <div class="muted" style="font-size:12px">${g.itens.map(i=>esc(i.descricao)+' ('+numf(i.quantidade_separada)+' '+esc(i.unidade||'')+')').join(', ')}</div>
     </div>`; };
