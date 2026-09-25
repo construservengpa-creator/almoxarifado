@@ -1136,10 +1136,11 @@ function renderEntrada(){
       <button id="tbMan" onclick="setEntradaTab('manual')">Inserção manual</button>
     </div>
     <div id="entradaPane"></div>
+    <div id="vincResumo"></div>
     <div class="tbl-wrap" style="margin-top:18px"><table><thead><tr><th>Código</th><th>Descrição</th><th class="num">Qtd</th><th class="num">Custo un.</th><th class="num">Total</th><th></th></tr></thead><tbody id="nfBody"></tbody></table></div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px">
       <div style="font-size:13px;color:#8a8377">Total: <b id="nfTotal" class="mono" style="color:#1c1c1c;font-size:16px">R$ 0,00</b></div>
-      <button class="btn primary" onclick="processNf()">✓ Dar entrada no estoque</button>
+      <div style="display:flex;gap:10px"><button class="btn ghost" onclick="cancelarNf()">✕ Cancelar inserção</button><button class="btn primary" onclick="processNf()">✓ Dar entrada no estoque</button></div>
     </div>
   </div>
   <div class="sechead" style="margin-top:24px"><h3>Histórico de notas importadas</h3><span id="nfHistResumo" style="font-size:12.5px;color:#8a8377"></span></div>
@@ -1155,7 +1156,7 @@ function drawNfHist(){ const el=$('#nfHist'); if(!el)return; const list=state.no
     list.map(n=>`<tr><td class="mono">${esc(n.numero)}</td><td class="muted" style="font-size:12px">${n.dataEmissao?new Date(n.dataEmissao+'T00:00:00').toLocaleDateString('pt-BR'):fmtDate(n.ts)}</td><td>${esc(n.forn||'—')}</td><td>${esc(obraName(n.obra))}</td><td class="num">${n.itens.length}</td><td class="num"><b>${money(n.valor||0)}</b></td><td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="notaDetalhe('${n.id}')">Detalhes</button> <button class="btn danger sm" title="Excluir e estornar (supervisor)" onclick="deleteNotaId('${n.id}',true)">🗑</button></td></tr>`).join('')+`</tbody></table>`;
 }
 function notaDetalhe(id){ const n=state.notas.find(x=>x.id===id); if(!n)return;
-  const linhas=n.itens.map(it=>`<tr><td class="mono">${esc(it.code)}</td><td>${esc(it.desc)}</td><td class="num">${numf(it.qty)} ${esc(it.unit||'')}</td><td class="num">${money(it.custo)}</td><td class="num">${money(it.qty*it.custo)}</td></tr>`).join('');
+  const linhas=n.itens.map(it=>`<tr><td class="mono">${esc(it.code)}</td><td>${esc(it.desc)}${it.xmlDesc&&it.xmlDesc!==it.desc?`<div class="refline">NF: ${esc(it.xmlCod||'')} · ${esc(it.xmlDesc)}${it.fator&&it.fator!==1?` · fator ${numf(it.fator)}`:''}</div>`:''}</td><td class="num">${numf(it.qty)} ${esc(it.unit||'')}</td><td class="num">${money(it.custo)}</td><td class="num">${money(it.qty*it.custo)}</td></tr>`).join('');
   modal(`<h3>Nota ${esc(n.numero)}</h3><p class="mp">Emissão: ${n.dataEmissao?new Date(n.dataEmissao+'T00:00:00').toLocaleDateString('pt-BR'):'—'} · ${esc(n.forn||'sem fornecedor')} · Obra: ${esc(obraName(n.obra))}</p>
   <div class="tbl-wrap"><table><thead><tr><th>Código</th><th>Descrição</th><th class="num">Qtd</th><th class="num">Custo un.</th><th class="num">Total</th></tr></thead><tbody>${linhas}</tbody></table></div>
   <div style="text-align:right;margin-top:12px;font-size:14px">Total da nota: <b class="mono">${money(n.valor||0)}</b></div>
@@ -1164,7 +1165,8 @@ function notaDetalhe(id){ const n=state.notas.find(x=>x.id===id); if(!n)return;
 function setEntradaTab(t){ entradaTab=t; $('#tbXml').classList.toggle('on',t==='xml'); $('#tbMan').classList.toggle('on',t==='manual');
   const pane=$('#entradaPane');
   if(t==='xml'){ pane.innerHTML=`
-    <div class="filebox" onclick="document.getElementById('xmlFile').click()"><div class="ico">↥</div><b>Clique para selecionar o arquivo XML da NF-e</b><br><span class="muted" style="font-size:12px">.xml</span><input type="file" id="xmlFile" accept=".xml,text/xml" style="display:none"></div>`;
+    <div class="filebox" onclick="document.getElementById('xmlFile').click()"><div class="ico">↥</div><b>Clique para selecionar o arquivo XML da NF-e</b><br><span class="muted" style="font-size:12px">.xml</span><input type="file" id="xmlFile" accept=".xml,text/xml" style="display:none"></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="btn ghost sm" onclick="vinculosSalvosModal()">🔗 Vínculos salvos (${Object.keys(state.vinculosNF||{}).length})</button></div>`;
     $('#xmlFile').onchange=e=>{ const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=ev=>importXml(ev.target.result); r.readAsText(f); };
   } else { pane.innerHTML=`
     <div class="search" style="max-width:none"><span class="si">⌕</span><input id="nfSearch" placeholder="Buscar produto já cadastrado (nome, código de barras ou auxiliar) para repor / aumentar quantidade..." autocomplete="off"></div>
@@ -1196,21 +1198,118 @@ function importXml(content){
     const emit=tagsOf(doc,'emit')[0]; const forn=emit?txt(emit,'xNome'):'';
     const dets=[...tagsOf(doc,'det')];
     if(!dets.length){toast('Não encontrei itens (det) no XML.','err');return;}
-    let add=0;
+    const emitCnpjX=emit?txt(emit,'CNPJ')||txt(emit,'CPF'):'';
+    let add=0, auto=0;
     dets.forEach(det=>{ const prod=tagsOf(det,'prod')[0]; if(!prod)return;
       const cEAN=txt(prod,'cEAN'); const cProd=txt(prod,'cProd');
-      const code=/^\d{8,14}$/.test(cEAN)?cEAN:(cProd||genCode());
+      const eanOk=/^\d{8,14}$/.test(cEAN);
+      const code=eanOk?cEAN:(cProd||genCode());
       const qty=parseFloat(txt(prod,'qCom'))||parseFloat(txt(prod,'qTrib'))||0;
       const custo=parseFloat(txt(prod,'vUnCom'))||parseFloat(txt(prod,'vUnTrib'))||0;
-      nfItems.push({code, desc:txt(prod,'xProd'), unit:(txt(prod,'uCom')||'UN').toUpperCase(), qty, custo, preco:0}); add++; });
+      const xProd=txt(prod,'xProd'); const uCom=(txt(prod,'uCom')||'UN').toUpperCase();
+      const it={code, desc:xProd, unit:uCom, qty, custo, preco:0,
+        xml:{cProd, cEAN:eanOk?cEAN:'', xProd, uCom, qty, custo, cnpj:onlyDigits(emitCnpjX)}, link:null, fator:1, lembrar:true};
+      autoVincular(it); if(it.link)auto++;
+      nfItems.push(it); add++; });
     if(nNF&&$('#nfNum'))$('#nfNum').value=nNF; if(forn&&$('#nfForn'))$('#nfForn').value=forn;
     const dhEmi=ide?(txt(ide,'dhEmi')||txt(ide,'dEmi')):''; if(dhEmi&&$('#nfData'))$('#nfData').value=dhEmi.slice(0,10);
     const emitCnpj=emit?txt(emit,'CNPJ'):''; if(emitCnpj&&$('#nfCnpjEmit'))$('#nfCnpjEmit').value=emitCnpj;
     const dest=tagsOf(doc,'dest')[0]; const destDoc=dest?(txt(dest,'CNPJ')||txt(dest,'CPF')):''; if(destDoc&&$('#nfCnpjTom'))$('#nfCnpjTom').value=destDoc;
     if($('#xmlText'))$('#xmlText').value='';
-    drawNfItems(); toast(`XML lido · ${add} item(ns) carregado(s).`,'ok');
+    drawNfItems(); toast(`XML lido · ${add} item(ns) carregado(s)`+(auto?` · ${auto} vinculado(s) automaticamente`:'')+(add-auto?` · ${add-auto} sem vínculo`:'')+'.','ok');
   }catch(e){ toast('Erro ao ler XML: '+e.message,'err'); }
 }
+/* ===== VÍNCULO DE INSUMOS DA NOTA COM PRODUTOS EXISTENTES ===== */
+function onlyDigits(s){ return String(s||'').replace(/\D/g,''); }
+function vincKey(cnpj,cProd){ return (onlyDigits(cnpj)||'semcnpj')+'|'+String(cProd||'').trim().toUpperCase(); }
+function normTxt(s){ return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase(); }
+function tokensOf(s){ return normTxt(s).split(/[^A-Z0-9]+/).filter(t=>t.length>=2); }
+function simScore(a,b){ const A=new Set(tokensOf(a)), B=new Set(tokensOf(b)); if(!A.size||!B.size)return 0; let n=0; A.forEach(t=>{ if(B.has(t))n++; else if(t.length>=4){ for(const u of B){ if(u.length>=4&&(u.startsWith(t)||t.startsWith(u))){n+=.6;break;} } } }); return n/Math.max(A.size,B.size); }
+function sugestoesVinc(it,lim){ const x=it.xml; return state.products.map(p=>({p,s:simScore(x.xProd,p.desc+' '+(p.ref||''))+((p.unit||'').toUpperCase()===x.uCom?.05:0)})).filter(o=>o.s>=.2).sort((a,b)=>b.s-a.s).slice(0,lim||5); }
+/* aplica o vínculo: qtd/custo passam para a unidade do estoque via fator (1 unid. da nota = fator unid. do estoque) */
+function aplicarVinculo(it,p,fator,origem){ fator=Number(fator)>0?Number(fator):1;
+  it.link=p.code; it.code=p.code; it.desc=p.desc; it.unit=p.unit||'UN'; it.fator=fator; it.origem=origem||'manual';
+  it.qty=+(it.xml.qty*fator).toFixed(6); it.custo=fator?+(it.xml.custo/fator).toFixed(6):it.xml.custo; }
+function desfazerVinculo(it){ const x=it.xml; it.link=null; it.origem=null; it.fator=1;
+  it.code=x.cEAN||x.cProd||''; if(it.code&&findProduct(it.code))it.code=genCode(); /* cadastro novo não pode colidir com produto existente */
+  it.desc=x.xProd; it.unit=x.uCom; it.qty=x.qty; it.custo=x.custo; }
+function autoVincular(it){ const x=it.xml;
+  const mem=(state.vinculosNF||{})[vincKey(x.cnpj,x.cProd)]; const pm=mem&&findProduct(mem.code);
+  if(pm){ aplicarVinculo(it,pm,mem.fator||1,'memoria'); return; }
+  const pe=x.cEAN&&findByCodeOrAux(x.cEAN); if(pe){ aplicarVinculo(it,pe,1,'ean'); return; }
+  const pc=x.cProd&&findByCodeOrAux(x.cProd); if(pc){ aplicarVinculo(it,pc,1,'codigo'); return; }
+  it.link=null; }
+const VINC_ORIG={memoria:'vínculo salvo',ean:'mesmo EAN',codigo:'mesmo código',manual:'manual'};
+function vincCellHTML(it,i){ const x=it.xml;
+  const orig=`<div class="refline">NF: <span class="mono">${esc(x.cProd||'—')}</span> · ${esc(x.xProd)} · ${numf(x.qty)} ${esc(x.uCom)} × ${money(x.custo)}</div>`;
+  if(it.link){ return orig+`<div style="margin-top:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="pill good" style="font-size:10px">🔗 vinculado · ${VINC_ORIG[it.origem]||'manual'}</span>${it.fator!==1?`<span class="pill tr" style="font-size:10px">1 ${esc(x.uCom)} = ${numf(it.fator)} ${esc(it.unit)}</span>`:''}<button class="btn ghost sm" style="padding:2px 8px;font-size:11px" onclick="vincModal(${i})">Alterar</button></div>`; }
+  const sug=sugestoesVinc(it,1)[0];
+  return orig+`<div style="margin-top:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="pill high" style="font-size:10px">+ será cadastrado como novo</span><button class="btn dark sm" style="padding:2px 8px;font-size:11px" onclick="vincModal(${i})">🔗 Vincular a insumo existente</button>${sug?`<span class="muted" style="font-size:11px">sugestão: ${esc(sug.p.desc)}</span>`:''}</div>`; }
+function drawVincResumo(){ const el=$('#vincResumo'); if(!el)return; const xs=nfItems.filter(i=>i.xml); if(!xs.length){el.innerHTML='';return;}
+  const v=xs.filter(i=>i.link).length, nv=xs.length-v;
+  el.innerHTML=`<div style="margin-top:14px;padding:10px 14px;border-radius:9px;background:${nv?'#fff7e6':'#eefaf3'};border:1px solid ${nv?'#f3d59a':'#bfe8d2'};font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+    <span><b>${v}</b> de ${xs.length} insumo(s) da nota vinculado(s) ao cadastro${nv?` · <b>${nv}</b> será(ão) cadastrado(s) como produto novo`:''}.</span>
+    ${nv?`<button class="btn ghost sm" onclick="vincProximo()">Vincular próximo pendente →</button>`:''}</div>`; }
+function vincProximo(){ const i=nfItems.findIndex(it=>it.xml&&!it.link); if(i>=0)vincModal(i); }
+let vincCtx={i:-1,cands:[],sel:null};
+function vincModal(i){ const it=nfItems[i]; if(!it||!it.xml)return; const x=it.xml;
+  vincCtx={i,cands:[],sel:it.link?findProduct(it.link):null};
+  const sug=sugestoesVinc(it,5);
+  modal(`<h3>Vincular insumo da nota</h3>
+    <div style="background:#f7f4ee;border-radius:9px;padding:10px 12px;font-size:12.5px;margin:8px 0 14px">
+      <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:#8a8377;font-weight:700;margin-bottom:3px">Item na NF-e</div>
+      <b>${esc(x.xProd)}</b><br><span class="muted">Cód. fornecedor <span class="mono">${esc(x.cProd||'—')}</span>${x.cEAN?` · EAN <span class="mono">${esc(x.cEAN)}</span>`:''} · ${numf(x.qty)} ${esc(x.uCom)} × ${money(x.custo)}</span></div>
+    ${sug.length?`<div style="font-size:11px;color:#8a8377;text-transform:uppercase;letter-spacing:.5px;font-weight:700;margin-bottom:6px">Sugestões por descrição</div><div id="vincSug"></div>`:''}
+    <div class="search" style="max-width:none;margin-top:10px"><span class="si">⌕</span><input id="vincSearch" placeholder="Buscar insumo cadastrado (nome, código, auxiliar)..." autocomplete="off"></div>
+    <div id="vincResults"></div>
+    <div id="vincSelBox" style="margin-top:14px"></div>
+    <div style="display:flex;gap:10px;justify-content:space-between;margin-top:16px;flex-wrap:wrap">
+      <button class="btn ghost" onclick="vincNovo()">+ Cadastrar como novo</button>
+      <div style="display:flex;gap:10px"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="vincConfirmar()">✓ Confirmar vínculo</button></div></div>`);
+  const m=document.querySelector('#modalRoot .modal'); if(m)m.style.maxWidth='660px';
+  if(sug.length){ vincCtx.sug=sug.map(o=>o.p); $('#vincSug').innerHTML=vincListHTML(vincCtx.sug,'sug',sug.map(o=>o.s)); }
+  $('#vincSearch').oninput=e=>{ const list=searchProducts(e.target.value).slice(0,10); vincCtx.cands=list; $('#vincResults').innerHTML=e.target.value.trim()?(list.length?vincListHTML(list,'cand'):`<div class="muted" style="font-size:12.5px;padding:10px 2px">Nenhum insumo encontrado.</div>`):''; };
+  drawVincSel(); setTimeout(()=>{ const s=$('#vincSearch'); if(s)s.focus(); },50);
+}
+function vincListHTML(list,src,scores){ return `<div class="tbl-wrap" style="margin-top:6px"><table><tbody>`+list.map((p,k)=>`<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · ${esc(p.unit||'UN')} · saldo ${numf(totalSaldo(p.code))} · custo ${money(p.custo||0)}${scores?` · ${Math.round(Math.min(1,scores[k])*100)}% semelhante`:''}</span></td><td class="num" style="width:96px"><button class="btn ghost sm" onclick="vincEscolher('${src}',${k})">Selecionar</button></td></tr>`).join('')+`</tbody></table></div>`; }
+function vincEscolher(src,k){ const p=src==='sug'?vincCtx.sug[k]:vincCtx.cands[k]; if(!p)return; vincCtx.sel=p; drawVincSel(); }
+function drawVincSel(){ const box=$('#vincSelBox'); if(!box)return; const it=nfItems[vincCtx.i]; const p=vincCtx.sel; const x=it.xml;
+  if(!p){ box.innerHTML=`<div class="muted" style="font-size:12.5px">Selecione um insumo acima para vincular.</div>`; return; }
+  const mem=(state.vinculosNF||{})[vincKey(x.cnpj,x.cProd)];
+  const f0=(it.link===p.code?it.fator:(mem&&mem.code===p.code?mem.fator:1))||1;
+  box.innerHTML=`<div style="border:2px solid var(--amber);border-radius:10px;padding:12px 14px">
+    <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:#8a8377;font-weight:700">Vincular a</div>
+    <b>${esc(p.desc)}</b> <span class="muted mono" style="font-size:11px">${esc(p.code)}</span>
+    <div class="row c2" style="margin-top:10px;align-items:end">
+      <div class="field" style="margin:0"><label>Conversão de unidade</label><div style="display:flex;align-items:center;gap:6px;font-size:13px">1 ${esc(x.uCom)} =<input id="vincFator" type="number" step="any" min="0" value="${f0}" style="width:90px">${esc(p.unit||'UN')}</div></div>
+      <div id="vincPrev" style="font-size:12.5px;color:#5a544a"></div></div>
+    <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-weight:500;font-size:12.5px;margin:10px 0 0"><input type="checkbox" id="vincLembrar" style="width:auto" ${it.lembrar!==false?'checked':''}> Lembrar este vínculo nas próximas notas deste fornecedor</label></div>`;
+  const prev=()=>{ const f=parseFloat($('#vincFator').value)||0; $('#vincPrev').innerHTML=f>0?`Entra no estoque: <b>${numf(x.qty*f)} ${esc(p.unit||'UN')}</b><br>Custo un.: <b>${money(x.custo/f)}</b>`:'<span class="neg">Fator inválido</span>'; };
+  $('#vincFator').oninput=prev; prev(); }
+function vincConfirmar(){ const it=nfItems[vincCtx.i]; const p=vincCtx.sel; if(!it||!p){toast('Selecione um insumo para vincular.','err');return;}
+  const f=parseFloat($('#vincFator').value); if(!(f>0)){toast('Informe um fator de conversão maior que zero.','err');return;}
+  aplicarVinculo(it,p,f,'manual'); it.lembrar=$('#vincLembrar').checked; closeModal(); drawNfItems(); toast(`Vinculado a ${p.desc}.`,'ok'); }
+function vincNovo(){ const it=nfItems[vincCtx.i]; if(!it)return; desfazerVinculo(it); closeModal(); drawNfItems(); toast('Item será cadastrado como produto novo.','ok'); }
+function vinculosSalvosModal(){ const v=state.vinculosNF||{}; const ks=Object.keys(v).sort((a,b)=>(v[b].ts||0)-(v[a].ts||0));
+  modal(`<h3>Vínculos salvos</h3><p class="mp">Insumos de fornecedores que são vinculados automaticamente ao ler o XML.</p>
+    ${ks.length?`<div class="search" style="max-width:none;margin-bottom:8px"><span class="si">⌕</span><input id="vsBusca" placeholder="Filtrar..." oninput="drawVincSalvos()"></div><div id="vsList"></div>`:`<div class="empty" style="padding:24px">Nenhum vínculo salvo ainda.</div>`}
+    <div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="closeModal()">Fechar</button></div>`);
+  const m=document.querySelector('#modalRoot .modal'); if(m)m.style.maxWidth='720px'; if(ks.length)drawVincSalvos(); }
+let vsKeys=[];
+function drawVincSalvos(){ const v=state.vinculosNF||{}; const q=normTxt(($('#vsBusca')||{}).value||'').trim();
+  vsKeys=Object.keys(v).sort((a,b)=>(v[b].ts||0)-(v[a].ts||0)).filter(k=>{ if(!q)return true; const p=findProduct(v[k].code); return normTxt(k+' '+(v[k].xProd||'')+' '+(v[k].forn||'')+' '+(p?p.desc:'')).includes(q); });
+  $('#vsList').innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>Fornecedor / item na NF</th><th>Insumo no estoque</th><th class="num">Fator</th><th></th></tr></thead><tbody>`+vsKeys.map((k,j)=>{ const r=v[k]; const p=findProduct(r.code);
+    return `<tr><td>${esc(r.xProd||'')}<br><span class="muted" style="font-size:11px">${esc(r.forn||k.split('|')[0])} · cód. <span class="mono">${esc(k.split('|')[1])}</span></span></td><td>${p?esc(p.desc):'<span class="neg">produto excluído</span>'}<br><span class="muted mono" style="font-size:11px">${esc(r.code)}</span></td><td class="num">${numf(r.fator||1)}</td><td class="num"><button class="btn danger sm" title="Remover vínculo" onclick="delVincSalvo(${j})">✕</button></td></tr>`; }).join('')+`</tbody></table></div>`; }
+function delVincSalvo(j){ const k=vsKeys[j]; if(!k||!state.vinculosNF)return; delete state.vinculosNF[k]; save('Vínculo de insumo removido'); drawVincSalvos(); toast('Vínculo removido.','ok'); }
+/* Cancela a inserção em andamento: descarta itens e limpa os dados da nota (nada é gravado) */
+function cancelarNf(ok){
+  const temDados=nfItems.length||['nfNum','nfForn','nfCnpjTom','nfCnpjEmit'].some(id=>$('#'+id)&&$('#'+id).value.trim());
+  if(!temDados){ toast('Não há nota em inserção para cancelar.','warn'); return; }
+  if(!ok){ modal(`<h3>Cancelar inserção da nota?</h3><p class="mp">Os ${nfItems.length} item(ns) carregado(s) e os dados da nota serão descartados. Nada foi lançado no estoque.</p><div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Voltar</button><button class="btn danger" onclick="closeModal();cancelarNf(true)">Sim, cancelar</button></div>`); return; }
+  nfItems=[]; ['nfNum','nfForn','nfCnpjTom','nfCnpjEmit'].forEach(id=>{ if($('#'+id))$('#'+id).value=''; });
+  if($('#nfData'))$('#nfData').value=new Date().toISOString().slice(0,10);
+  if($('#xmlFile'))$('#xmlFile').value='';
+  drawNfItems(); toast('Inserção da nota cancelada.','ok'); }
 function addNfItem(){ const desc=$('#itDesc').value.trim(); const qty=parseFloat($('#itQty').value);
   if(!desc){toast('Informe a descrição.','err');return;} if(!(qty>0)){toast('Quantidade inválida.','err');return;}
   const refTxt=($('#itRef')?$('#itRef').value.trim():''); const aplicId=($('#itAplic')&&$('#itAplic').value)?$('#itAplic').value:'';
@@ -1219,10 +1318,10 @@ function addNfItem(){ const desc=$('#itDesc').value.trim(); const qty=parseFloat
   ['itCode','itDesc','itUnit','itQty','itCusto','itPreco','itRef'].forEach(id=>{if($('#'+id))$('#'+id).value='';}); if($('#itCode'))$('#itCode').focus(); drawNfItems(); }
 function rmNfItem(i){ nfItems.splice(i,1); drawNfItems(); }
 function drawNfItems(){ const b=$('#nfBody'); if(!b)return;
-  if(!nfItems.length){ b.innerHTML=`<tr><td colspan="6" class="empty" style="padding:24px">Nenhum item. Carregue um XML, busque no estoque ou adicione manualmente.</td></tr>`; $('#nfTotal').textContent='R$ 0,00'; return; }
+  if(!nfItems.length){ b.innerHTML=`<tr><td colspan="6" class="empty" style="padding:24px">Nenhum item. Carregue um XML, busque no estoque ou adicione manualmente.</td></tr>`; $('#nfTotal').textContent='R$ 0,00'; drawVincResumo(); return; }
   let tot=0; b.innerHTML=nfItems.map((it,i)=>{const t=(it.qty||0)*(it.custo||0);tot+=t;const ex=it.code&&findProduct(it.code);
-    return `<tr><td class="mono">${it.code?esc(it.code):'<span class="muted">auto</span>'}${ex?' <span class="pill good" style="font-size:9px">existe</span>':''}</td><td>${esc(it.desc)}</td><td class="num"><input class="inline-edit" type="number" step="any" min="0" value="${it.qty}" oninput="setNfQty(${i},this.value)"></td><td class="num"><input class="inline-edit" type="number" step="any" min="0" value="${it.custo}" oninput="setNfCusto(${i},this.value)"></td><td class="num" id="nft_${i}">${money(t)}</td><td class="num"><button class="btn danger sm" onclick="rmNfItem(${i})">✕</button></td></tr>`;}).join('');
-  $('#nfTotal').textContent=money(tot); }
+    return `<tr><td class="mono">${it.code?esc(it.code):'<span class="muted">auto</span>'}${it.xml?'':(ex?' <span class="pill good" style="font-size:9px">existe</span>':'')}</td><td>${esc(it.desc)}${it.xml?vincCellHTML(it,i):''}</td><td class="num"><input class="inline-edit" type="number" step="any" min="0" value="${it.qty}" oninput="setNfQty(${i},this.value)"></td><td class="num"><input class="inline-edit" type="number" step="any" min="0" value="${it.custo}" oninput="setNfCusto(${i},this.value)"></td><td class="num" id="nft_${i}">${money(t)}</td><td class="num"><button class="btn danger sm" onclick="rmNfItem(${i})">✕</button></td></tr>`;}).join('');
+  $('#nfTotal').textContent=money(tot); drawVincResumo(); }
 function setNfQty(i,v){ if(nfItems[i])nfItems[i].qty=parseFloat(v)||0; refreshNfTotals(); }
 function setNfCusto(i,v){ if(nfItems[i])nfItems[i].custo=parseFloat(v)||0; refreshNfTotals(); }
 function refreshNfTotals(){ let tot=0; nfItems.forEach((it,i)=>{const t=(it.qty||0)*(it.custo||0);tot+=t;const c=$('#nft_'+i);if(c)c.textContent=money(t);}); if($('#nfTotal'))$('#nfTotal').textContent=money(tot); }
@@ -1240,8 +1339,11 @@ function processNf(force){
     else if(it.ref && !p.ref){ p.ref=it.ref; }
     const qAnt=totalSaldo(p.code);
     if(it.custo>0){ const novo=qAnt+it.qty; p.custo=novo>0?((qAnt*(p.custo||0))+(it.qty*it.custo))/novo:it.custo; }
-    if(it.preco>0)p.preco=it.preco; if(it.desc&&p.desc!==it.desc)p.desc=it.desc;
-    addSaldo(obra,p.code,it.qty); total+=it.qty*it.custo; notaItens.push({code:p.code,desc:p.desc,qty:it.qty,custo:it.custo,unit:p.unit});
+    if(it.preco>0)p.preco=it.preco; if(!it.xml && it.desc&&p.desc!==it.desc)p.desc=it.desc; /* item de XML não renomeia o cadastro com a descrição do fornecedor */
+    if(it.xml && it.lembrar!==false && it.xml.cProd){ const k=vincKey(it.xml.cnpj,it.xml.cProd); if(!state.vinculosNF)state.vinculosNF={};
+      state.vinculosNF[k]={code:p.code,fator:it.fator||1,xProd:it.xml.xProd,uCom:it.xml.uCom,forn,ts}; }
+    addSaldo(obra,p.code,it.qty); total+=it.qty*it.custo;
+    notaItens.push(Object.assign({code:p.code,desc:p.desc,qty:it.qty,custo:it.custo,unit:p.unit}, it.xml?{xmlCod:it.xml.cProd,xmlDesc:it.xml.xProd,xmlUnit:it.xml.uCom,xmlQty:it.xml.qty,fator:it.fator||1}:{}));
     pushMov({id:uid(),ts,tipo:'entrada',obra,notaId,code:p.code,desc:p.desc,qty:it.qty,valorUnit:it.custo,valorTotal:it.qty*it.custo,doc,saldo:saldoOf(obra,p.code)});
     if(p.max>0&&saldoOf(obra,p.code)>p.max)alerts.push(`${p.desc}: ${numf(saldoOf(obra,p.code))} acima do máximo`);
   });
