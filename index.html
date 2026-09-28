@@ -382,7 +382,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-09-24T22:45:00-03:00';
+const APP_VERSION='2026-09-28T12:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -458,11 +458,42 @@ async function processOfflineQueue(){
     }catch(e){ console.error('Falha ao sincronizar pendência offline',e); break; }
   }
   syncingQueue=false; updateOfflineBadge();
-  if(getQueue().length===0 && q0.length>0){ toast('Tudo sincronizado.','ok'); cacheState(); refreshBadge(); if(SAFE_REFRESH_TABS.includes(activeTab))go(activeTab); }
+  if(getQueue().length===0 && q0.length>0){ toast('Tudo sincronizado.','ok'); cacheState(); refreshBadge(); refreshTelaAtual(); }
 }
 window.addEventListener('online',()=>{ isOnline=true; updateOfflineBadge(); if(getQueue().length){toast('Conexão de volta — sincronizando pendências...','ok'); processOfflineQueue();} });
 window.addEventListener('offline',()=>{ isOnline=false; updateOfflineBadge(); toast('Sem conexão — as próximas ações ficam guardadas neste aparelho.','warn'); });
-const SAFE_REFRESH_TABS=['obras','aplic','produtos','consulta','relatorios'];
+/* Telas que se atualizam sozinhas quando outro usuário (ou esta aba) grava algo.
+   A atualização NÃO troca de tela e preserva filtros, busca, rolagem e foco; se a pessoa estiver
+   digitando/com um campo em foco, ou com uma janela (modal) aberta, espera ela terminar. */
+const LIVE_REFRESH_TABS=['painel','obras','aplic','produtos','consulta','relatorios'];
+let _liveRefreshTimer=null;
+function modalAberto(){ const mr=document.getElementById('modalRoot'); return !!(mr&&mr.children.length); }
+function usuarioInteragindo(){ const a=document.activeElement, v=document.getElementById('view');
+  if(a&&v&&v.contains(a)&&/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName))return true;
+  return modalAberto(); }
+function refreshTelaAtual(){
+  clearTimeout(_liveRefreshTimer); _liveRefreshTimer=null;
+  if(!LIVE_REFRESH_TABS.includes(activeTab)||!profile)return;
+  const tab=activeTab;
+  if(tab==='consulta'){ /* não recria a tela (evita roubar o foco e fechar o produto aberto) */
+    if(modalAberto()){ _liveRefreshTimer=setTimeout(refreshTelaAtual,1500); return; }
+    if(_consAtual)showConsultaCode(_consAtual); else { const i=document.getElementById('consInput'); drawConsList(i?i.value:''); } return; }
+  if(usuarioInteragindo()){ _liveRefreshTimer=setTimeout(refreshTelaAtual,1500); return; }
+  const snap={}; document.querySelectorAll('#view input[id],#view select[id],#view textarea[id]').forEach(el=>{
+    snap[el.id]=(el.type==='checkbox'||el.type==='radio')?{c:el.checked}:{v:el.value}; });
+  const y=window.scrollY; const wraps=[...document.querySelectorAll('#view .tbl-wrap')].map(e=>[e.scrollTop,e.scrollLeft]);
+  renderAba(tab);
+  Object.keys(snap).forEach(id=>{ const el=document.getElementById(id); if(!el)return; const s=snap[id];
+    if('c' in s)el.checked=s.c;
+    else if(el.tagName==='SELECT'){ if([...el.options].some(o=>o.value===s.v))el.value=s.v; }
+    else el.value=s.v; });
+  try{
+    if(tab==='painel'){ const q=document.getElementById('dashSearch'); if(q&&q.oninput)q.oninput(); drawDashboard(); }
+    else if(tab==='produtos'){ const q=document.getElementById('prodSearch'); if(q&&q.oninput)q.oninput(); }
+    else if(tab==='relatorios'){ const t=document.getElementById('relAplicTxt'), c=document.getElementById('relAplicClr'); if(t&&c)c.style.display=t.value?'':'none'; drawRelatorio(); }
+  }catch(e){ console.warn('refreshTelaAtual',e); }
+  requestAnimationFrame(()=>{ window.scrollTo(0,y); document.querySelectorAll('#view .tbl-wrap').forEach((e,i)=>{ if(wraps[i]){ e.scrollTop=wraps[i][0]; e.scrollLeft=wraps[i][1]; } }); });
+}
 // Junta várias atualizações disparadas em sequência (ex.: separar 10 itens) numa só rodada de consultas
 const _pendRefresh=new Set(); let _refreshTimer=null;
 function queueRefresh(...fns){ fns.forEach(f=>_pendRefresh.add(f)); clearTimeout(_refreshTimer);
@@ -476,7 +507,7 @@ function subscribeRealtime(){
     normalizeState();
     restaurarObraLocal(prevObra); /* atualização de outro usuário não troca a obra selecionada aqui */
     refreshBadge(); refreshAprovBadge(); refreshGlobalAlerts();
-    if(SAFE_REFRESH_TABS.includes(activeTab))go(activeTab);
+    refreshTelaAtual();
   }).subscribe();
   // Requisições (aprovação/separação/expedição/etc.) mudam em tabelas normalizadas do Postgres,
   // sem passar pelo app_kv — sem isto, uma exclusão/decisão feita por outra pessoa (ou em outra
@@ -503,7 +534,7 @@ function subscribeRealtime(){
   let _movRenderTimer=null;
   const rerenderMov=()=>{ clearTimeout(_movRenderTimer); _movRenderTimer=setTimeout(()=>{
     if(activeTab==='baixa')drawBaixaHist(); if(activeTab==='transfer'&&typeof drawTrHist==='function')drawTrHist();
-    if(SAFE_REFRESH_TABS.includes(activeTab))go(activeTab); refreshBadge(); cacheState(); },400); };
+    refreshTelaAtual(); refreshBadge(); cacheState(); },400); };
   const fullReload=async()=>{ await loadMovimentosEDaldos(); rerenderMov(); };
   sb.channel('mov_saldo_sync').on('postgres_changes',{event:'*',schema:'public',table:'movimentos_estoque'},pl=>{
     try{
@@ -738,9 +769,21 @@ function go(tab){
   activeTab=tab;
   document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
   const activeBtn=document.querySelector('#nav button[data-tab="'+tab+'"]'); const grpBody=activeBtn&&activeBtn.closest('.navgrp-body'); if(grpBody&&grpBody.style.display==='none')toggleNavGrp(grpBody.id.replace('navgrpBody-',''),true);
-  $('#pageTitle').firstChild.textContent=titles[tab][0]+' '; $('#pageSub').textContent=titles[tab][1]; $('#topActions').innerHTML='';
+  $('#pageTitle').firstChild.textContent=titles[tab][0]+' '; $('#pageSub').textContent=titles[tab][1];
+  try{ sessionStorage.setItem(ABA_KEY,tab); }catch(e){}
+  renderAba(tab);
+}
+const ABA_KEY='estoque_aba_ativa_v1';
+/* Desenha a tela sem mexer na navegação (usado pelo go() e pela atualização ao vivo) */
+function renderAba(tab){ $('#topActions').innerHTML='';
   ({painel:renderPainel,entrada:renderEntrada,baixa:renderBaixa,notificacoes:renderNotificacoes,ajuste:renderAjuste,inventario:renderInventario,aprovacoes:renderAprovacoes,separacao:renderSeparacao,expedicao:renderExpedicao,retiradas:renderRetiradaPendente,compras:renderCompras,transfer:renderTransfer,mutuo:renderMutuo,devolucao:renderDevolucao,consulta:renderConsulta,obras:renderObras,aplic:renderAplic,tiposetor:renderTipoSetor,produtos:renderProdutos,importar:renderImportar,empresas:renderEmpresas,admin:renderAdmin,relatorios:renderRelatorios,auditoria:renderAuditoria}[tab])();
 }
+function abaPermitida(t){ if(!t||!titles[t])return false;
+  if(isEncAlmox()&&ABAS_BLOQUEADAS_ENCALMOX.includes(t))return false;
+  if(isEncFrotas()&&ABAS_BLOQUEADAS_ENCFROTAS.includes(t))return false;
+  const b=document.querySelector('#nav button[data-tab="'+t+'"]'); return !!b&&b.style.display!=='none'; }
+/* Aba para abrir ao entrar/recarregar: a última usada nesta janela (se ainda permitida), senão o Painel */
+function abaInicial(){ let t=null; try{ t=sessionStorage.getItem(ABA_KEY); }catch(e){} return abaPermitida(t)?t:'painel'; }
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>go(b.dataset.tab));
 /* ===== Menu lateral em gaveta (celular) ===== */
 function closeNav(){ document.body.classList.remove('nav-open'); }
@@ -2981,14 +3024,15 @@ function renderConsulta(){ $('#topActions').innerHTML=obraSelectorHTML(true);
   const o=curObra(); const all=o==='__all'||!o;
   $('#view').innerHTML=`<div class="panel"><h3>Consultar produto</h3><p class="desc">Busque por <b>nome</b> ou <b>código de barras</b>. Veja saldo ${all?'total (todas as obras) ou por obra':'no estoque selecionado: <b>'+esc(obraName(o))+'</b>'} e valores de entrada e saída.</p><div class="search" style="max-width:none"><span class="si">⌕</span><input id="consInput" placeholder="Nome ou código..." autocomplete="off"></div></div><div id="consResult"></div>`;
   const inp=$('#consInput'); inp.focus(); inp.addEventListener('keydown',e=>{if(e.key==='Enter'){const p=findProduct(inp.value.trim());if(p){showConsulta(p);return;}}}); inp.oninput=()=>drawConsList(inp.value); drawConsList(''); }
-function drawConsList(q){ q=q.toLowerCase().trim(); const box=$('#consResult'); const o=curObra(); const all=o==='__all'||!o; const sal=c=>all?totalSaldo(c):saldoOf(o,c);
+let _consAtual=null;
+function drawConsList(q){ _consAtual=null; q=q.toLowerCase().trim(); const box=$('#consResult'); const o=curObra(); const all=o==='__all'||!o; const sal=c=>all?totalSaldo(c):saldoOf(o,c);
   const list=q?state.products.filter(p=>p.desc.toLowerCase().includes(q)||String(p.code).includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.ref&&p.ref.toLowerCase().includes(q))||(p.grupo&&p.grupo.toLowerCase().includes(q))||(p.localizacao&&p.localizacao.toLowerCase().includes(q))||(p.endereco&&p.endereco.toLowerCase().includes(q))):state.products.slice();
   if(!state.products.length){ box.innerHTML=`<div class="tbl-wrap"><div class="empty"><div class="ico">⌕</div>Nenhum produto cadastrado.</div></div>`; return; }
   if(!list.length){ box.innerHTML=`<div class="tbl-wrap"><div class="empty">Nada encontrado para "<b>${esc(q)}</b>".</div></div>`; return; }
   if(q&&list.length===1){ showConsulta(list[0]); return; }
   box.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>Foto</th><th>Cód. barras</th><th>Cód. aux.</th><th>Produto</th><th class="num">${all?'Saldo total':'Saldo em '+esc(obraName(o))}</th><th class="num">Custo</th><th class="num">Venda</th><th></th></tr></thead><tbody>`+list.map(p=>`<tr><td>${thumb(p.code)}</td><td class="mono">${esc(p.code)}</td><td class="mono">${esc(p.aux||'—')}</td><td>${esc(p.desc)}</td><td class="num">${numf(sal(p.code))}</td><td class="num">${money(p.custo||0)}</td><td class="num">${p.preco?money(p.preco):'—'}</td><td class="num"><button class="btn ghost sm" onclick='showConsultaCode("${esc(p.code)}")'>Detalhes</button></td></tr>`).join('')+`</tbody></table></div>`; }
 function showConsultaCode(c){ const p=findProduct(c); if(p)showConsulta(p); }
-async function showConsulta(p){ const o=curObra(); const all=o==='__all'||!o;
+async function showConsulta(p){ _consAtual=p.code; const o=curObra(); const all=o==='__all'||!o;
   const movsAll=await movsDoProduto(p.code);
   const movs=all?movsAll:movsAll.filter(m=>m.obra===o||(m.tipo==='transferencia'&&m.obraDest===o));
   /* efeito de cada movimento no saldo (da obra filtrada, ou do total quando "todas") — ajustes e devoluções também contam */
@@ -3194,13 +3238,25 @@ async function loadProfile(){ try{ const {data,error}=await sb.from('profiles').
   catch(e){ console.warn('loadProfile sem rede, tentando cache:',e);
     try{ const c=JSON.parse(localStorage.getItem('estoque_profile_cache_v1')); if(c&&c.id===session.user.id)return c; }catch(e2){}
     return null; } }
-let realtimeSubscribed=false;
-async function onAuthReady(){
-  if(!session){ profile=null; drawAuthView(); showGate(); return; }
-  profile=await loadProfile();
-  if(!profile||!profile.ativo){ showPending(); return; }
-  hideGate(); applyRoleNav(); initNavGrps(); await load(); await loadPhotos(); await refreshDevolucoesBloqueio(); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); refreshRetiradasBadge(); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge(); go('painel');
-  if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); startVersionWatch(); }
+let realtimeSubscribed=false, _bootPromise=null, _bootUid=null, _bootedUid=null;
+/* Sobe o app para o usuário logado. Pode ser chamado por mais de um caminho (evento do Supabase,
+   inicialização da página, troca de senha): chamadas simultâneas reaproveitam a mesma subida e,
+   se o mesmo usuário já está dentro, não faz nada — nunca recarrega a tela nem volta ao Painel. */
+function onAuthReady(){
+  if(!session){ _bootedUid=null; profile=null; try{ sessionStorage.removeItem(ABA_KEY); }catch(e){} drawAuthView(); showGate(); return Promise.resolve(); }
+  const uid=session.user.id;
+  if(_bootedUid===uid)return Promise.resolve();
+  if(_bootPromise&&_bootUid===uid)return _bootPromise;
+  _bootUid=uid;
+  const p=(async()=>{
+    profile=await loadProfile();
+    if(!profile||!profile.ativo){ showPending(); return; }
+    hideGate(); applyRoleNav(); initNavGrps(); await load(); await loadPhotos(); await refreshDevolucoesBloqueio(); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); refreshRetiradasBadge(); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge();
+    _bootedUid=uid; go(abaInicial());
+    if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); startVersionWatch(); }
+  })();
+  _bootPromise=p; p.finally(()=>{ if(_bootPromise===p)_bootPromise=null; });
+  return p;
 }
 let _appUid=null;
 sb.auth.onAuthStateChange((event,s)=>{ session=s;
