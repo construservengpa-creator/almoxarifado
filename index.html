@@ -406,7 +406,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-09-28T16:00:00-03:00';
+const APP_VERSION='2026-09-28T17:45:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -2879,19 +2879,22 @@ async function drawMutuoAbertos(){ const box=$('#mutuoAbertos'); if(!box)return;
   mutuoCache={}; data.forEach(m=>{ mutuoCache[m.id]=m; });
   const groups={};
   data.forEach(m=>{ const k=m.periodo+'|'+m.empresa_origem+'|'+m.empresa_destino; if(!groups[k])groups[k]={periodo:m.periodo,origem:m.empresa_origem,destino:m.empresa_destino,itens:[],total:0}; groups[k].itens.push(m); groups[k].total+=Number(m.valor); });
-  box.innerHTML=Object.values(groups).map(g=>`<div class="panel" style="margin-bottom:14px">
+  _mutuoGrupos=Object.values(groups);
+  box.innerHTML=_mutuoGrupos.map((g,gi)=>`<div class="panel" style="margin-bottom:14px">
     <div class="sechead" style="margin-bottom:8px"><h3 style="font-size:14px">${esc(g.origem)} → ${esc(g.destino)} · ${periodoLabel(g.periodo)}</h3><span class="pill aguardando_compra">${money(g.total)}</span></div>
     <table><thead><tr><th>Data</th><th>Descrição</th><th>Obras</th><th class="num">Valor</th><th></th></tr></thead><tbody>${
       g.itens.map(m=>`<tr><td class="muted" style="font-size:12px">${fmtDate(new Date(m.criado_em).getTime())}${m.registrado_por_nome?'<br><span style="font-size:10.5px">'+esc(m.registrado_por_nome)+'</span>':''}</td><td>${esc(m.descricao||'—')}</td><td class="muted" style="font-size:12px">${esc(m.obra_origem_nome||'')} → ${esc(m.obra_destino_nome||'')}</td><td class="num">${money(m.valor)}</td><td class="num" style="white-space:nowrap">${podeAlterarMutuo(m)?`<button class="btn ghost sm" title="Editar" onclick="editarMutuoModal('${m.id}')">✎</button> <button class="btn danger sm" title="Excluir" onclick="excluirMutuo('${m.id}')">✕</button>`:''}</td></tr>`).join('')
     }</tbody></table>
-    ${isAdminOuEncAlmox()?`<div style="text-align:right;margin-top:10px"><button class="btn primary sm" onclick="fecharPeriodoMutuo('${g.periodo}',${JSON.stringify(g.origem)},${JSON.stringify(g.destino)},${g.total})">🔒 Fechar período</button></div>`:''}
+    ${isAdminOuEncAlmox()?`<div style="text-align:right;margin-top:10px"><button class="btn primary sm" onclick="fecharPeriodoMutuo(${gi})">🔒 Fechar período</button></div>`:''}
   </div>`).join('');
 }
 async function drawMutuoFechados(){ const box=$('#mutuoFechados'); if(!box)return;
   const {data,error}=await sb.from('mutuo_fechamentos').select('*').order('criado_em',{ascending:false}).limit(30);
   if(error){box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>';return;}
-  box.innerHTML=`<table><thead><tr><th>Período</th><th>Empresas</th><th class="num">Total</th><th>Fechado por</th><th>Quando</th></tr></thead><tbody>${
-    (data||[]).map(f=>`<tr><td>${periodoLabel(f.periodo)}</td><td>${esc(f.empresa_origem)} → ${esc(f.empresa_destino)}</td><td class="num">${money(f.total_valor)}</td><td class="muted" style="font-size:12px">${esc(f.fechado_por_nome||'—')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(f.criado_em).getTime())}</td></tr>`).join('')||`<tr><td colspan="5" class="empty" style="padding:20px">Nenhum período fechado ainda.</td></tr>`}</tbody></table>`;
+  _mutuoFechados={}; (data||[]).forEach(f=>{ _mutuoFechados[f.id]=f; });
+  const podeReabrir=isAdmin(); /* reabrir período: somente administrador */
+  box.innerHTML=`<table><thead><tr><th>Período</th><th>Empresas</th><th class="num">Total</th><th>Fechado por</th><th>Quando</th>${podeReabrir?'<th></th>':''}</tr></thead><tbody>${
+    (data||[]).map(f=>`<tr><td>${periodoLabel(f.periodo)}</td><td>${esc(f.empresa_origem)} → ${esc(f.empresa_destino)}</td><td class="num">${money(f.total_valor)}</td><td class="muted" style="font-size:12px">${esc(f.fechado_por_nome||'—')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(f.criado_em).getTime())}</td>${podeReabrir?`<td class="num"><button class="btn ghost sm" title="Reabrir período" onclick="reabrirPeriodoMutuo('${esc(f.id)}')">🔓 Reabrir</button></td>`:''}</tr>`).join('')||`<tr><td colspan="${podeReabrir?6:5}" class="empty" style="padding:20px">Nenhum período fechado ainda.</td></tr>`}</tbody></table>`;
 }
 function mutuoModal(){
   const empresas=[...new Set(state.obras.map(o=>o.empresa).filter(Boolean))];
@@ -2949,13 +2952,58 @@ function excluirMutuo(id){ const m=mutuoCache[id]; if(!podeAlterarMutuo(m)){toas
     toast('Mútuo excluído.','ok'); drawMutuoAbertos();
   });
 }
-function fecharPeriodoMutuo(periodo,origem,destino,total){
-  requireSupervisor('Fechar período de mútuo '+periodoLabel(periodo)+' ('+origem+' → '+destino+')',async()=>{
-    const {data:fech,error:e1}=await sb.from('mutuo_fechamentos').insert({periodo,empresa_origem:origem,empresa_destino:destino,total_valor:total,fechado_por:session.user.id,fechado_por_nome:profile.nome||profile.email}).select().maybeSingle();
-    if(e1){toast('Erro: '+e1.message,'err');return;}
-    const {error:e2}=await sb.from('mutuos_intercompany').update({status:'fechado',fechamento_id:fech.id}).eq('periodo',periodo).eq('empresa_origem',origem).eq('empresa_destino',destino).eq('status','aberto');
-    if(e2){toast('Fechamento criado, mas houve erro ao travar os lançamentos: '+e2.message,'err');return;}
-    toast('Período fechado.','ok'); drawMutuoAbertos(); drawMutuoFechados();
+/* O botão passa só o índice do grupo. Antes passava as razões sociais com JSON.stringify dentro de
+   onclick="..." — as aspas duplas fechavam o atributo e o clique não fazia nada (erro de sintaxe silencioso). */
+let _mutuoGrupos=[], _fechandoMutuo=false;
+function fecharPeriodoMutuo(gi){
+  const g=_mutuoGrupos[gi]; if(!g){ toast('Grupo não encontrado — atualize a tela.','err'); return; }
+  if(!isAdminOuEncAlmox()){ toast('Somente administrador ou encarregado do almoxarifado fecha período.','err'); return; }
+  const {periodo,origem,destino}=g;
+  const aviso=periodo===periodoAtual()?' — o mês ainda está em andamento: lançamentos registrados depois do fechamento abrem um novo grupo deste mesmo período':'';
+  requireSupervisor('Fechar período de mútuo '+periodoLabel(periodo)+' ('+origem+' → '+destino+') · '+g.itens.length+' lançamento(s) · '+money(g.total)+aviso,async()=>{
+    if(_fechandoMutuo)return; _fechandoMutuo=true;
+    try{
+      /* 1) cria o fechamento */
+      const {data:fech,error:e1}=await sb.from('mutuo_fechamentos').insert({periodo,empresa_origem:origem,empresa_destino:destino,total_valor:g.total,fechado_por:session.user.id,fechado_por_nome:profile.nome||profile.email}).select('id').maybeSingle();
+      if(e1){ toast('Erro ao criar o fechamento: '+e1.message,'err'); return; }
+      if(!fech||!fech.id){ toast('O banco não devolveu o fechamento criado (permissão de leitura em mutuo_fechamentos). Nada foi travado — verifique no Supabase.','err'); drawMutuoFechados(); return; }
+      /* 2) trava os lançamentos e confere quantos foram de fato travados */
+      const {data:trav,error:e2}=await sb.from('mutuos_intercompany').update({status:'fechado',fechamento_id:fech.id}).eq('periodo',periodo).eq('empresa_origem',origem).eq('empresa_destino',destino).eq('status','aberto').select('id,valor');
+      if(e2||!trav||!trav.length){
+        /* desfaz o fechamento vazio para não sobrar um período "fechado" com lançamentos ainda abertos */
+        const {error:e3}=await sb.from('mutuo_fechamentos').delete().eq('id',fech.id);
+        toast((e2?'Erro ao travar os lançamentos: '+e2.message:'Nenhum lançamento foi travado (o banco bloqueou a alteração — permissão).')+(e3?' Atenção: o registro do fechamento não pôde ser desfeito ('+e3.message+').':' O fechamento foi cancelado.'),'err');
+        drawMutuoAbertos(); drawMutuoFechados(); return; }
+      /* 3) total definitivo = o que realmente foi travado (pode ter entrado lançamento depois que a tela abriu) */
+      const total=Math.round(trav.reduce((t,r)=>t+Number(r.valor||0),0)*100)/100;
+      if(Math.abs(total-g.total)>0.004){ const {error:e4}=await sb.from('mutuo_fechamentos').update({total_valor:total}).eq('id',fech.id); if(e4)toast('Período fechado, mas o total não pôde ser corrigido: '+e4.message,'warn'); }
+      toast('Período fechado · '+trav.length+' lançamento(s) · '+money(total)+'.','ok');
+    }finally{ _fechandoMutuo=false; drawMutuoAbertos(); drawMutuoFechados(); }
+  });
+}
+
+/* Reabre um período: devolve os lançamentos para "aberto" e remove o registro do fechamento
+   (a reabertura fica registrada na Auditoria). Se não der para remover o fechamento, os lançamentos
+   voltam a ficar travados — nunca fica um período "fechado" com lançamentos abertos. */
+let _mutuoFechados={}, _reabrindoMutuo=false;
+function reabrirPeriodoMutuo(id){
+  const f=_mutuoFechados[id]; if(!f){ toast('Fechamento não encontrado — atualize a tela.','err'); return; }
+  if(!isAdmin()){ toast('Somente o administrador pode reabrir período.','err'); return; }
+  requireSupervisor('Reabrir período de mútuo '+periodoLabel(f.periodo)+' ('+f.empresa_origem+' → '+f.empresa_destino+') · '+money(f.total_valor)+' — os lançamentos voltam a poder ser editados e excluídos',async()=>{
+    if(_reabrindoMutuo)return; _reabrindoMutuo=true;
+    try{
+      const {data:reab,error:e1}=await sb.from('mutuos_intercompany').update({status:'aberto',fechamento_id:null}).eq('fechamento_id',id).eq('status','fechado').select('id,valor');
+      if(e1){ toast('Erro ao reabrir os lançamentos: '+e1.message,'err'); return; }
+      const {error:e2}=await sb.from('mutuo_fechamentos').delete().eq('id',id);
+      if(e2){
+        if(reab&&reab.length){ const {error:e3}=await sb.from('mutuos_intercompany').update({status:'fechado',fechamento_id:id}).in('id',reab.map(r=>r.id));
+          toast('Não foi possível remover o fechamento ('+e2.message+').'+(e3?' ATENÇÃO: os lançamentos ficaram reabertos e não puderam ser travados de novo ('+e3.message+').':' Os lançamentos continuam fechados.'),'err'); }
+        else toast('Não foi possível reabrir: '+e2.message,'err');
+        return; }
+      if(!reab||!reab.length) toast('Fechamento removido, mas nenhum lançamento foi reaberto (o banco pode ter bloqueado a alteração — confira as permissões).','warn');
+      else toast('Período reaberto · '+reab.length+' lançamento(s) voltaram para "em aberto".','ok');
+      try{ await sb.rpc('log_event',{p_acao:'mutuo_periodo_reaberto',p_entidade:'mutuo_fechamentos',p_entidade_id:id,p_detalhes:{periodo:f.periodo,empresa_origem:f.empresa_origem,empresa_destino:f.empresa_destino,total_valor:f.total_valor,fechado_por:f.fechado_por_nome||null,lancamentos:(reab||[]).length}}); }catch(e){}
+    }finally{ _reabrindoMutuo=false; drawMutuoAbertos(); drawMutuoFechados(); }
   });
 }
 
