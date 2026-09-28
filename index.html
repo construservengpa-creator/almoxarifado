@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Controle de Estoque por Obra</title>
+<link rel="preconnect" href="https://qjmqburjyqlgwjihvlgp.supabase.co" crossorigin>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <!-- xlsx, html5-qrcode, Chart.js e JsBarcode carregam sob demanda — ver loadScriptOnce() mais abaixo. -->
 <script>
@@ -255,6 +260,21 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   @media(max-width:420px){
     .fc-stats{grid-template-columns:1fr}
   }
+  /* ===== Tela larga (PC): usa a largura toda em vez de travar em 1200px ===== */
+  .dash-duo{display:block}
+  svg.bc{display:block;max-width:170px;max-height:40px;margin:0 auto}
+  @media (min-width:1280px){
+    .wrap{max-width:none;padding:24px clamp(30px,2.4vw,52px)}
+    .topbar{padding-left:clamp(30px,2.4vw,52px);padding-right:clamp(30px,2.4vw,52px)}
+    .search{max-width:560px}
+    .modal{max-width:520px}
+  }
+  @media (min-width:1500px){
+    .dash-duo{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:22px;align-items:start}
+    .dash-duo .panel{margin-top:0}
+    .cards>.card{flex:1 1 200px}
+  }
+  @media (min-width:1800px){ td{padding:10px 16px} .modal{max-width:580px} }
 </style>
 </head>
 <body>
@@ -342,11 +362,15 @@ const SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
 
 /* ===== Carregamento sob demanda de libs pesadas ===== */
-function loadScriptOnce(src){ return new Promise((resolve,reject)=>{
-  if(document.querySelector(`script[src="${src}"]`)){ resolve(); return; }
-  const s=document.createElement('script'); s.src=src;
-  s.onload=()=>resolve(); s.onerror=()=>reject(new Error('Falha ao carregar '+src));
-  document.head.appendChild(s); }); }
+/* Guarda a promessa por arquivo: uma 2ª chamada enquanto o script ainda baixa espera o mesmo download
+   (antes resolvia na hora sem a biblioteca pronta, o que podia prender o Painel num laço infinito). */
+const _scriptPromises={};
+function loadScriptOnce(src){ if(_scriptPromises[src])return _scriptPromises[src];
+  const p=new Promise((resolve,reject)=>{
+    const s=document.createElement('script'); s.src=src; s.async=true;
+    s.onload=()=>resolve(); s.onerror=()=>{ s.remove(); delete _scriptPromises[src]; reject(new Error('Falha ao carregar '+src)); };
+    document.head.appendChild(s); });
+  _scriptPromises[src]=p; return p; }
 const XLSX_SRC='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
 const HTML5QRCODE_SRC='https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js';
 async function ensureXLSX(){ if(typeof XLSX!=='undefined')return; await loadScriptOnce(XLSX_SRC); }
@@ -382,7 +406,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-09-28T12:00:00-03:00';
+const APP_VERSION='2026-09-28T16:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -391,8 +415,16 @@ function startVersionWatch(){
   window.addEventListener('focus',checkAppVersion);
   setTimeout(checkAppVersion,20000);
 }
+/* Antes baixava o HTML inteiro (~400 KB) a cada 2 min e a cada foco da aba. Agora pergunta só o cabeçalho
+   (ETag/Last-Modified) e baixa o arquivo apenas quando ele mudou — e no máximo uma vez a cada 30 s. */
+let _verTag=null, _verLast=0;
 async function checkAppVersion(){
   if(_versionBannerShown||!isOnline)return;
+  const agora=Date.now(); if(agora-_verLast<30000)return; _verLast=agora;
+  try{ const h=await fetch(location.pathname,{method:'HEAD',cache:'no-store'});
+    const tag=h.ok?(h.headers.get('etag')||h.headers.get('last-modified')):null;
+    if(tag){ if(_verTag!==null&&tag===_verTag)return; _verTag=tag; }
+  }catch(e){}
   try{
     const res=await fetch(location.pathname+'?_v='+Date.now(),{cache:'no-store'});
     if(!res.ok)return;
@@ -420,24 +452,37 @@ let state={ obras:[], aplicacoes:[], products:[], estoque:{}, movements:[], nota
 let photos={};
 // Garante a estrutura mínima do state (usado no load e quando chega atualização em tempo real)
 function normalizeState(){ if(!state.obras)state.obras=[]; if(!state.aplicacoes)state.aplicacoes=[]; if(!state.estoque)state.estoque={}; if(!state.movements)state.movements=[]; if(!state.notas)state.notas=[]; if(!state.seq)state.seq={baixa:0,transfer:0}; if(!state.config)state.config={supHash:null}; if(!state.empresas)state.empresas=[]; if(!state.aplicTipos||!state.aplicTipos.length)state.aplicTipos=[{id:'equipamento',label:'EQUIPAMENTO',icone:'⚙',usaSetor:false},{id:'veiculo',label:'VEÍCULO',icone:'🚚',usaSetor:false},{id:'sede',label:'SEDE',icone:'🏢',usaSetor:true}]; if(!state.setores||!state.setores.length)state.setores=[{id:'oficina',nome:'OFICINA'},{id:'escritorio',nome:'ESCRITÓRIO / ADM'},{id:'lavajato',nome:'LAVAJATO'},{id:'diretoria',nome:'DIRETORIA'}]; }
-async function load(){ const d=await Store.get(KEY);
+async function load(){ const pMov=isOnline?fetchMovimentosEDaldos():null; /* dispara junto com o documento principal */ const d=await Store.get(KEY);
   if(d===undefined){ if(loadCache())toast('Sem conexão — carregando última cópia salva neste aparelho.','warn'); }
   else if(d&&d.products){state=d;}
   normalizeState();
   state.movements.forEach(m=>{ if(!m.id)m.id=uid(); });
-  if(d!==undefined){ await loadMovimentosEDaldos(); } /* fonte de verdade agora são as tabelas, não o JSON — só pula isso se estiver offline usando o cache local */
+  if(d!==undefined){ if(pMov)applyMovimentosEDaldos(await pMov); else await loadMovimentosEDaldos(); } /* fonte de verdade agora são as tabelas, não o JSON — só pula isso se estiver offline usando o cache local */
   restaurarObraLocal(state.currentObra);
   cacheState();
 }
-async function loadPhotos(){ const d=await Store.get(KEY+':fotos'); if(d&&typeof d==='object'){ photos=d; Object.keys(photos).forEach(k=>{ if(typeof photos[k]==='string')photos[k]=[photos[k]]; if(!Array.isArray(photos[k]))delete photos[k]; }); } }
-async function savePhotos(){ await Store.set(KEY+':fotos', photos, 'Fotos atualizadas'); }
+/* Fotos (base64) são o maior download da abertura: carregam em segundo plano, depois da tela aparecer. */
+let _photosReady=null, _photosLoaded=false;
+function loadPhotos(){ _photosLoaded=false;
+  _photosReady=(async()=>{ const d=await Store.get(KEY+':fotos'); if(d&&typeof d==='object'){ photos=d; Object.keys(photos).forEach(k=>{ if(typeof photos[k]==='string')photos[k]=[photos[k]]; if(!Array.isArray(photos[k]))delete photos[k]; }); cachePhotos(); } _photosLoaded=true; })().catch(e=>{ console.warn('loadPhotos',e); _photosLoaded=true; });
+  return _photosReady; }
+function fotosProntas(){ if(_photosLoaded)return true; toast('Aguarde alguns segundos: as fotos ainda estão carregando.','warn'); return false; }
+async function savePhotos(){ if(_photosReady)await _photosReady; await Store.set(KEY+':fotos', photos, 'Fotos atualizadas'); cachePhotos(); }
 async function save(label){ const {movements,estoque,currentObra,...toPersist}=state; /* currentObra é escolha de cada usuário — não vai pro documento compartilhado */ await Store.set(KEY, toPersist, label); cacheState(); refreshBadge(); }
 
 /* ===== Modo offline: cache local + fila de sincronização ===== */
 let isOnline=navigator.onLine;
 const OFFLINE_KEY='estoque_offline_queue_v1', CACHE_KEY='estoque_cache_v1';
-function cacheState(){ try{ localStorage.setItem(CACHE_KEY, JSON.stringify({state,photos})); }catch(e){} }
-function loadCache(){ try{ const d=JSON.parse(localStorage.getItem(CACHE_KEY)); if(d&&d.state&&d.state.products){ state=d.state; photos=d.photos||{}; return true; } }catch(e){} return false; }
+/* Cópia local para modo offline. Antes gravava estado + todas as fotos a cada atualização em tempo real
+   (JSON enorme, travava a tela e estourava o limite do localStorage). Agora: estado com atraso agrupado,
+   fotos numa chave separada e só quando mudam. */
+const CACHE_PHOTOS_KEY='estoque_cache_fotos_v1'; let _cacheTimer=null;
+function cacheState(){ clearTimeout(_cacheTimer); _cacheTimer=setTimeout(cacheStateNow,2000); }
+function cacheStateNow(){ clearTimeout(_cacheTimer); _cacheTimer=null; try{ localStorage.setItem(CACHE_KEY, JSON.stringify({state})); }catch(e){ console.warn('cacheState',e); } }
+function cachePhotos(){ try{ localStorage.setItem(CACHE_PHOTOS_KEY, JSON.stringify(photos)); }catch(e){ try{ localStorage.removeItem(CACHE_PHOTOS_KEY); }catch(_){} } }
+window.addEventListener('pagehide',()=>{ if(_cacheTimer)cacheStateNow(); });
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden'&&_cacheTimer)cacheStateNow(); });
+function loadCache(){ try{ const d=JSON.parse(localStorage.getItem(CACHE_KEY)); if(d&&d.state&&d.state.products){ state=d.state; photos=d.photos||(()=>{ try{ return JSON.parse(localStorage.getItem(CACHE_PHOTOS_KEY))||{}; }catch(e){ return {}; } })(); return true; } }catch(e){} return false; }
 function getQueue(){ try{return JSON.parse(localStorage.getItem(OFFLINE_KEY)||'[]');}catch(e){return [];} }
 function setQueue(q){ try{localStorage.setItem(OFFLINE_KEY, JSON.stringify(q));}catch(e){} updateOfflineBadge(); }
 function queueAction(type,payload,label){ const q=getQueue(); q.push({id:uid(),type,payload,label,ts:Date.now()}); setQueue(q); }
@@ -635,14 +680,20 @@ let movLoadedFrom=null, movPares=new Set(), _movFetch=Promise.resolve();
 function mergeMovs(rows){ const have=new Set(state.movements.map(m=>m.id)); let add=false;
   (rows||[]).forEach(r=>{ if(!have.has(r.id)){ state.movements.push(rowToMov(r)); have.add(r.id); add=true; } });
   if(add)state.movements.sort((a,b)=>b.ts-a.ts); }
-async function loadMovimentosEDaldos(){
+async function loadMovimentosEDaldos(){ applyMovimentosEDaldos(await fetchMovimentosEDaldos()); }
+async function fetchMovimentosEDaldos(){
   try{
     const desde=movLoadedFrom!=null?movLoadedFrom:Date.now()-MOV_JANELA_DIAS*864e5;
-    const [{data:mv,error:e1},{data:sd,error:e2},{data:pr,error:e3}]=await Promise.all([
+    const res=await Promise.all([
       fetchAllRows(()=>{ let q=sb.from('movimentos_estoque').select('*'); if(desde>0)q=q.gte('ts',desde); return q.order('ts',{ascending:false}).order('id'); }),
       fetchAllRows(()=>sb.from('saldos_estoque').select('*').order('obra_id').order('code')),
       sb.rpc('pares_movimentados')
     ]);
+    return {desde,res};
+  }catch(e){ console.warn('loadMovimentosEDaldos falhou, usando o que veio do app_kv/cache:',e); return null; }
+}
+function applyMovimentosEDaldos(r){ if(!r)return;
+  try{ const desde=r.desde; const [{data:mv,error:e1},{data:sd,error:e2},{data:pr,error:e3}]=r.res;
     if(!e1&&mv){ state.movements=mv.map(rowToMov); movLoadedFrom=desde; }
     if(!e2&&sd){ const est={}; sd.forEach(r=>{ if(!est[r.obra_id])est[r.obra_id]={}; est[r.obra_id][r.code]=Number(r.saldo)||0; }); state.estoque=est; }
     if(!e3&&pr) movPares=new Set(pr.map(r=>r.obra+'|'+r.code));
@@ -704,16 +755,23 @@ function resizeImage(file,max,cb){ const r=new FileReader(); r.onload=e=>{ const
     const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(img,0,0,w,h);cb(c.toDataURL('image/jpeg',0.72)); };
   img.onerror=()=>toast('Não foi possível ler a imagem.','err'); img.src=e.target.result; }; r.readAsDataURL(file); }
 function photoList(code){ const v=photos[code]; return Array.isArray(v)?v:(v?[v]:[]); }
-function uploadPhoto(code,inp){ const files=[...inp.files].filter(f=>f.type.startsWith('image/')); if(!files.length){toast('Selecione imagem(ns).','err');return;}
+function uploadPhoto(code,inp){ if(!fotosProntas()){ inp.value=''; return; } const files=[...inp.files].filter(f=>f.type.startsWith('image/')); if(!files.length){toast('Selecione imagem(ns).','err');return;}
   if(!Array.isArray(photos[code]))photos[code]=photos[code]?[photos[code]]:[];
   let pending=files.length;
   files.forEach(f=>resizeImage(f,680,src=>{ photos[code].push(src); if(--pending===0){ savePhotos(); renderEpGallery(code); toast('Foto(s) salva(s).','ok'); } }));
   inp.value=''; }
-function removePhotoAt(code,idx){ const arr=photoList(code); arr.splice(idx,1); photos[code]=arr; if(!arr.length)delete photos[code]; savePhotos(); renderEpGallery(code); toast('Foto removida.','ok'); }
+function removePhotoAt(code,idx){ if(!fotosProntas())return; const arr=photoList(code); arr.splice(idx,1); photos[code]=arr; if(!arr.length)delete photos[code]; savePhotos(); renderEpGallery(code); toast('Foto removida.','ok'); }
 function renderEpGallery(code){ const b=document.getElementById('epPhoto'); if(!b)return; const arr=photoList(code);
   b.innerHTML=arr.length?arr.map((s,i)=>`<div style="position:relative;display:inline-block"><img src="${s}" style="width:82px;height:82px;object-fit:cover;border-radius:8px;border:1px solid #e4dfd4;cursor:zoom-in" onclick="openPhoto('${esc(code)}',${i})"><button class="btn danger sm" style="position:absolute;top:-6px;right:-6px;padding:1px 6px;border-radius:50%" onclick="removePhotoAt('${esc(code)}',${i})">✕</button></div>`).join(''):`<div class="editphoto ph">Sem foto</div>`; }
+const LIST_PAGE=120;
+/* Rodapé de lista paginada: carrega o próximo bloco sozinho quando chega perto do fim da rolagem */
+function listMoreRow(cols,shown,total,fnName){ if(shown>=total)return '';
+  return `<tr class="list-more"><td colspan="${cols}" style="text-align:center;padding:14px"><span class="muted" style="font-size:12px;margin-right:10px">Mostrando ${shown} de ${total}</span><button class="btn ghost sm" onclick="${fnName}(false)">Mostrar mais</button> <button class="btn ghost sm" onclick="${fnName}(true)">Mostrar todos</button></td></tr>`; }
+let _listObs=null;
+function watchListMore(tbody,fnName){ if(_listObs){ _listObs.disconnect(); _listObs=null; } const r=tbody&&tbody.querySelector('tr.list-more'); if(!r||!('IntersectionObserver' in window))return;
+  _listObs=new IntersectionObserver(es=>{ if(es.some(e=>e.isIntersecting)){ _listObs.disconnect(); _listObs=null; window[fnName](false); } },{rootMargin:'600px'}); _listObs.observe(r); }
 function thumb(code){ const arr=photoList(code); if(!arr.length)return `<div class="thumb ph" title="Adicionar foto" onclick="editProductModal('${esc(code)}')">📷</div>`;
-  return `<div style="position:relative;display:inline-block"><img src="${arr[0]}" class="thumb" title="Ver foto" onclick="openPhoto('${esc(code)}',0)">${arr.length>1?`<span style="position:absolute;bottom:-4px;right:-4px;background:#2a2520;color:#fff;font-size:9px;border-radius:8px;padding:0 4px">+${arr.length-1}</span>`:''}</div>`; }
+  return `<div style="position:relative;display:inline-block"><img src="${arr[0]}" class="thumb" decoding="async" loading="lazy" title="Ver foto" onclick="openPhoto('${esc(code)}',0)">${arr.length>1?`<span style="position:absolute;bottom:-4px;right:-4px;background:#2a2520;color:#fff;font-size:9px;border-radius:8px;padding:0 4px">+${arr.length-1}</span>`:''}</div>`; }
 function openPhoto(code,idx){ const arr=photoList(code); if(!arr.length)return; let i=idx||0;
   let lb=document.getElementById('lightbox'); if(!lb){ lb=document.createElement('div'); lb.id='lightbox'; document.body.appendChild(lb); }
   const draw=()=>{ lb.innerHTML=`<div class="ovl" onclick="if(event.target===this)closeLightbox()" style="z-index:130"><div style="text-align:center;max-width:92vw"><img src="${arr[i]}" style="max-width:92vw;max-height:80vh;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.5)"><div style="margin-top:14px;display:flex;gap:10px;justify-content:center;align-items:center">${arr.length>1?`<button class="btn ghost sm" id="lbPrev">‹</button><span style="color:#fff;font-size:12px">${i+1} / ${arr.length}</span><button class="btn ghost sm" id="lbNext">›</button>`:''}<button class="btn primary sm" onclick="closeLightbox()">Fechar</button></div></div></div>`;
@@ -894,9 +952,9 @@ function renderPainel(){
     <div style="font-size:12px;color:#8a8377;align-self:center">Use o seletor de <b>Obra</b> no topo para filtrar os cards e o gráfico.</div>
   </div></div>
   <div class="cards" id="dashCards"></div>
-  <div class="sechead"><h3>Estoque por obra</h3></div>
-  <div class="tbl-wrap" id="obraResumo" style="margin-bottom:24px"></div>
-  <div class="panel" style="margin-bottom:24px"><h3 id="evoTitle">Evolução do estoque</h3><p class="desc">Valor estimado em estoque ao longo do período, pela <b>data de emissão</b> das notas (entradas) e data das saídas/transferências.</p><div style="height:280px;position:relative"><canvas id="evoChart"></canvas></div></div>`;
+  <div class="dash-duo"><div><div class="sechead"><h3>Estoque por obra</h3></div>
+  <div class="tbl-wrap" id="obraResumo" style="margin-bottom:24px"></div></div>
+  <div class="panel" style="margin-bottom:24px"><h3 id="evoTitle">Evolução do estoque</h3><p class="desc">Valor estimado em estoque ao longo do período, pela <b>data de emissão</b> das notas (entradas) e data das saídas/transferências.</p><div style="height:280px;position:relative"><canvas id="evoChart"></canvas></div></div></div>`;
   if(low.length||high.length){
     html+=`<div class="sechead"><h3>⚠ Alertas${all?'':' · '+esc(obraName(o))}</h3></div><div class="tbl-wrap" style="margin-bottom:24px"><table><thead><tr><th>Código</th><th>Produto</th><th class="num">Saldo</th><th class="num">Mín</th><th class="num">Máx</th><th>Situação</th></tr></thead><tbody>`;
     [...low,...high.filter(h=>!low.includes(h))].forEach(p=>{const s=sal(p.code);const st=stOf(p,s)==='low'?'low':'high';
@@ -923,20 +981,27 @@ function renderPainel(){
       if(q && !(p.desc.toLowerCase().includes(q)||String(p.code).includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.ref&&p.ref.toLowerCase().includes(q))||(p.grupo&&p.grupo.toLowerCase().includes(q))||(p.localizacao&&p.localizacao.toLowerCase().includes(q))||(p.endereco&&p.endereco.toLowerCase().includes(q))))return false;
       if(fst && st!==fst)return false; if(qmax!=null && !(s<=qmax))return false; return true; });
     $('#dashCount').textContent=list.length+' item(ns)';
+    const sig=[q,fst,qr,zero,grouped,curObra()].join('|'); if(window._dashSig!==sig){ window._dashSig=sig; window._dashLim=LIST_PAGE; }
+    let budget=window._dashLim||LIST_PAGE, shown=0;
     const rowHTML=p=>{const s=sal(p.code);const st=stOf(p,s);
       const pill=st==='low'?'<span class="pill low">Abaixo do mín</span>':st==='high'?'<span class="pill high">Acima do máx</span>':'<span class="pill good">Normal</span>';
       return `<tr><td>${thumb(p.code)}</td><td class="mono">${esc(p.code)}${p.aux?`<br><span style="font-size:10px;color:#a09a8d">aux: ${esc(p.aux)}</span>`:''}</td><td><a href="#" onclick="productDetailModal('${esc(p.code)}');return false" style="color:#1c1c1c;font-weight:600;text-decoration:none">${esc(p.desc)}</a>${p.ref?`<div class="refline">↳ ${esc(p.ref)}</div>`:''}</td><td class="num"><b class="${st==='low'?'neg':''}">${numf(s)}</b> ${esc(p.unit||'')}</td><td class="num muted">${numf(p.min)} / ${p.max>0?numf(p.max):'—'}</td><td class="num">${money(p.custo||0)}</td><td class="num">${p.preco?money(p.preco):'—'}</td><td>${pill}</td><td class="num"><button class="btn ghost sm" title="Detalhes do produto" onclick="productDetailModal('${esc(p.code)}')">🔍</button></td></tr>`;};
     let body;
-    if(!grouped){ body=list.map(rowHTML).join(''); }
+    if(!grouped){ const vis=list.slice(0,budget); shown=vis.length; body=vis.map(rowHTML).join(''); }
     else{
       const NG='(sem grupo)'; const gm=new Map();
       list.forEach(p=>{ const g=p.grupo&&p.grupo.trim()?p.grupo.trim():NG; if(!gm.has(g))gm.set(g,[]); gm.get(g).push(p); });
       const keys=[...gm.keys()].sort((a,b)=>a===NG?1:b===NG?-1:a.localeCompare(b,'pt-BR')); window._dashKeys=keys;
-      body=keys.map(g=>{ const items=gm.get(g).slice().sort((a,b)=>a.desc.localeCompare(b.desc,'pt-BR'));
+      body=keys.map(g=>{ if(budget<=0)return ''; const items=gm.get(g).slice().sort((a,b)=>a.desc.localeCompare(b.desc,'pt-BR'));
         const val=items.reduce((sum,p)=>sum+sal(p.code)*(p.custo||0),0); const nLow=items.filter(p=>stOf(p,sal(p.code))==='low').length;
         const closed=grpCollapsed.has(g);
-        return `<tr onclick="toggleDashGrp(${keys.indexOf(g)})" style="cursor:pointer;background:#f7f3ea"><td colspan="9" style="padding:9px 14px"><b>${closed?'▸':'▾'} ${esc(g)}</b> <span class="muted" style="font-size:12px">· ${items.length} item(ns) · ${money(val)}</span>${nLow?` <span class="pill low" style="margin-left:6px">${nLow} p/ repor</span>`:''}</td></tr>`+(closed?'':items.map(rowHTML).join('')); }).join(''); }
-    $('#dashRows').innerHTML=body||`<tr><td colspan="9" class="empty" style="padding:28px">Nada encontrado.</td></tr>`; };
+        return `<tr onclick="toggleDashGrp(${keys.indexOf(g)})" style="cursor:pointer;background:#f7f3ea"><td colspan="9" style="padding:9px 14px"><b>${closed?'▸':'▾'} ${esc(g)}</b> <span class="muted" style="font-size:12px">· ${items.length} item(ns) · ${money(val)}</span>${nLow?` <span class="pill low" style="margin-left:6px">${nLow} p/ repor</span>`:''}</td></tr>`+(closed?'':(()=>{ const vis=items.slice(0,budget); budget-=vis.length; shown+=vis.length; return vis.map(rowHTML).join(''); })()); }).join('');
+      /* grupos fechados não contam no limite */
+      const totAberto=keys.reduce((n,g)=>n+(grpCollapsed.has(g)?0:gm.get(g).length),0); window._dashTot=totAberto; }
+    const total=grouped?window._dashTot:list.length;
+    $('#dashRows').innerHTML=(body||`<tr><td colspan="9" class="empty" style="padding:28px">Nada encontrado.</td></tr>`)+listMoreRow(9,shown,total,'dashMais');
+    watchListMore($('#dashRows'),'dashMais'); };
+  window.dashMais=all=>{ window._dashLim=all?Infinity:(window._dashLim||LIST_PAGE)+LIST_PAGE*2; draw(); };
   draw(); ['dashSearch','dashStatus','dashQty','dashZero','dashGroup'].forEach(id=>{const el=$('#'+id); if(el){el.oninput=draw; el.onchange=draw;}});
   drawDashboard(); ['dashFrom','dashTo'].forEach(id=>{const el=$('#'+id); if(el)el.onchange=drawDashboard;});
 }
@@ -989,7 +1054,7 @@ function drawDashboard(){
   const labels=[], data=[]; labels.push(new Date(f).toLocaleDateString('pt-BR')); data.push(running);
   all.forEach(x=>{ if(x.d>=f&&x.d<=t){ running+=movDeltaVal(x.m,co); labels.push(new Date(x.d).toLocaleDateString('pt-BR')); data.push(running); } });
   labels.push(new Date(t).toLocaleDateString('pt-BR')); data.push(running);
-  const cv=$('#evoChart'); if(cv&&!window.Chart){ loadScriptOnce(CHART_SRC).then(()=>{ if(activeTab==='painel'&&$('#evoChart'))drawDashboard(); }).catch(()=>{}); }
+  const cv=$('#evoChart'); if(cv&&!window.Chart){ loadScriptOnce(CHART_SRC).then(()=>{ if(window.Chart&&activeTab==='painel'&&$('#evoChart'))drawDashboard(); }).catch(()=>{}); }
   if(cv&&window.Chart){ if(evoChartObj){evoChartObj.destroy();}
     evoChartObj=new Chart(cv.getContext('2d'),{type:'line',data:{labels,datasets:[{label:'Valor em estoque (R$)',data,borderColor:'#f5a623',backgroundColor:'rgba(245,166,35,.12)',fill:true,tension:.2,pointRadius:data.length>40?0:3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>money(c.parsed.y)}}},scales:{y:{ticks:{callback:v=>'R$ '+Number(v).toLocaleString('pt-BR')}}}}}); }
 }
@@ -1409,10 +1474,12 @@ function renderProdutos(){
   html+=`<div class="tbl-wrap"><table><thead><tr><th>Foto</th><th>Cód. barras</th><th>Cód. aux.</th><th>Produto</th><th class="num">Saldo</th><th class="num">Mín</th><th class="num">Máx</th><th class="num">Custo</th><th class="num">Venda</th><th></th></tr></thead><tbody id="prodRows"></tbody></table></div>`;
   $('#view').innerHTML=html;
   const draw=()=>{ const q=($('#prodSearch').value||'').toLowerCase(); const zero=$('#prodZero').checked;
-    const list=state.products.filter(p=>{ const s=sal(p.code);
+    let list=state.products.filter(p=>{ const s=sal(p.code);
       if(!zero && !(s>0))return false;
       if(q && !(p.desc.toLowerCase().includes(q)||String(p.code).includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.ref&&p.ref.toLowerCase().includes(q))||(p.grupo&&p.grupo.toLowerCase().includes(q))||(p.localizacao&&p.localizacao.toLowerCase().includes(q))||(p.endereco&&p.endereco.toLowerCase().includes(q))))return false;
       return true; });
+    const sig=[q,zero,curObra()].join('|'); if(window._prodSig!==sig){ window._prodSig=sig; window._prodLim=LIST_PAGE; }
+    const full=list; list=full.slice(0,window._prodLim||LIST_PAGE);
     $('#prodRows').innerHTML=list.map(p=>{const s=sal(p.code);const st=statusOf(p,s);
       return `<tr><td>${thumb(p.code)}</td>
       <td><svg class="bc" id="bc_${esc(p.code)}"></svg><div class="mono" style="font-size:11px;color:#8a8377;text-align:center">${esc(p.code)}</div></td>
@@ -1423,8 +1490,10 @@ function renderProdutos(){
       <td class="num"><input class="inline-edit" type="number" step="any" value="${p.max}" onchange="setField('${esc(p.code)}','max',this.value)"></td>
       <td class="num">${money(p.custo||0)}</td>
       <td class="num">${p.preco?money(p.preco):'—'}</td>
-      <td class="num" style="white-space:nowrap"><button class="btn ghost sm" title="Editar (custo, venda, foto, equipamento)" onclick="editProductModal('${esc(p.code)}')">✎</button> <button class="btn danger sm" title="Excluir (supervisor)" onclick="delProduct('${esc(p.code)}')">✕</button></td></tr>`;}).join('')||`<tr><td colspan="10" class="empty" style="padding:28px">Nada encontrado.</td></tr>`;
+      <td class="num" style="white-space:nowrap"><button class="btn ghost sm" title="Editar (custo, venda, foto, equipamento)" onclick="editProductModal('${esc(p.code)}')">✎</button> <button class="btn danger sm" title="Excluir (supervisor)" onclick="delProduct('${esc(p.code)}')">✕</button></td></tr>`;}).join('')+listMoreRow(10,list.length,full.length,'prodMais')||`<tr><td colspan="10" class="empty" style="padding:28px">Nada encontrado.</td></tr>`;
+    watchListMore($('#prodRows'),'prodMais');
     withBarcode(()=>list.forEach(p=>{try{JsBarcode('#bc_'+CSS.escape(p.code),String(p.code),{format:'CODE128',width:1.3,height:32,fontSize:0,margin:2,displayValue:false});}catch(e){}})); };
+  window.prodMais=all=>{ window._prodLim=all?Infinity:(window._prodLim||LIST_PAGE)+LIST_PAGE*2; draw(); };
   draw(); ['prodSearch','prodZero'].forEach(id=>{const el=$('#'+id); if(el){el.oninput=draw; el.onchange=draw;}});
 }
 function setField(code,f,v){ const p=findProduct(code); if(!p)return; p[f]=parseFloat(v)||0; save();
@@ -3251,7 +3320,7 @@ function onAuthReady(){
   const p=(async()=>{
     profile=await loadProfile();
     if(!profile||!profile.ativo){ showPending(); return; }
-    hideGate(); applyRoleNav(); initNavGrps(); await load(); await loadPhotos(); await refreshDevolucoesBloqueio(); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); refreshRetiradasBadge(); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge();
+    hideGate(); applyRoleNav(); initNavGrps(); const pDev=refreshDevolucoesBloqueio().catch(()=>{}); await load(); await pDev; loadPhotos().then(()=>refreshTelaAtual()); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); refreshRetiradasBadge(); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge();
     _bootedUid=uid; go(abaInicial());
     if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); startVersionWatch(); }
   })();
