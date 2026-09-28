@@ -406,7 +406,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-09-28T17:45:00-03:00';
+const APP_VERSION='2026-09-28T19:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -2615,9 +2615,19 @@ async function registrarEnvio(reqId){ const tipo=$('#envioTipoFixo')?$('#envioTi
 
 /* ===== AGUARDANDO RETIRADA (material já baixado do estoque na separação, mas ainda não saiu — nem despacho nem retirada no balcão) ===== */
 const STATUS_AINDA_NAO_SAIU=['em_separacao','aguardando_compra','separado','embalado','romaneio_emitido','faturado'];
+/* Itens separados de requisições que ainda não saíram do almoxarifado.
+   Antes cada tela buscava TODOS os itens já separados na história (inclusive os retirados há meses) e
+   filtrava o status no navegador — como o Supabase devolve no máximo 1000 linhas por consulta, depois de
+   certo volume os pendentes mais recentes ficavam de fora e o relatório/tela aparecia vazio.
+   Agora o filtro de status vai para o banco (requisicoes!inner) e a leitura é paginada. */
+function fetchItensAguardandoRetirada(itemCols,reqCols){
+  return fetchAllRows(()=>sb.from('requisicao_itens_status')
+    .select((itemCols||'*')+', requisicoes!inner('+reqCols+')')
+    .gt('quantidade_separada',0).in('requisicoes.status',STATUS_AINDA_NAO_SAIU)
+    .order('atualizado_em',{ascending:true}).order('id',{ascending:true})); }
 let _retiradasFiltro='';
 async function refreshRetiradasBadge(){ if(!podeVerRetiradas())return; const b=$('#navBadgeRetiradas'); if(!b)return;
-  const {data,error}=await sb.from('requisicao_itens_status').select('requisicao_id, requisicoes(status)').gt('quantidade_separada',0);
+  const {data,error}=await fetchItensAguardandoRetirada('requisicao_id','status');
   if(error)return;
   const reqIds=new Set((data||[]).filter(i=>i.requisicoes&&STATUS_AINDA_NAO_SAIU.includes(i.requisicoes.status)).map(i=>i.requisicao_id));
   const count=reqIds.size;
@@ -2641,7 +2651,7 @@ async function renderRetiradaPendente(){
   await drawRetiradaPendente();
 }
 async function drawRetiradaPendente(){ const box=$('#retList'); if(!box)return;
-  const {data,error}=await sb.from('requisicao_itens_status').select('*, requisicoes(id,obra_nome,ordem_servico,status,tipo_envio,criado_em)').gt('quantidade_separada',0).order('atualizado_em',{ascending:true});
+  const {data,error}=await fetchItensAguardandoRetirada('*','id,obra_nome,ordem_servico,status,tipo_envio,criado_em');
   if(error){box.innerHTML='<div class="tbl-wrap"><div class="empty">Erro: '+esc(error.message)+'</div></div>';return;}
   const itens=(data||[]).filter(i=>i.requisicoes&&STATUS_AINDA_NAO_SAIU.includes(i.requisicoes.status));
   const grupos={};
@@ -2744,7 +2754,7 @@ async function drawNotifSeparacao(){ const box=$('#notifSep'); if(!box)return;
     </div>`; }).join('');
 }
 async function drawNotifRetirada(){ const box=$('#notifRet'); if(!box)return;
-  const {data,error}=await sb.from('requisicao_itens_status').select('*, requisicoes(id,obra_nome,ordem_servico,status,tipo_envio,criado_em,aplicacao_nome)').gt('quantidade_separada',0).order('atualizado_em',{ascending:true});
+  const {data,error}=await fetchItensAguardandoRetirada('*','id,obra_nome,ordem_servico,status,tipo_envio,criado_em,aplicacao_nome');
   if(error){ box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>'; return; }
   const itens=(data||[]).filter(i=>i.requisicoes&&STATUS_AINDA_NAO_SAIU.includes(i.requisicoes.status));
   const grupos={}; itens.forEach(i=>{ const r=i.requisicoes; if(!grupos[r.id])grupos[r.id]={r,itens:[]}; grupos[r.id].itens.push(i); });
@@ -3384,7 +3394,7 @@ sb.auth.onAuthStateChange((event,s)=>{ session=s;
 
 /* ===== RELATÓRIOS ===== */
 let _rel=null, relTipo='aplicacao';
-const REL_VISAO={aretirar:'A retirar por aplicação (posição atual)',aplicacao:'Por aplicação',tipo:'Por tipo de aplicação',obra:'Por obra',produto:'Por produto',grupo:'Insumos por grupo',os:'Por Ordem de Serviço',consorcio:'P/ Consórcio (débito)'};
+const REL_VISAO={aretirar:'A retirar por aplicação (posição atual)',atendidas:'Requisições atendidas — quem retirou',aplicacao:'Por aplicação',tipo:'Por tipo de aplicação',obra:'Por obra',produto:'Por produto',grupo:'Insumos por grupo',os:'Por Ordem de Serviço',consorcio:'P/ Consórcio (débito)'};
 function renderRelatorios(){ if(needObra())return;
   const d2=new Date(),d1=new Date(); d1.setDate(d1.getDate()-90);
   const grupos=[...new Set(state.products.map(p=>p.grupo&&p.grupo.trim()?p.grupo.trim():'(sem grupo)'))].sort((a,b)=>a==='(sem grupo)'?1:b==='(sem grupo)'?-1:a.localeCompare(b,'pt-BR'));
@@ -3421,7 +3431,7 @@ function renderRelatorios(){ if(needObra())return;
       <button id="rtGrupo" onclick="setRelTipo('grupo')">Insumos por grupo</button>
       <button id="rtOS" onclick="setRelTipo('os')">Por Ordem de Serviço</button>
       <button id="rtCons" onclick="setRelTipo('consorcio')">P/ Consórcio (débito)</button>
-      <button id="rtARet" onclick="setRelTipo('aretirar')">A retirar por aplicação</button>
+      <button id="rtARet" onclick="setRelTipo('aretirar')">Retiradas / a retirar</button>
     </div>
   </div>
   <div id="relView"></div>`;
@@ -3435,11 +3445,19 @@ function movOS(m){ if(m.os)return m.os; const src=((m.doc||'')+' '+(m.obs||''));
 function produtoPassaFiltros(p,gf,lf,pf){ if(gf&&produtoGrupo(p.code)!==gf)return false; if(lf&&produtoLocal(p.code)!==lf)return false; if(pf&&!(p.desc.toLowerCase().includes(pf)||String(p.code).toLowerCase().includes(pf)||(p.aux&&String(p.aux).toLowerCase().includes(pf))))return false; return true; }
 function produtoLocal(code){ const p=findProduct(code); const l=p&&p.localizacao&&p.localizacao.trim()?p.localizacao.trim():'(sem localização)'; return l; }
 /* ===== Relatório: material separado aguardando retirada, por aplicação (posição atual, não usa o período) ===== */
-let _relARetEnvio='';
-async function drawRelARetirar(){ const box=$('#relView'); if(!box)return;
-  box.innerHTML='<div class="empty" style="padding:24px">Carregando...</div>';
-  const {data,error}=await sb.from('requisicao_itens_status').select('*, requisicoes(id,obra_id,obra_nome,mutuo_estoque_obra_id,ordem_servico,status,tipo_envio,criado_em,aplicacao_id,aplicacao_nome,solicitante_nome)').gt('quantidade_separada',0);
-  if(relTipo!=='aretirar')return;
+let _relARetEnvio='', _relARetTk=0, _relRetModo='atendidas';
+function relRetModoBtns(){ const b=(m,l)=>`<button class="btn ${_relRetModo===m?'primary':'ghost'} sm" onclick="_relRetModo='${m}';drawRelARetirar()">${l}</button>`;
+  return `<div style="display:flex;gap:6px">${b('atendidas','✅ Atendidas / quem retirou')}${b('pendentes','⏳ Aguardando retirada')}</div>`; }
+function relEnvioSelect(){ return `<select style="width:auto;font-size:12.5px;padding:6px 8px" onchange="_relARetEnvio=this.value;drawRelARetirar()">
+        <option value="" ${!_relARetEnvio?'selected':''}>Todos os tipos de envio</option>
+        <option value="aplicacao_direta" ${_relARetEnvio==='aplicacao_direta'?'selected':''}>🔧 Balcão — aplicação direta</option>
+        <option value="interna" ${_relARetEnvio==='interna'?'selected':''}>🤝 Retirada no balcão</option>
+        <option value="despacho" ${_relARetEnvio==='despacho'?'selected':''}>🚚 Despacho</option>
+        <option value="_indef" ${_relARetEnvio==='_indef'?'selected':''}>❓ Envio não definido</option></select>`; }
+async function drawRelARetirar(){ if(_relRetModo==='atendidas')return drawRelAtendidas(); const box=$('#relView'); if(!box)return;
+  const tk=++_relARetTk; if(!box.querySelector('table'))box.innerHTML='<div class="empty" style="padding:24px">Carregando...</div>';
+  const {data,error}=await fetchItensAguardandoRetirada('*','id,obra_id,obra_nome,mutuo_estoque_obra_id,ordem_servico,status,tipo_envio,criado_em,aplicacao_id,aplicacao_nome,solicitante_nome');
+  if(relTipo!=='aretirar'||tk!==_relARetTk||!box.isConnected)return; /* chegou uma resposta mais nova (filtro trocado) — descarta esta */
   if(error){ box.innerHTML='<div class="empty" style="padding:24px">Erro: '+esc(error.message)+'</div>'; return; }
   const fobra=$('#relObra')?$('#relObra').value:'__all'; const isAll=fobra==='__all';
   const taf=$('#relTipoAplic')?$('#relTipoAplic').value:'';
@@ -3470,7 +3488,7 @@ async function drawRelARetirar(){ const box=$('#relView'); if(!box)return;
     detailHeaders:['REQ','Desde','Item','Qtd','Valor','OS','Envio'],detailAlign:'lllrrll',detail:arr.map(a=>a.det.map(d=>[d.req,fmtDate(d.data),d.desc,numf(d.qty)+' '+(d.unit||''),money(d.valor),d.os||'—',d.envio]))};
   _rel.align='lllrrr';
   const th='style="font-size:10.5px"';
-  box.innerHTML=`<div class="sechead" style="flex-wrap:wrap;gap:8px"><h3>${esc(titulo)}</h3><span style="font-size:12px;color:#8a8377">${esc(sub)} · o período (De/Até) não se aplica</span>
+  box.innerHTML=`<div style="margin-bottom:12px">${relRetModoBtns()}</div><div class="sechead" style="flex-wrap:wrap;gap:8px"><h3>${esc(titulo)}</h3><span style="font-size:12px;color:#8a8377">${esc(sub)} · o período (De/Até) não se aplica</span>
       <select style="width:auto;font-size:12.5px;padding:6px 8px" onchange="_relARetEnvio=this.value;drawRelARetirar()">
         <option value="" ${!_relARetEnvio?'selected':''}>Todos os tipos de envio</option>
         <option value="aplicacao_direta" ${_relARetEnvio==='aplicacao_direta'?'selected':''}>🔧 Balcão — aplicação direta</option>
@@ -3485,6 +3503,82 @@ async function drawRelARetirar(){ const box=$('#relView'); if(!box)return;
         }</tbody></table></td></tr>`).join(''):`<tr><td colspan="7" class="empty" style="padding:24px">Nada separado aguardando retirada.</td></tr>`
     }</tbody>${arr.length?`<tfoot><tr><td></td><td><b>Total</b></td><td></td><td></td><td class="num"><b>${totReq}</b></td><td class="num"><b>${totItens}</b></td><td class="num"><b>${money(totValor)}</b></td></tr></tfoot>`:''}</table></div>
     <p class="muted" style="font-size:11.5px;margin-top:8px">Considera itens já separados que ainda não saíram do almoxarifado. Valor = quantidade separada × custo cadastrado do produto.</p>`;
+}
+/* ===== Relatório: requisições atendidas (retiradas no balcão e despachos) e quem retirou — usa o período De/Até pela data da saída ===== */
+const STATUS_ATENDIDA=['retirado','embarcado','recebido'];
+async function drawRelAtendidas(){ const box=$('#relView'); if(!box)return;
+  const tk=++_relARetTk; box.innerHTML='<div style="margin-bottom:12px">'+relRetModoBtns()+'</div><div class="empty" style="padding:24px">Carregando...</div>';
+  const [f,t]=relPeriod();
+  const [{data:ret,error:e1},{data:emb,error:e2}]=await Promise.all([
+    fetchAllRows(()=>sb.from('retiradas_internas').select('*').order('id',{ascending:true})),
+    fetchAllRows(()=>sb.from('embarques').select('*').order('id',{ascending:true}))]);
+  if(relTipo!=='aretirar'||_relRetModo!=='atendidas'||tk!==_relARetTk||!box.isConnected)return;
+  if(e1||e2){ box.innerHTML='<div class="empty" style="padding:24px">Erro: '+esc((e1||e2).message)+'</div>'; return; }
+  const tsOf=(...v)=>{ for(const x of v){ if(x){ const n=new Date(x).getTime(); if(!isNaN(n))return n; } } return NaN; };
+  /* saída mais recente de cada requisição dentro do período */
+  const saida={};
+  (ret||[]).forEach(x=>{ const ts=tsOf(x.data_retirada,x.criado_em,x.created_at); if(!(ts>=f&&ts<=t))return;
+    if(!saida[x.requisicao_id]||ts>saida[x.requisicao_id].ts) saida[x.requisicao_id]={ts,quem:x.colaborador_nome||'—',doc:x.colaborador_documento||'',registrou:x.registrado_por_nome||'',obs:x.observacao||'',modo:'retirada'}; });
+  (emb||[]).forEach(x=>{ const ts=tsOf(x.data_embarque,x.criado_em,x.created_at); if(!(ts>=f&&ts<=t))return;
+    if(!saida[x.requisicao_id]||ts>saida[x.requisicao_id].ts) saida[x.requisicao_id]={ts,quem:'Transportadora: '+(x.transportadora||'—'),doc:'',registrou:'',obs:x.observacoes||'',modo:'despacho'}; });
+  const ids=Object.keys(saida).map(Number).filter(n=>!isNaN(n));
+  let reqs=[], its=[];
+  for(let i=0;i<ids.length;i+=150){ const ch=ids.slice(i,i+150);
+    const [{data:rq,error:e3},{data:it,error:e4}]=await Promise.all([
+      sb.from('requisicoes').select('id,obra_id,obra_nome,mutuo_estoque_obra_id,ordem_servico,status,tipo_envio,criado_em,aplicacao_id,aplicacao_nome,solicitante_nome').in('id',ch),
+      fetchAllRows(()=>sb.from('requisicao_itens_status').select('id,requisicao_id,code,descricao,unidade,quantidade_separada').in('requisicao_id',ch).gt('quantidade_separada',0).order('id',{ascending:true}))]);
+    if(e3||e4){ if(tk===_relARetTk)box.innerHTML='<div class="empty" style="padding:24px">Erro: '+esc((e3||e4).message)+'</div>'; return; }
+    reqs=reqs.concat(rq||[]); its=its.concat(it||[]); }
+  if(relTipo!=='aretirar'||_relRetModo!=='atendidas'||tk!==_relARetTk||!box.isConnected)return;
+  /* filtros do painel */
+  const fobra=$('#relObra')?$('#relObra').value:'__all'; const isAll=fobra==='__all';
+  const taf=$('#relTipoAplic')?$('#relTipoAplic').value:'';
+  const aef=$('#relAplicEsp')?$('#relAplicEsp').value:'';
+  const atx=(!aef&&$('#relAplicTxt'))?$('#relAplicTxt').value.trim():''; const aset=atx?new Set(relAplicMatch(atx).map(a=>a.id)):null;
+  const gf=$('#relGrupo')?$('#relGrupo').value:'';
+  const pf=($('#relProdutoTxt')?$('#relProdutoTxt').value:'').toLowerCase().trim();
+  const osf=($('#relOSTxt')?$('#relOSTxt').value:'').toLowerCase().trim();
+  const itPorReq={}; its.forEach(i=>{ (itPorReq[i.requisicao_id]=itPorReq[i.requisicao_id]||[]).push(i); });
+  const itemOk=i=>{ if(gf&&produtoGrupo(i.code)!==gf)return false; if(pf){ const p=findProduct(i.code); if(!(String(i.descricao||'').toLowerCase().includes(pf)||String(i.code).toLowerCase().includes(pf)||(p&&p.aux&&String(p.aux).toLowerCase().includes(pf))))return false; } return true; };
+  let lista=reqs.filter(r=>STATUS_ATENDIDA.includes(r.status));
+  if(!isAll)lista=lista.filter(r=>r.obra_id===fobra||r.mutuo_estoque_obra_id===fobra);
+  if(_relARetEnvio==='_indef')lista=lista.filter(r=>!r.tipo_envio); else if(_relARetEnvio)lista=lista.filter(r=>r.tipo_envio===_relARetEnvio);
+  if(aef)lista=lista.filter(r=>r.aplicacao_id===aef); else if(aset)lista=lista.filter(r=>aset.has(r.aplicacao_id));
+  if(taf)lista=lista.filter(r=>{ const a=state.aplicacoes.find(x=>x.id===r.aplicacao_id); return a&&a.tipo===taf; });
+  if(osf)lista=lista.filter(r=>String(r.ordem_servico||'').toLowerCase().includes(osf));
+  const arr=lista.map(r=>{ const s=saida[r.id]; const ap=state.aplicacoes.find(x=>x.id===r.aplicacao_id);
+      const itens=(itPorReq[r.id]||[]).filter(itemOk).map(i=>{ const p=findProduct(i.code); const q=Number(i.quantidade_separada)||0; const vu=p?(p.custo||0):0; return {code:i.code,desc:i.descricao||(p?p.desc:''),qty:q,unit:i.unidade||(p?p.unit:''),valor:q*vu}; });
+      return {r,s,req:'REQ-'+String(r.id).padStart(5,'0'),aplic:r.aplicacao_nome||(ap?ap.nome:'')||'(sem aplicação)',tag:ap&&ap.tag?ap.tag:'',itens,valor:itens.reduce((t,i)=>t+i.valor,0)}; })
+    .filter(x=>!(gf||pf)||x.itens.length)
+    .sort((a,b)=>b.s.ts-a.s.ts);
+  const totValor=arr.reduce((t,a)=>t+a.valor,0), totItens=arr.reduce((t,a)=>t+a.itens.length,0);
+  const envLbl={'':'',despacho:'Despacho',interna:'Retirada no balcão',aplicacao_direta:'Balcão — aplicação direta',_indef:'Envio não definido'}[_relARetEnvio];
+  const titulo='Requisições atendidas — quem retirou';
+  const sub='Saídas de '+new Date(f||0).toLocaleDateString('pt-BR')+' a '+new Date(t).toLocaleDateString('pt-BR')+(isAll?' · todas as obras':' · '+obraName(fobra))+(envLbl?' · '+envLbl:'')+(taf?' · tipo aplic.: '+aplicTipoLabel(taf):'')+(aef?' · aplicação: '+aplicName(aef):'')+(gf?' · grupo: '+gf:'')+(osf?' · OS: '+osf:'');
+  const quemTxt=a=>a.s.quem+(a.s.doc?' ('+a.s.doc+')':'');
+  _rel={titulo,sub,view:'atendidas',align:'llllllllrr',
+    headers:['Data da saída','REQ','Aplicação','Obra','OS','Solicitante','Retirado por','Registrado por','Nº itens','Valor'],
+    rows:arr.map(a=>[fmtDate(a.s.ts),a.req,a.aplic+(a.tag?' · '+a.tag:''),a.r.obra_nome||'',a.r.ordem_servico||'—',a.r.solicitante_nome||'—',quemTxt(a),a.s.registrou||'—',String(a.itens.length),money(a.valor)]),
+    foot:['Total',String(arr.length)+' req.','','','','','','',String(totItens),money(totValor)],
+    detailHeaders:['Código','Item','Qtd','Valor'],detailAlign:'llrr',
+    detail:arr.map(a=>a.itens.map(i=>[String(i.code),i.desc,numf(i.qty)+' '+(i.unit||''),money(i.valor)]))};
+  const th='style="font-size:10.5px"', td='style="font-size:12.5px"';
+  box.innerHTML=`<div style="margin-bottom:12px">${relRetModoBtns()}</div>
+    <div class="sechead" style="flex-wrap:wrap;gap:8px"><h3>${esc(titulo)}</h3><span style="font-size:12px;color:#8a8377">${esc(sub)}</span>
+      ${relEnvioSelect()}
+      <button class="btn ghost sm" onclick="toggleAllRelAplic()">Expandir / recolher itens</button></div>
+    <div class="tbl-wrap"><table><thead><tr><th style="width:24px"></th><th>Data da saída</th><th>REQ</th><th>Aplicação</th><th>Obra</th><th>OS</th><th>Solicitante</th><th>Retirado por</th><th>Registrado por</th><th class="num">Itens</th><th class="num">Valor</th></tr></thead><tbody>${
+      arr.length?arr.map((a,i)=>`<tr class="rel-ap-row" style="cursor:pointer" onclick="toggleRelAplicRow(${i})"><td class="num" id="relApChev${i}" style="color:#8a8377">▸</td>
+        <td ${td}>${fmtDate(a.s.ts)}</td><td class="mono" ${td}>${a.req}</td>
+        <td>${esc(a.aplic)}${a.tag?`<div class="muted mono" style="font-size:11px">${esc(a.tag)}</div>`:''}</td>
+        <td class="muted" ${td}>${esc(a.r.obra_nome||'')}</td><td ${td}>${esc(a.r.ordem_servico||'—')}</td><td ${td}>${esc(a.r.solicitante_nome||'—')}</td>
+        <td><b>${esc(a.s.quem)}</b>${a.s.doc?`<div class="muted" style="font-size:11px">${esc(a.s.doc)}</div>`:''}${a.s.obs?`<div class="muted" style="font-size:11px">${esc(a.s.obs)}</div>`:''}</td>
+        <td class="muted" ${td}>${esc(a.s.registrou||'—')}</td><td class="num">${a.itens.length}</td><td class="num">${money(a.valor)}</td></tr>
+        <tr id="relApDet${i}" style="display:none"><td></td><td colspan="10" style="padding:0 0 10px 0"><table style="width:100%;background:#faf8f3"><thead><tr><th ${th}>Código</th><th ${th}>Item</th><th ${th} class="num">Qtd</th><th ${th} class="num">Valor</th></tr></thead><tbody>${
+          a.itens.map(d=>`<tr><td class="mono" ${td}>${esc(d.code)}</td><td ${td}>${esc(d.desc)}</td><td class="num" ${td}>${numf(d.qty)} ${esc(d.unit||'')}</td><td class="num" ${td}>${money(d.valor)}</td></tr>`).join('')||`<tr><td colspan="4" class="muted" ${td}>Sem itens registrados.</td></tr>`
+        }</tbody></table></td></tr>`).join(''):`<tr><td colspan="11" class="empty" style="padding:24px">Nenhuma requisição atendida no período.</td></tr>`
+    }</tbody>${arr.length?`<tfoot><tr><td></td><td><b>Total</b></td><td><b>${arr.length} req.</b></td><td colspan="6"></td><td class="num"><b>${totItens}</b></td><td class="num"><b>${money(totValor)}</b></td></tr></tfoot>`:''}</table></div>
+    <p class="muted" style="font-size:11.5px;margin-top:8px">Considera requisições retiradas no balcão ou despachadas no período (De/Até), pela data da saída. "Retirado por" é o colaborador informado na retirada; em despachos, a transportadora. Valor = quantidade separada × custo cadastrado do produto.</p>`;
 }
 function drawRelatorio(){ const box=$('#relView'); if(!box)return;
   if(relTipo==='aretirar'){ drawRelARetirar(); return; }
