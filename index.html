@@ -406,7 +406,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-09-28T19:00:00-03:00';
+const APP_VERSION='2026-09-28T20:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -568,6 +568,9 @@ function subscribeRealtime(){
     if(t==='notificacoes'&&typeof drawNotificacoes==='function')queueRefresh(drawNotificacoes);
   }).subscribe();
   // requisicao_itens_status muda a cada item separado — gatilho de "aguardando retirada" e das notificações.
+  sb.channel('reposicoes_sync').on('postgres_changes',{event:'*',schema:'public',table:'reposicoes_estoque'},()=>{
+    queueRefresh(async()=>{ await loadReposAbertas(); if(activeTab==='compras'&&_comprasAba==='reposicao')drawReposicao(); else if(activeTab==='compras')drawComprasPendentes(); else refreshTelaAtual(); });
+  }).subscribe();
   sb.channel('itens_status_sync').on('postgres_changes',{event:'*',schema:'public',table:'requisicao_itens_status'},()=>{
     const t=activeTab;
     queueRefresh(refreshRetiradasBadge,refreshSeparacaoBadge);
@@ -816,7 +819,7 @@ const titles={ painel:['Painel','Visão por obra'],entrada:['Entrada / Nota Fisc
   retiradas:['Aguardando Retirada','Material já separado do estoque que ainda não saiu — despacho ou retirada no balcão'],
   mutuo:['Mútuo entre Empresas','Controle de valores entre empresas e fechamento por período'],
   devolucao:['Devolução de Materiais','Bloqueio de saldo, nota de devolução e estorno na conclusão'],
-  compras:['Compras','Itens faltantes aguardando compra'],
+  compras:['Compras','Faltantes de requisições e reposição de estoque'],
   transfer:['Transferência entre Obras','Mover saldo de uma obra para outra'],consulta:['Consulta','Buscar por nome, código ou equipamento'],
   obras:['Obras','Cadastro de obras'],aplic:['Aplicações','Equipamentos e veículos (placa/tag)'],tiposetor:['Tipos & Setores','Opções de tipo e setor usadas em Aplicações'],produtos:['Produtos & Etiquetas','Catálogo e códigos de barras'],importar:['Importar Planilha','Carga inicial por obra'],empresas:['Empresas','Razão social, CNPJ e endereço'],admin:['Administração','Usuários e exclusões protegidas'],relatorios:['Relatórios','Consumo por aplicação, tipo, obra e produto'],auditoria:['Auditoria','Histórico de ações no sistema'] };
 let activeTab='painel';
@@ -958,7 +961,7 @@ function renderPainel(){
   if(low.length||high.length){
     html+=`<div class="sechead"><h3>⚠ Alertas${all?'':' · '+esc(obraName(o))}</h3></div><div class="tbl-wrap" style="margin-bottom:24px"><table><thead><tr><th>Código</th><th>Produto</th><th class="num">Saldo</th><th class="num">Mín</th><th class="num">Máx</th><th>Situação</th></tr></thead><tbody>`;
     [...low,...high.filter(h=>!low.includes(h))].forEach(p=>{const s=sal(p.code);const st=stOf(p,s)==='low'?'low':'high';
-      html+=`<tr><td class="mono">${esc(p.code)}</td><td>${esc(p.desc)}</td><td class="num">${numf(s)} ${esc(p.unit||'')}</td><td class="num muted">${numf(p.min)}</td><td class="num muted">${p.max>0?numf(p.max):'—'}</td><td>${st==='low'?'<span class="pill low">Repor</span>':'<span class="pill high">Excesso</span>'}</td></tr>`;});
+      html+=`<tr><td class="mono">${esc(p.code)}</td><td>${esc(p.desc)}</td><td class="num">${numf(s)} ${esc(p.unit||'')}</td><td class="num muted">${numf(p.min)}</td><td class="num muted">${p.max>0?numf(p.max):'—'}</td><td>${st==='low'?reposPill(p.code,o,'<span class="pill low">Repor</span>'):'<span class="pill high">Excesso</span>'}</td></tr>`;});
     html+=`</tbody></table></div>`;
   }
   html+=`<div class="sechead"><h3>Painel de produtos${all?' (consolidado)':' · '+esc(obraName(o))}</h3>
@@ -984,7 +987,7 @@ function renderPainel(){
     const sig=[q,fst,qr,zero,grouped,curObra()].join('|'); if(window._dashSig!==sig){ window._dashSig=sig; window._dashLim=LIST_PAGE; }
     let budget=window._dashLim||LIST_PAGE, shown=0;
     const rowHTML=p=>{const s=sal(p.code);const st=stOf(p,s);
-      const pill=st==='low'?'<span class="pill low">Abaixo do mín</span>':st==='high'?'<span class="pill high">Acima do máx</span>':'<span class="pill good">Normal</span>';
+      const pill=st==='low'?reposPill(p.code,o,'<span class="pill low">Abaixo do mín</span>'):st==='high'?'<span class="pill high">Acima do máx</span>':'<span class="pill good">Normal</span>';
       return `<tr><td>${thumb(p.code)}</td><td class="mono">${esc(p.code)}${p.aux?`<br><span style="font-size:10px;color:#a09a8d">aux: ${esc(p.aux)}</span>`:''}</td><td><a href="#" onclick="productDetailModal('${esc(p.code)}');return false" style="color:#1c1c1c;font-weight:600;text-decoration:none">${esc(p.desc)}</a>${p.ref?`<div class="refline">↳ ${esc(p.ref)}</div>`:''}</td><td class="num"><b class="${st==='low'?'neg':''}">${numf(s)}</b> ${esc(p.unit||'')}</td><td class="num muted">${numf(p.min)} / ${p.max>0?numf(p.max):'—'}</td><td class="num">${money(p.custo||0)}</td><td class="num">${p.preco?money(p.preco):'—'}</td><td>${pill}</td><td class="num"><button class="btn ghost sm" title="Detalhes do produto" onclick="productDetailModal('${esc(p.code)}')">🔍</button></td></tr>`;};
     let body;
     if(!grouped){ const vis=list.slice(0,budget); shown=vis.length; body=vis.map(rowHTML).join(''); }
@@ -2217,15 +2220,25 @@ async function renderSeparacao(){
 }
 async function renderCompras(){
   if(!podeVerCompras()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito ao almoxarifado, compras, frotas e administradores.</div></div>'; return; }
-  $('#view').innerHTML=`<div class="tbl-wrap" id="compPend"><div class="empty">Carregando...</div></div>`;
-  await drawComprasPendentes();
+  $('#view').innerHTML=`<div class="tabs" style="display:flex;gap:4px;border-bottom:1px solid #e4dfd4;margin-bottom:16px;overflow-x:auto">
+      <button id="cpTabReq" onclick="setComprasAba('requisicoes')">🧾 Faltantes de requisições</button>
+      <button id="cpTabRep" onclick="setComprasAba('reposicao')">📦 Reposição de estoque</button></div>
+    <div id="comprasBody"></div>`;
+  setComprasAba(_comprasAba);
 }
+async function setComprasAba(a){ _comprasAba=a;
+  const t1=$('#cpTabReq'), t2=$('#cpTabRep'); if(t1)t1.classList.toggle('on',a==='requisicoes'); if(t2)t2.classList.toggle('on',a==='reposicao');
+  const b=$('#comprasBody'); if(!b)return;
+  if(a==='reposicao'){ drawReposicao(); return; }
+  $('#topActions').innerHTML='';
+  b.innerHTML='<div class="tbl-wrap" id="compPend"><div class="empty">Carregando...</div></div>';
+  await loadReposAbertas(); drawComprasPendentes(); }
 async function drawComprasPendentes(){ const box=$('#compPend'); if(!box)return;
   const assignees=await loadComprasAssignees();
   const {data,error}=await sb.from('compras_pendentes').select('*, requisicoes(obra_nome,ordem_servico)').in('status',['pendente','solicitada']).order('criado_em',{ascending:true});
   if(error){box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>';return;}
   box.innerHTML=`<table><thead><tr><th>Requisição</th><th>Obra</th><th>Item</th><th class="num">Qtd faltante</th><th>Atribuído a</th><th>Situação</th><th></th></tr></thead><tbody>${
-    (data||[]).map(c=>`<tr><td class="mono">REQ-${String(c.requisicao_id).padStart(5,'0')}</td><td>${esc(c.requisicoes?c.requisicoes.obra_nome:'—')}</td><td>${esc(c.descricao)}</td><td class="num">${numf(c.quantidade)}</td>
+    (data||[]).map(c=>`<tr><td class="mono">REQ-${String(c.requisicao_id).padStart(5,'0')}</td><td>${esc(c.requisicoes?c.requisicoes.obra_nome:'—')}</td><td>${esc(c.descricao)}${reposHintCode(c.code)}</td><td class="num">${numf(c.quantidade)}</td>
       <td><select onchange="atribuirCompra(${c.id},this.value)" style="width:auto;min-width:150px;padding:5px 6px;font-size:12.5px">
         <option value="">— atribuir —</option>
         ${assignees.map(a=>`<option value="${a.id}" ${c.atribuido_a===a.id?'selected':''}>${esc(a.nome||a.email)}</option>`).join('')}
@@ -3017,6 +3030,161 @@ function reabrirPeriodoMutuo(id){
   });
 }
 
+/* ===== REPOSIÇÃO DE ESTOQUE =====
+   Itens abaixo do mínimo por obra/estoque → registra a solicitação de compra feita no Sienge (com o nº).
+   Enquanto a solicitação estiver aberta, o item fica travado: não dá para pedir de novo (a trava também
+   existe no banco — índice único por obra+produto com status "solicitada"). */
+const REPOS_SQL="-- Reposição de estoque: registro das solicitações de compra feitas no Sienge\n-- Rodar uma vez no Supabase (SQL Editor). Pode rodar de novo sem problema.\n\ncreate table if not exists public.reposicoes_estoque (\n  id                         bigint generated always as identity primary key,\n  obra_id                    text        not null,\n  obra_nome                  text,\n  code                       text        not null,\n  descricao                  text,\n  unidade                    text,\n  quantidade                 numeric     not null check (quantidade > 0),\n  saldo_na_solicitacao       numeric,\n  numero_solicitacao_sienge  text        not null check (length(trim(numero_solicitacao_sienge)) > 0),\n  observacao                 text,\n  status                     text        not null default 'solicitada'\n                                         check (status in ('solicitada','recebida','cancelada')),\n  solicitado_por             uuid        default auth.uid(),\n  solicitado_por_nome        text,\n  criado_em                  timestamptz not null default now(),\n  finalizado_em              timestamptz,\n  finalizado_por_nome        text,\n  motivo_cancelamento        text\n);\n\n-- Trava de duplicidade no próprio banco: só pode existir UMA solicitação em aberto\n-- por produto em cada obra/estoque (vale mesmo se duas pessoas clicarem ao mesmo tempo).\ncreate unique index if not exists reposicoes_estoque_uma_aberta\n  on public.reposicoes_estoque (obra_id, code)\n  where status = 'solicitada';\n\ncreate index if not exists reposicoes_estoque_status_idx on public.reposicoes_estoque (status);\n\nalter table public.reposicoes_estoque enable row level security;\n\n-- Leitura: qualquer usuário ativo\ndrop policy if exists \"reposicoes: leitura\" on public.reposicoes_estoque;\ncreate policy \"reposicoes: leitura\" on public.reposicoes_estoque\n  for select to authenticated\n  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.ativo));\n\n-- Registrar: administrador, almoxarifado e compras\ndrop policy if exists \"reposicoes: registrar\" on public.reposicoes_estoque;\ncreate policy \"reposicoes: registrar\" on public.reposicoes_estoque\n  for insert to authenticated\n  with check (\n    solicitado_por = auth.uid()\n    and exists (select 1 from public.profiles p where p.id = auth.uid() and p.ativo\n                and (p.papel = 'admin' or p.setor in ('almoxarifado','compras')))\n  );\n\n-- Atualizar (recebida / cancelada / nº do Sienge): mesmos perfis\ndrop policy if exists \"reposicoes: atualizar\" on public.reposicoes_estoque;\ncreate policy \"reposicoes: atualizar\" on public.reposicoes_estoque\n  for update to authenticated\n  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.ativo\n                 and (p.papel = 'admin' or p.setor in ('almoxarifado','compras'))))\n  with check (exists (select 1 from public.profiles p where p.id = auth.uid() and p.ativo\n                 and (p.papel = 'admin' or p.setor in ('almoxarifado','compras'))));\n\n-- Sem política de DELETE: nada é apagado, só cancelado (fica o histórico).\n\n-- Atualização em tempo real entre usuários\ndo $$ begin\n  alter publication supabase_realtime add table public.reposicoes_estoque;\nexception when duplicate_object then null; end $$;\n";
+let _comprasAba='requisicoes', _reposAbertas=null, _reposErro=null, _reposSel={}, _reposQtd={}, _reposSalvando=false, _reposGrupos=[], _reposLinhas=[];
+async function loadReposAbertas(){
+  const {data,error}=await fetchAllRows(()=>sb.from('reposicoes_estoque').select('*').eq('status','solicitada').order('id',{ascending:true}));
+  if(error){ _reposErro=error; _reposAbertas=new Map(); return false; }
+  _reposErro=null; _reposAbertas=new Map((data||[]).map(r=>[r.obra_id+'|'+String(r.code),r])); return true; }
+function reposAberta(obra,code){ return _reposAbertas?_reposAbertas.get(obra+'|'+String(code))||null:null; }
+function reposAbertasDoCodigo(code){ if(!_reposAbertas)return []; const c=String(code); return [..._reposAbertas.values()].filter(r=>String(r.code)===c); }
+function reposPill(code,obra,fallback){ const l=(!obra||obra==='__all')?reposAbertasDoCodigo(code):[reposAberta(obra,code)].filter(Boolean);
+  if(!l.length)return fallback; const r=l[0];
+  return `<span class="pill solicitada" title="Compra solicitada no Sienge ${esc(r.numero_solicitacao_sienge)} por ${esc(r.solicitado_por_nome||'')} em ${fmtDate(new Date(r.criado_em).getTime())}">🛒 Solicitada · ${esc(r.numero_solicitacao_sienge)}</span>`; }
+function reposHintCode(code){ const l=reposAbertasDoCodigo(code); if(!l.length)return '';
+  return `<div style="font-size:11px;color:#2766b8;margin-top:2px">📦 Reposição já solicitada: ${l.map(r=>esc(r.numero_solicitacao_sienge)+' ('+numf(r.quantidade)+' · '+esc(r.obra_nome||obraName(r.obra_id))+')').join(', ')}</div>`; }
+function reposTabelaFaltando(e){ const m=(e&&e.message)||''; return !!e&&(e.code==='42P01'||e.code==='PGRST205'||(/reposicoes_estoque/.test(m)&&/(could not find|does not exist|não existe|schema cache)/i.test(m))); }
+function podeSolicitarRepos(){ return isAlmoxarife()||isCompras(); }
+function reposSugerida(p,s){ let q=p.max>0?p.max-s:p.min-s; if(!(q>0))q=p.min>0?p.min:1; return Math.round(q*1000)/1000; }
+function entradasDesde(obra,code,ts){ let q=0; const docs=new Set();
+  (state.movements||[]).forEach(m=>{ if(m.tipo==='entrada'&&m.obra===obra&&String(m.code)===String(code)&&m.ts>=ts){ q+=Number(m.qty)||0; if(m.doc)docs.add(m.doc); } });
+  return {q,docs:[...docs]}; }
+
+async function drawReposicao(){ const box=$('#comprasBody'); if(!box)return;
+  $('#topActions').innerHTML=obraSelectorHTML(true);
+  if(!box.querySelector('#reposWrap'))box.innerHTML='<div class="empty" style="padding:24px">Carregando...</div>';
+  await loadReposAbertas();
+  const hist=_reposErro?{data:[]}:await sb.from('reposicoes_estoque').select('*').neq('status','solicitada').order('finalizado_em',{ascending:false,nullsFirst:false}).limit(30);
+  const cpRes=await sb.from('compras_pendentes').select('code,requisicao_id,status,numero_solicitacao_sienge').in('status',['pendente','solicitada']);
+  if(activeTab!=='compras'||_comprasAba!=='reposicao'||!$('#comprasBody'))return;
+  const b=$('#comprasBody');
+  if(_reposErro){
+    b.innerHTML=reposTabelaFaltando(_reposErro)
+      ?`<div class="panel"><h3>📦 Reposição de estoque — falta configurar o banco</h3><p class="desc">A tabela <b>reposicoes_estoque</b> ainda não existe no Supabase. ${isAdmin()?'Copie o script abaixo e rode uma vez no <b>SQL Editor</b> do Supabase; depois atualize esta tela.':'Peça ao administrador do sistema para rodar o script de configuração.'}</p>
+         ${isAdmin()?`<div style="display:flex;gap:8px;margin:10px 0"><button class="btn primary sm" onclick="navigator.clipboard.writeText(REPOS_SQL).then(()=>toast('Script copiado.','ok'),()=>toast('Não foi possível copiar — selecione o texto.','err'))">Copiar script SQL</button><button class="btn ghost sm" onclick="drawReposicao()">Atualizar</button></div><pre style="max-height:320px;overflow:auto;background:#1c1c1c;color:#e8e2d4;padding:14px;border-radius:10px;font-size:11.5px;white-space:pre">${esc(REPOS_SQL)}</pre>`:''}</div>`
+      :`<div class="tbl-wrap"><div class="empty">Erro ao carregar reposições: ${esc(_reposErro.message)}</div></div>`;
+    return; }
+  const cpPorCode={}; (cpRes.data||[]).forEach(c=>{ (cpPorCode[String(c.code)]=cpPorCode[String(c.code)]||[]).push(c); });
+  const o=curObra(); const all=o==='__all'||!o;
+  const obras=all?state.obras:state.obras.filter(x=>x.id===o);
+  const tr=buildTracked(); const pode=podeSolicitarRepos();
+  _reposLinhas=[];
+  obras.forEach(ob=>state.products.forEach(p=>{ const s=saldoOf(ob.id,p.code); if(!needsRepor(p,s,ob.id,tr))return;
+    const k=ob.id+'|'+String(p.code); _reposLinhas.push({k,ob,p,s,ab:reposAberta(ob.id,p.code),sug:reposSugerida(p,s)}); }));
+  _reposLinhas.sort((a,b)=>(a.ab?1:0)-(b.ab?1:0)||a.ob.nome.localeCompare(b.ob.nome,'pt-BR')||a.p.desc.localeCompare(b.p.desc,'pt-BR'));
+  Object.keys(_reposSel).forEach(k=>{ if(!_reposLinhas.some(l=>l.k===k&&!l.ab))delete _reposSel[k]; });
+  const pend=_reposLinhas.filter(l=>!l.ab).length, jaSol=_reposLinhas.length-pend;
+  const linhaHTML=(l,i)=>{ const p=l.p; const cps=cpPorCode[String(p.code)]||[];
+    const busca=(p.desc+' '+p.code+' '+(p.aux||'')+' '+(p.grupo||'')+' '+l.ob.nome).toLowerCase();
+    const sit=l.ab?`${reposPill(p.code,l.ob.id,'')}<div class="muted" style="font-size:11px;margin-top:3px">${numf(l.ab.quantidade)} ${esc(p.unit||'')} · ${esc(l.ab.solicitado_por_nome||'')} · ${fmtDate(new Date(l.ab.criado_em).getTime())}</div>`
+      :'<span class="pill low">A solicitar</span>';
+    const cpInfo=cps.length?`<div style="font-size:11px;color:#8a5a00;margin-top:2px">⚠ Compra de requisição em andamento: ${cps.map(c=>'REQ-'+String(c.requisicao_id).padStart(5,'0')+(c.numero_solicitacao_sienge?' ('+esc(c.numero_solicitacao_sienge)+')':'')).join(', ')}</div>`:'';
+    return `<tr data-busca="${esc(busca)}" class="${l.ab?'rep-sol':''}" style="${l.ab?'background:#f6f8fc':''}">
+      <td style="width:30px">${l.ab||!pode?'':`<input type="checkbox" style="width:auto" ${_reposSel[l.k]?'checked':''} onchange="reposToggle(${i},this.checked)">`}</td>
+      ${all?`<td class="muted" style="font-size:12px">${esc(l.ob.nome)}</td>`:''}
+      <td class="mono" style="font-size:12px">${esc(p.code)}</td>
+      <td>${esc(p.desc)}${p.grupo?`<div class="muted" style="font-size:11px">${esc(p.grupo)}</div>`:''}${cpInfo}</td>
+      <td class="num"><b class="neg">${numf(l.s)}</b> ${esc(p.unit||'')}</td><td class="num muted">${numf(p.min)}</td><td class="num muted">${p.max>0?numf(p.max):'—'}</td>
+      <td class="num">${l.ab?'—':`<input type="number" step="any" min="0" class="inline-edit" style="width:90px" value="${_reposQtd[l.k]!=null?_reposQtd[l.k]:l.sug}" onchange="reposQtd(${i},this.value)" ${pode?'':'disabled'}>`}</td>
+      <td>${sit}</td></tr>`; };
+  /* solicitações abertas agrupadas por nº do Sienge + obra */
+  const gm=new Map(); [..._reposAbertas.values()].forEach(r=>{ if(!all&&r.obra_id!==o)return; const k=r.numero_solicitacao_sienge+'|'+r.obra_id; if(!gm.has(k))gm.set(k,{sienge:r.numero_solicitacao_sienge,obra_id:r.obra_id,obra_nome:r.obra_nome||obraName(r.obra_id),itens:[]}); gm.get(k).itens.push(r); });
+  _reposGrupos=[...gm.values()].sort((a,b)=>new Date(a.itens[0].criado_em)-new Date(b.itens[0].criado_em));
+  const grupoHTML=(g,gi)=>{ const r0=g.itens[0];
+    return `<div class="panel" style="margin-bottom:12px"><div class="sechead" style="margin-bottom:8px"><h3 style="font-size:14px">🛒 Sienge ${esc(g.sienge)} · ${esc(g.obra_nome)}</h3>
+      <span class="muted" style="font-size:12px">${g.itens.length} item(ns) · ${esc(r0.solicitado_por_nome||'')} · ${fmtDate(new Date(r0.criado_em).getTime())}${r0.observacao?' · '+esc(r0.observacao):''}</span>
+      ${pode?`<div style="display:flex;gap:6px"><button class="btn ghost sm" onclick="reposEditarSienge(${gi})">✎ Nº Sienge</button><button class="btn primary sm" onclick="reposReceber(${gi},null)">✔ Tudo recebido</button></div>`:''}</div>
+      <table><thead><tr><th>Código</th><th>Produto</th><th class="num">Solicitado</th><th class="num">Saldo atual</th><th>Entradas desde a solicitação</th><th></th></tr></thead><tbody>${
+      g.itens.map(r=>{ const p=findProduct(r.code); const e=entradasDesde(r.obra_id,r.code,new Date(r.criado_em).getTime()); const un=r.unidade||(p?p.unit:'')||'';
+        return `<tr><td class="mono" style="font-size:12px">${esc(r.code)}</td><td>${esc(r.descricao||(p?p.desc:''))}</td><td class="num">${numf(r.quantidade)} ${esc(un)}</td><td class="num">${numf(saldoOf(r.obra_id,r.code))}</td>
+          <td style="font-size:12px">${e.q>0?`<span style="color:#1c7a52;font-weight:600">${numf(e.q)} ${esc(un)}</span> <span class="muted">${esc(e.docs.slice(0,2).join(', '))}</span>${e.q>=Number(r.quantidade)?' <span class="pill recebida">completo</span>':' <span class="pill pendente">parcial</span>'}`:'<span class="muted">nenhuma</span>'}</td>
+          <td class="num" style="white-space:nowrap">${pode?`<button class="btn ghost sm" onclick="reposReceber(${gi},${r.id})">Recebido</button> <button class="btn danger sm" title="Cancelar solicitação" onclick="reposCancelar(${r.id})">✕</button>`:''}</td></tr>`; }).join('')
+      }</tbody></table></div>`; };
+  const nSel=Object.keys(_reposSel).length;
+  b.innerHTML=`<div id="reposWrap">
+    <div class="panel" style="margin-bottom:16px"><h3>📦 Reposição de estoque</h3><p class="desc">Itens abaixo do estoque mínimo${all?' em todas as obras':' em <b>'+esc(obraName(o))+'</b>'}. Marque os itens, ajuste a quantidade e registre o nº da solicitação feita no Sienge. Item com solicitação em aberto fica travado até ser recebido ou cancelado — assim ninguém pede em duplicidade.</p></div>
+    <div class="sechead"><h3>Itens a repor <span class="muted" style="font-size:12px;font-weight:500">· ${pend} a solicitar · ${jaSol} já solicitado(s)</span></h3>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <div class="search" style="min-width:200px"><span class="si">⌕</span><input id="reposBusca" placeholder="Filtrar produto, código, grupo..." oninput="reposFiltrar()" data-noupper></div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;text-transform:none;font-weight:500;margin:0;color:#5a544a"><input type="checkbox" id="reposOcultarSol" style="width:auto" onchange="reposFiltrar()"> Ocultar já solicitados</label>
+        ${pode?`<button class="btn primary sm" id="reposBtn" onclick="reposSolicitarModal()" ${nSel?'':'disabled'}>🛒 Registrar solicitação (${nSel})</button>`:''}
+      </div></div>
+    <div class="tbl-wrap" style="margin-bottom:24px"><table><thead><tr><th>${pode&&pend?`<input type="checkbox" style="width:auto" title="Marcar todos visíveis" onchange="reposMarcarTodos(this.checked)">`:''}</th>${all?'<th>Obra</th>':''}<th>Código</th><th>Produto</th><th class="num">Saldo</th><th class="num">Mín</th><th class="num">Máx</th><th class="num">Qtd a solicitar</th><th>Situação</th></tr></thead>
+      <tbody id="reposRows">${_reposLinhas.map(linhaHTML).join('')||`<tr><td colspan="${all?9:8}" class="empty" style="padding:24px">Nenhum item abaixo do mínimo. 👍</td></tr>`}</tbody></table></div>
+    <div class="sechead"><h3>Solicitações em aberto <span class="muted" style="font-size:12px;font-weight:500">· ${_reposGrupos.reduce((t,g)=>t+g.itens.length,0)} item(ns)</span></h3></div>
+    ${_reposGrupos.map(grupoHTML).join('')||'<div class="tbl-wrap" style="margin-bottom:24px"><div class="empty">Nenhuma solicitação de reposição em aberto.</div></div>'}
+    <div class="sechead" style="margin-top:8px"><h3>Últimas finalizadas</h3></div>
+    <div class="tbl-wrap"><table><thead><tr><th>Sienge</th><th>Obra</th><th>Produto</th><th class="num">Qtd</th><th>Situação</th><th>Solicitado</th><th>Finalizado</th></tr></thead><tbody>${
+      (hist.data||[]).map(r=>`<tr><td class="mono" style="font-size:12px">${esc(r.numero_solicitacao_sienge)}</td><td class="muted" style="font-size:12px">${esc(r.obra_nome||obraName(r.obra_id))}</td><td>${esc(r.descricao||'')}</td><td class="num">${numf(r.quantidade)}</td>
+        <td><span class="pill ${r.status}">${r.status==='recebida'?'Recebida':'Cancelada'}</span>${r.motivo_cancelamento?`<div class="muted" style="font-size:11px">${esc(r.motivo_cancelamento)}</div>`:''}</td>
+        <td class="muted" style="font-size:12px">${esc(r.solicitado_por_nome||'')}<br>${fmtDate(new Date(r.criado_em).getTime())}</td><td class="muted" style="font-size:12px">${esc(r.finalizado_por_nome||'')}${r.finalizado_em?'<br>'+fmtDate(new Date(r.finalizado_em).getTime()):''}</td></tr>`).join('')||'<tr><td colspan="7" class="empty" style="padding:18px">Nada finalizado ainda.</td></tr>'
+    }</tbody></table></div></div>`;
+  reposFiltrar();
+}
+function reposFiltrar(){ const q=(($('#reposBusca')||{}).value||'').toLowerCase().trim(); const oc=$('#reposOcultarSol')&&$('#reposOcultarSol').checked;
+  document.querySelectorAll('#reposRows tr[data-busca]').forEach(tr=>{ tr.style.display=((!q||tr.dataset.busca.includes(q))&&!(oc&&tr.classList.contains('rep-sol')))?'':'none'; }); }
+function reposAtualizarBotao(){ const n=Object.keys(_reposSel).length; const b=$('#reposBtn'); if(b){ b.disabled=!n; b.textContent='🛒 Registrar solicitação ('+n+')'; } }
+function reposToggle(i,on){ const l=_reposLinhas[i]; if(!l||l.ab)return; if(on)_reposSel[l.k]=true; else delete _reposSel[l.k]; reposAtualizarBotao(); }
+function reposQtd(i,v){ const l=_reposLinhas[i]; if(!l)return; const n=parseFloat(v); if(n>0)_reposQtd[l.k]=n; else delete _reposQtd[l.k]; }
+function reposMarcarTodos(on){ document.querySelectorAll('#reposRows tr[data-busca]').forEach(tr=>{ if(tr.style.display==='none')return; const cb=tr.querySelector('input[type=checkbox]'); if(cb&&cb.checked!==on){ cb.checked=on; cb.onchange(); } }); }
+function reposSolicitarModal(){ if(!podeSolicitarRepos()){ toast('Sem permissão para registrar reposição.','err'); return; }
+  const sel=_reposLinhas.filter(l=>_reposSel[l.k]&&!l.ab); if(!sel.length){ toast('Marque ao menos um item.','err'); return; }
+  const bad=sel.filter(l=>!((_reposQtd[l.k]!=null?_reposQtd[l.k]:l.sug)>0)); if(bad.length){ toast('Informe a quantidade de: '+esc(bad[0].p.desc),'err'); return; }
+  modal(`<h3>🛒 Registrar solicitação de compra</h3><p class="mp">${sel.length} item(ns) para reposição. Informe o número da solicitação lançada no Sienge.</p>
+    <div style="max-height:200px;overflow:auto;border:1px solid #e4dfd4;border-radius:8px;margin-bottom:12px"><table><tbody>${sel.map(l=>`<tr><td style="font-size:12.5px">${esc(l.p.desc)}<div class="muted" style="font-size:11px">${esc(l.ob.nome)}</div></td><td class="num" style="font-size:12.5px;white-space:nowrap">${numf(_reposQtd[l.k]!=null?_reposQtd[l.k]:l.sug)} ${esc(l.p.unit||'')}</td></tr>`).join('')}</tbody></table></div>
+    <div class="field"><label>Nº da solicitação no Sienge *</label><input id="rpSienge" placeholder="ex.: 12345" data-noupper autofocus></div>
+    <div class="field"><label>Observação (opcional)</label><input id="rpObs" placeholder="ex.: urgente, fornecedor sugerido..."></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" id="rpOk">Registrar</button></div>`);
+  const inp=$('#rpSienge'); if(inp){ inp.focus(); inp.addEventListener('keydown',e=>{ if(e.key==='Enter')$('#rpOk').click(); }); }
+  $('#rpOk').onclick=()=>reposSalvar(sel); }
+async function reposSalvar(sel){ const sienge=($('#rpSienge').value||'').trim(); const obs=($('#rpObs').value||'').trim()||null;
+  if(!sienge){ toast('Informe o nº da solicitação do Sienge.','err'); $('#rpSienge').focus(); return; }
+  if(_reposSalvando)return; _reposSalvando=true; const btn=$('#rpOk'); if(btn){ btn.disabled=true; btn.textContent='Registrando...'; }
+  try{
+    await loadReposAbertas(); /* confere de novo: alguém pode ter solicitado agora há pouco */
+    const ja=sel.filter(l=>reposAberta(l.ob.id,l.p.code)); const livres=sel.filter(l=>!reposAberta(l.ob.id,l.p.code));
+    if(ja.length) toast(ja.length+' item(ns) já tinham solicitação em aberto e foram ignorados: '+ja.map(l=>esc(l.p.desc)).slice(0,3).join(', ')+(ja.length>3?'...':''),'warn');
+    if(!livres.length){ closeModal(); drawReposicao(); return; }
+    const rows=livres.map(l=>({obra_id:l.ob.id,obra_nome:l.ob.nome,code:String(l.p.code),descricao:l.p.desc,unidade:l.p.unit||null,quantidade:(_reposQtd[l.k]!=null?_reposQtd[l.k]:l.sug),saldo_na_solicitacao:l.s,numero_solicitacao_sienge:sienge,observacao:obs,solicitado_por:session.user.id,solicitado_por_nome:profile.nome||profile.email}));
+    const {data,error}=await sb.from('reposicoes_estoque').insert(rows).select('id');
+    if(error){ toast(error.code==='23505'?'Outro usuário acabou de solicitar um destes itens. Nada foi gravado — confira a lista e tente de novo.':'Erro ao registrar: '+esc(error.message),'err'); closeModal(); drawReposicao(); return; }
+    livres.forEach(l=>{ delete _reposSel[l.k]; delete _reposQtd[l.k]; });
+    closeModal(); toast('Solicitação '+esc(sienge)+' registrada · '+((data||rows).length)+' item(ns).','ok');
+    try{ await sb.rpc('log_event',{p_acao:'reposicao_solicitada',p_entidade:'reposicoes_estoque',p_entidade_id:null,p_detalhes:{sienge,itens:rows.map(r=>({obra:r.obra_nome,code:r.code,qtd:r.quantidade}))}}); }catch(e){}
+    await drawReposicao(); refreshTelaAtual();
+  }finally{ _reposSalvando=false; } }
+async function reposReceber(gi,id){ const g=_reposGrupos[gi]; if(!g)return; const itens=id?g.itens.filter(r=>r.id===id):g.itens; if(!itens.length)return;
+  const txt=id?('Marcar como recebido: '+(itens[0].descricao||'')+' ('+numf(itens[0].quantidade)+')'):('Marcar TODOS os '+itens.length+' itens da solicitação '+g.sienge+' como recebidos');
+  modal(`<h3>Confirmar recebimento</h3><p class="mp">${esc(txt)}? O item volta a poder ser solicitado se ficar abaixo do mínimo de novo.</p>
+    <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" id="rrOk">Confirmar</button></div>`);
+  $('#rrOk').onclick=async()=>{ closeModal();
+    const {data,error}=await sb.from('reposicoes_estoque').update({status:'recebida',finalizado_em:new Date().toISOString(),finalizado_por_nome:profile.nome||profile.email}).in('id',itens.map(r=>r.id)).eq('status','solicitada').select('id');
+    if(error){ toast('Erro: '+esc(error.message),'err'); return; }
+    if(!data||!data.length){ toast('Nada foi alterado — já estava finalizado ou o banco bloqueou (permissão).','err'); }
+    else toast(data.length+' item(ns) marcado(s) como recebido(s).','ok');
+    await drawReposicao(); refreshTelaAtual(); }; }
+function reposCancelar(id){ const r=_reposAbertas&&[..._reposAbertas.values()].find(x=>x.id===id); if(!r)return;
+  modal(`<h3>Cancelar solicitação de reposição</h3><p class="mp">${esc(r.descricao||'')} · ${numf(r.quantidade)} · Sienge ${esc(r.numero_solicitacao_sienge)}</p>
+    <div class="field"><label>Motivo *</label><input id="rcMot" placeholder="ex.: solicitação cancelada no Sienge"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Voltar</button><button class="btn danger" id="rcOk">Cancelar solicitação</button></div>`);
+  $('#rcOk').onclick=async()=>{ const mot=($('#rcMot').value||'').trim(); if(!mot){ toast('Informe o motivo.','err'); return; } closeModal();
+    const {data,error}=await sb.from('reposicoes_estoque').update({status:'cancelada',motivo_cancelamento:mot,finalizado_em:new Date().toISOString(),finalizado_por_nome:profile.nome||profile.email}).eq('id',id).eq('status','solicitada').select('id');
+    if(error){ toast('Erro: '+esc(error.message),'err'); return; }
+    toast(data&&data.length?'Solicitação cancelada.':'Nada foi alterado (permissão ou já finalizada).',data&&data.length?'warn':'err');
+    await drawReposicao(); refreshTelaAtual(); }; }
+function reposEditarSienge(gi){ const g=_reposGrupos[gi]; if(!g)return;
+  modal(`<h3>Nº da solicitação no Sienge</h3><p class="mp">${g.itens.length} item(ns) · ${esc(g.obra_nome)}</p>
+    <div class="field"><label>Nº da solicitação no Sienge *</label><input id="reSienge" data-noupper value="${esc(g.sienge)}"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" id="reOk">Salvar</button></div>`);
+  $('#reOk').onclick=async()=>{ const v=($('#reSienge').value||'').trim(); if(!v){ toast('Informe o número.','err'); return; } closeModal();
+    const {data,error}=await sb.from('reposicoes_estoque').update({numero_solicitacao_sienge:v}).in('id',g.itens.map(r=>r.id)).eq('status','solicitada').select('id');
+    if(error){ toast('Erro: '+esc(error.message),'err'); return; }
+    toast(data&&data.length?'Nº do Sienge atualizado.':'Nada foi alterado (permissão).',data&&data.length?'ok':'err'); await drawReposicao(); refreshTelaAtual(); }; }
+
 /* ===== DEVOLUÇÃO DE MATERIAIS ===== */
 async function refreshDevolucaoBadge(){ if(!isAlmoxarife())return; const b=$('#navBadgeDevol'); if(!b)return;
   const {count}=await sb.from('devolucoes').select('id',{count:'exact',head:true}).in('status',['aguardando_nota','em_envio']);
@@ -3378,7 +3546,7 @@ function onAuthReady(){
   const p=(async()=>{
     profile=await loadProfile();
     if(!profile||!profile.ativo){ showPending(); return; }
-    hideGate(); applyRoleNav(); initNavGrps(); const pDev=refreshDevolucoesBloqueio().catch(()=>{}); await load(); await pDev; loadPhotos().then(()=>refreshTelaAtual()); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); refreshRetiradasBadge(); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge();
+    hideGate(); applyRoleNav(); initNavGrps(); const pDev=refreshDevolucoesBloqueio().catch(()=>{}); await load(); await pDev; loadPhotos().then(()=>refreshTelaAtual()); loadReposAbertas().then(()=>refreshTelaAtual()); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); refreshRetiradasBadge(); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge();
     _bootedUid=uid; go(abaInicial());
     if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); startVersionWatch(); }
   })();
