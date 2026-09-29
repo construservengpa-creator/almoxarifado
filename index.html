@@ -132,6 +132,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   .editphoto{width:120px;height:120px;border-radius:10px;object-fit:cover;border:1px solid #e4dfd4;display:block}
   .editphoto.ph{display:flex;align-items:center;justify-content:center;background:#faf8f3;color:#a09a8d;font-size:12px;text-align:center}
   .refline{font-size:11px;color:#8a7a55;margin-top:4px;line-height:1.4}
+  /* Tabelas de produtos com largura padrão: colunas fixas, especificação limitada a 2 linhas (clique expande) */
+  table.fixa{table-layout:fixed;width:100%;min-width:1080px}
+  table.fixa td{overflow-wrap:anywhere}
+  table.fixa svg.bc{max-width:100%;height:auto}
+  .refline.clamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;cursor:pointer}
+  .refline.clamp.aberta{display:block;-webkit-line-clamp:unset}
   .danger-zone{background:#fdf2f2;border:1px solid #f3c9c9;border-radius:12px;padding:20px}
   .danger-zone h3{color:#b03030}
   .tabs{display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid #e4dfd4}
@@ -978,7 +984,7 @@ function renderPainel(){
       <span id="dashCount" style="font-size:12px;color:#8a8377"></span>
     </div></div>`;
   if(!ps.length){ html+=`<div class="tbl-wrap"><div class="empty"><div class="ico">▦</div>Nenhum produto. Use <b>Entrada</b> ou <b>Importar Planilha</b>.</div></div>`; $('#view').innerHTML=html; return; }
-  html+=`<div class="tbl-wrap"><table><thead><tr><th>Foto</th><th>Código</th><th>Produto</th><th class="num">Saldo</th><th class="num">Mín / Máx</th><th class="num">Custo</th><th class="num">Venda</th><th>Situação</th><th></th></tr></thead><tbody id="dashRows"></tbody></table></div>`;
+  html+=`<div class="tbl-wrap"><table class="fixa"><colgroup><col style="width:70px"><col style="width:150px"><col><col style="width:100px"><col style="width:110px"><col style="width:110px"><col style="width:100px"><col style="width:140px"><col style="width:64px"></colgroup><thead><tr><th>Foto</th><th>Código</th><th>Produto</th><th class="num">Saldo</th><th class="num">Mín / Máx</th><th class="num">Custo</th><th class="num">Venda</th><th>Situação</th><th></th></tr></thead><tbody id="dashRows"></tbody></table></div>`;
   $('#view').innerHTML=html;
   const grpCollapsed=window._dashGrpCollapsed||(window._dashGrpCollapsed=new Set());
   window.toggleDashGrp=i=>{ const k=(window._dashKeys||[])[i]; if(k===undefined)return; if(grpCollapsed.has(k))grpCollapsed.delete(k); else grpCollapsed.add(k); draw(); };
@@ -992,7 +998,7 @@ function renderPainel(){
     let budget=window._dashLim||LIST_PAGE, shown=0;
     const rowHTML=p=>{const s=sal(p.code);const st=stOf(p,s);
       const pill=st==='low'?reposPill(p.code,o,'<span class="pill low">Abaixo do mín</span>'):st==='high'?'<span class="pill high">Acima do máx</span>':'<span class="pill good">Normal</span>';
-      return `<tr><td>${thumb(p.code)}</td><td class="mono">${esc(p.code)}${p.aux?`<br><span style="font-size:10px;color:#a09a8d">aux: ${esc(p.aux)}</span>`:''}</td><td><a href="#" onclick="productDetailModal('${esc(p.code)}');return false" style="color:#1c1c1c;font-weight:600;text-decoration:none">${esc(p.desc)}</a>${p.ref?`<div class="refline">↳ ${esc(p.ref)}</div>`:''}</td><td class="num"><b class="${st==='low'?'neg':''}">${numf(s)}</b> ${esc(p.unit||'')}</td><td class="num muted">${numf(p.min)} / ${p.max>0?numf(p.max):'—'}</td><td class="num">${money(p.custo||0)}</td><td class="num">${p.preco?money(p.preco):'—'}</td><td>${pill}</td><td class="num"><button class="btn ghost sm" title="Detalhes do produto" onclick="productDetailModal('${esc(p.code)}')">🔍</button></td></tr>`;};
+      return `<tr><td>${thumb(p.code)}</td><td class="mono">${esc(p.code)}${p.aux?`<br><span style="font-size:10px;color:#a09a8d">aux: ${esc(p.aux)}</span>`:''}</td><td><a href="#" onclick="productDetailModal('${esc(p.code)}');return false" style="color:#1c1c1c;font-weight:600;text-decoration:none">${esc(p.desc)}</a>${p.ref?`<div class="refline clamp" title="${esc(p.ref)}" onclick="this.classList.toggle('aberta')">↳ ${esc(p.ref)}</div>`:''}</td><td class="num"><b class="${st==='low'?'neg':''}">${numf(s)}</b> ${esc(p.unit||'')}</td><td class="num muted">${numf(p.min)} / ${p.max>0?numf(p.max):'—'}</td><td class="num">${money(p.custo||0)}</td><td class="num">${p.preco?money(p.preco):'—'}</td><td>${pill}</td><td class="num"><button class="btn ghost sm" title="Detalhes do produto" onclick="productDetailModal('${esc(p.code)}')">🔍</button></td></tr>`;};
     let body;
     if(!grouped){ const vis=list.slice(0,budget); shown=vis.length; body=vis.map(rowHTML).join(''); }
     else{
@@ -1490,7 +1496,7 @@ function renderProdutos(){
       <label style="display:flex;align-items:center;gap:6px;font-size:12px;text-transform:none;font-weight:500;margin:0;color:#5a544a"><input type="checkbox" id="prodZero" style="width:auto"> Incluir zerados</label>
     </div></div>`;
   if(!state.products.length){ html+=`<div class="tbl-wrap"><div class="empty"><div class="ico">≣</div>Nenhum produto.</div></div>`; $('#view').innerHTML=html; return; }
-  html+=`<div class="tbl-wrap"><table><thead><tr><th>Foto</th><th>Cód. barras</th><th>Cód. aux.</th><th>Produto</th><th class="num">Saldo</th><th class="num">Mín</th><th class="num">Máx</th><th class="num">Custo</th><th class="num">Venda</th><th></th></tr></thead><tbody id="prodRows"></tbody></table></div>`;
+  html+=`<div class="tbl-wrap"><table class="fixa"><colgroup><col style="width:70px"><col style="width:170px"><col style="width:110px"><col><col style="width:90px"><col style="width:100px"><col style="width:100px"><col style="width:110px"><col style="width:100px"><col style="width:96px"></colgroup><thead><tr><th>Foto</th><th>Cód. barras</th><th>Cód. aux.</th><th>Produto</th><th class="num">Saldo</th><th class="num">Mín</th><th class="num">Máx</th><th class="num">Custo</th><th class="num">Venda</th><th></th></tr></thead><tbody id="prodRows"></tbody></table></div>`;
   $('#view').innerHTML=html;
   const draw=()=>{ const q=($('#prodSearch').value||'').toLowerCase(); const zero=$('#prodZero').checked;
     let list=state.products.filter(p=>{ const s=sal(p.code);
@@ -1503,7 +1509,7 @@ function renderProdutos(){
       return `<tr><td>${thumb(p.code)}</td>
       <td><svg class="bc" id="bc_${esc(p.code)}"></svg><div class="mono" style="font-size:11px;color:#8a8377;text-align:center">${esc(p.code)}</div></td>
       <td class="mono">${esc(p.aux||'—')}</td>
-      <td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.unit||'UN')}</span>${p.grupo?` · <span class="muted" style="font-size:11px">${esc(p.grupo)}</span>`:''}${(p.localizacao||p.endereco)?`<div class="refline">📍 ${esc([p.localizacao,p.endereco].filter(Boolean).join(' · '))}</div>`:''}${p.ref?`<div class="refline">↳ ${esc(p.ref)}</div>`:''}</td>
+      <td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.unit||'UN')}</span>${p.grupo?` · <span class="muted" style="font-size:11px">${esc(p.grupo)}</span>`:''}${(p.localizacao||p.endereco)?`<div class="refline">📍 ${esc([p.localizacao,p.endereco].filter(Boolean).join(' · '))}</div>`:''}${p.ref?`<div class="refline clamp" title="${esc(p.ref)}" onclick="this.classList.toggle('aberta')">↳ ${esc(p.ref)}</div>`:''}</td>
       <td class="num"><b class="${st==='low'?'neg':''}">${numf(s)}</b></td>
       <td class="num"><input class="inline-edit" type="number" step="any" value="${p.min}" onchange="setField('${esc(p.code)}','min',this.value)"></td>
       <td class="num"><input class="inline-edit" type="number" step="any" value="${p.max}" onchange="setField('${esc(p.code)}','max',this.value)"></td>
