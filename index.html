@@ -669,9 +669,13 @@ function addSaldo(obra,code,delta){
 /* ===== Movimentações — agora persistidas linha a linha em movimentos_estoque, não mais dentro do JSON único (isso é o que elimina a perda por sobrescrita concorrente) ===== */
 function movToRow(m){ return {id:m.id,ts:m.ts,tipo:m.tipo,obra:m.obra||null,obra_dest:m.obraDest||null,code:m.code||null,descricao:m.desc||null,qty:m.qty||0,valor_unit:m.valorUnit||0,valor_total:m.valorTotal||0,doc:m.doc||null,obs:m.obs||null,aplic:m.aplic||null,os:m.os||null,seq:m.seq||null,nota_id:m.notaId||null,inv_id:m.invId||null,inv_modo:m.invModo||null,baixa_id:m.baixaId||null,romaneio_id:m.romaneioId||null,saldo:(m.saldo!=null?m.saldo:null),saldo_dest:(m.saldoDest!=null?m.saldoDest:null)}; }
 function rowToMov(r){ return {id:r.id,ts:Number(r.ts),tipo:r.tipo,obra:r.obra||undefined,obraDest:r.obra_dest||undefined,code:r.code||undefined,desc:r.descricao||undefined,qty:Number(r.qty)||0,valorUnit:Number(r.valor_unit)||0,valorTotal:Number(r.valor_total)||0,doc:r.doc||undefined,obs:r.obs||undefined,aplic:r.aplic||undefined,os:r.os||undefined,seq:r.seq||undefined,notaId:r.nota_id||undefined,invId:r.inv_id||undefined,invModo:r.inv_modo||undefined,baixaId:r.baixa_id||undefined,romaneioId:r.romaneio_id||undefined,saldo:r.saldo!=null?Number(r.saldo):undefined,saldoDest:r.saldo_dest!=null?Number(r.saldo_dest):undefined}; }
+const _movPend=new Set();
 function pushMov(m){ if(!m.id)m.id=uid(); if(!m.ts)m.ts=Date.now(); state.movements.unshift(m);
-  sb.from('movimentos_estoque').insert(movToRow(m)).then(({error})=>{ if(error) toast('Erro ao gravar movimentação no banco (recarregue a página para conferir): '+error.message,'err'); });
+  const pr=sb.from('movimentos_estoque').insert(movToRow(m)).then(({error})=>{ if(error) toast('Erro ao gravar movimentação no banco (recarregue a página para conferir): '+error.message,'err'); });
+  _movPend.add(pr); pr.finally(()=>_movPend.delete(pr));
   return m; }
+/* Espera as movimentações recém-lançadas chegarem ao banco (usado antes de baixar a reposição pela nota) */
+async function aguardarMovs(){ if(_movPend.size) await Promise.allSettled([..._movPend]); }
 async function fetchAllRows(mk,page=1000){ let all=[], from=0;
   while(true){ const {data,error}=await mk().range(from,from+page-1); if(error)return {data:null,error};
     all=all.concat(data||[]); if(!data||data.length<page)break; from+=page; }
@@ -1225,13 +1229,16 @@ function delSetor(id){ const n=state.aplicacoes.filter(a=>a.sub===id).length;
 
 /* ===== ENTRADA ===== */
 let nfItems=[]; let entradaTab='xml';
+/* Nota em inserção vinculada a uma solicitação de reposição (aberta pelo botão Recebido) */
+let _nfRepos=null;
 function renderEntrada(){
   if(needObra())return;
   $('#view').innerHTML=`
+  <div id="nfReposBanner"></div>
   <div class="panel">
     <h3>Dados da entrada</h3><p class="desc">Defina a obra de destino e o documento. Depois preencha os itens por XML ou manualmente.</p>
     <div class="row c4">
-      <div class="field"><label>Obra (destino)</label><select id="nfObra">${obraOptions(curObra()==='__all'?(state.obras[0]&&state.obras[0].id):curObra(),false)}</select></div>
+      <div class="field"><label>Obra (destino)</label><select id="nfObra">${obraOptions(_nfRepos?_nfRepos.obra_id:(curObra()==='__all'?(state.obras[0]&&state.obras[0].id):curObra()),false)}</select></div>
       <div class="field"><label>Nº da Nota</label><input id="nfNum" class="mono" placeholder="000.000"></div>
       <div class="field"><label>Fornecedor</label><input id="nfForn" placeholder="Nome"></div>
       <div class="field"><label>Data de emissão</label><input id="nfData" type="date"></div>
@@ -1257,8 +1264,15 @@ function renderEntrada(){
   <div class="sechead" style="margin-top:24px"><h3>Histórico de notas importadas</h3><span id="nfHistResumo" style="font-size:12.5px;color:#8a8377"></span></div>
   <div class="tbl-wrap" id="nfHist"></div>`;
   $('#nfData').value=new Date().toISOString().slice(0,10);
-  setEntradaTab(entradaTab); drawNfItems(); drawNfHist();
+  setEntradaTab(entradaTab); drawNfItems(); drawNfHist(); drawNfReposBanner();
 }
+function drawNfReposBanner(){ const el=$('#nfReposBanner'); if(!el)return;
+  if(!_nfRepos){ el.innerHTML=''; return; }
+  el.innerHTML=`<div class="panel" style="border-left:4px solid #f5a623;background:#fffaf0;margin-bottom:16px;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+    <div style="font-size:13px">🛒 <b>Nota vinculada à solicitação Sienge ${esc(_nfRepos.sienge)}</b> · ${esc(_nfRepos.obra_nome)} · ${_nfRepos.itens.length} item(ns).
+    <div class="muted" style="font-size:12px;margin-top:2px">Carregue o XML ou confira os itens abaixo. Ao dar entrada, a nota fica vinculada à solicitação: abate o pendente e, quando chegar tudo, o item sai de "Solicitações em aberto".</div></div>
+    <button class="btn ghost sm" onclick="desvincularNfRepos()">Desvincular</button></div>`; }
+function desvincularNfRepos(){ _nfRepos=null; nfItems=nfItems.filter(i=>!i.reposPre); drawNfItems(); drawNfReposBanner(); toast('Nota desvinculada da solicitação de reposição.','ok'); }
 function drawNfHist(){ const el=$('#nfHist'); if(!el)return; const list=state.notas.slice(0,40);
   const totalGeral=state.notas.reduce((s,n)=>s+(n.valor||0),0);
   const res=$('#nfHistResumo'); if(res)res.textContent=`${state.notas.length} nota(s) · ${money(totalGeral)}`;
@@ -1311,6 +1325,7 @@ function importXml(content){
     if(!dets.length){toast('Não encontrei itens (det) no XML.','err');return;}
     const emitCnpjX=emit?txt(emit,'CNPJ')||txt(emit,'CPF'):'';
     let add=0, auto=0;
+    nfItems=nfItems.filter(i=>!i.reposPre); /* o XML substitui os itens pré-carregados da solicitação */
     dets.forEach(det=>{ const prod=tagsOf(det,'prod')[0]; if(!prod)return;
       const cEAN=txt(prod,'cEAN'); const cProd=txt(prod,'cProd');
       const eanOk=/^\d{8,14}$/.test(cEAN);
@@ -1417,7 +1432,7 @@ function cancelarNf(ok){
   const temDados=nfItems.length||['nfNum','nfForn','nfCnpjTom','nfCnpjEmit'].some(id=>$('#'+id)&&$('#'+id).value.trim());
   if(!temDados){ toast('Não há nota em inserção para cancelar.','warn'); return; }
   if(!ok){ modal(`<h3>Cancelar inserção da nota?</h3><p class="mp">Os ${nfItems.length} item(ns) carregado(s) e os dados da nota serão descartados. Nada foi lançado no estoque.</p><div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Voltar</button><button class="btn danger" onclick="closeModal();cancelarNf(true)">Sim, cancelar</button></div>`); return; }
-  nfItems=[]; ['nfNum','nfForn','nfCnpjTom','nfCnpjEmit'].forEach(id=>{ if($('#'+id))$('#'+id).value=''; });
+  nfItems=[]; _nfRepos=null; drawNfReposBanner(); ['nfNum','nfForn','nfCnpjTom','nfCnpjEmit'].forEach(id=>{ if($('#'+id))$('#'+id).value=''; });
   if($('#nfData'))$('#nfData').value=new Date().toISOString().slice(0,10);
   if($('#xmlFile'))$('#xmlFile').value='';
   drawNfItems(); toast('Inserção da nota cancelada.','ok'); }
@@ -1431,7 +1446,7 @@ function rmNfItem(i){ nfItems.splice(i,1); drawNfItems(); }
 function drawNfItems(){ const b=$('#nfBody'); if(!b)return;
   if(!nfItems.length){ b.innerHTML=`<tr><td colspan="6" class="empty" style="padding:24px">Nenhum item. Carregue um XML, busque no estoque ou adicione manualmente.</td></tr>`; $('#nfTotal').textContent='R$ 0,00'; drawVincResumo(); return; }
   let tot=0; b.innerHTML=nfItems.map((it,i)=>{const t=(it.qty||0)*(it.custo||0);tot+=t;const ex=it.code&&findProduct(it.code);
-    return `<tr><td class="mono">${it.code?esc(it.code):'<span class="muted">auto</span>'}${it.xml?'':(ex?' <span class="pill good" style="font-size:9px">existe</span>':'')}</td><td>${esc(it.desc)}${it.xml?vincCellHTML(it,i):''}</td><td class="num"><input class="inline-edit" type="number" step="any" min="0" value="${it.qty}" oninput="setNfQty(${i},this.value)"></td><td class="num"><input class="inline-edit" type="number" step="any" min="0" value="${it.custo}" oninput="setNfCusto(${i},this.value)"></td><td class="num" id="nft_${i}">${money(t)}</td><td class="num"><button class="btn danger sm" onclick="rmNfItem(${i})">✕</button></td></tr>`;}).join('');
+    return `<tr><td class="mono">${it.code?esc(it.code):'<span class="muted">auto</span>'}${it.xml?'':(ex?' <span class="pill good" style="font-size:9px">existe</span>':'')}</td><td>${esc(it.desc)}${it.reposPre?' <span class="pill solicitada" style="font-size:9px">da solicitação</span>':''}${it.xml?vincCellHTML(it,i):''}</td><td class="num"><input class="inline-edit" type="number" step="any" min="0" value="${it.qty}" oninput="setNfQty(${i},this.value)"></td><td class="num"><input class="inline-edit" type="number" step="any" min="0" value="${it.custo}" oninput="setNfCusto(${i},this.value)"></td><td class="num" id="nft_${i}">${money(t)}</td><td class="num"><button class="btn danger sm" onclick="rmNfItem(${i})">✕</button></td></tr>`;}).join('');
   $('#nfTotal').textContent=money(tot); drawVincResumo(); }
 function setNfQty(i,v){ if(nfItems[i])nfItems[i].qty=parseFloat(v)||0; refreshNfTotals(); }
 function setNfCusto(i,v){ if(nfItems[i])nfItems[i].custo=parseFloat(v)||0; refreshNfTotals(); }
@@ -1444,7 +1459,7 @@ function processNf(force){
   const dup=state.notas.find(n=>n.numero===numero && (n.forn||'')===forn && (n.cnpjTomador||'')===cnpjTom && (n.dataEmissao||'')===dataEmissao && Math.abs((n.valor||0)-totalCheck)<0.01);
   if(dup && !force){ modal(`<h3>⚠ Possível nota duplicada</h3><p class="mp">Já existe uma nota com <b>mesmo número, fornecedor, CNPJ do tomador, data de emissão e valor</b> (lançada em ${fmtDate(dup.ts)}, obra ${esc(obraName(dup.obra))}). Lançar mesmo assim?</p><div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn danger" onclick="closeModal();processNf(true)">Lançar assim mesmo</button></div>`); return; }
   const doc=`NF ${numero}${forn?' · '+forn:''}`; const notaId=uid(); const ts=Date.now();
-  let alerts=[], total=0; const notaItens=[];
+  let alerts=[], total=0; const notaItens=[]; const movsNota=[];
   nfItems.forEach(it=>{ let p=it.code?findProduct(it.code):null;
     if(!p){ const code=it.code||genCode(); p={code,desc:it.desc,unit:it.unit,aux:'',min:0,max:0,custo:0,preco:it.preco||0,ref:it.ref||''}; state.products.push(p); }
     else if(it.ref && !p.ref){ p.ref=it.ref; }
@@ -1455,12 +1470,13 @@ function processNf(force){
       state.vinculosNF[k]={code:p.code,fator:it.fator||1,xProd:it.xml.xProd,uCom:it.xml.uCom,forn,ts}; }
     addSaldo(obra,p.code,it.qty); total+=it.qty*it.custo;
     notaItens.push(Object.assign({code:p.code,desc:p.desc,qty:it.qty,custo:it.custo,unit:p.unit}, it.xml?{xmlCod:it.xml.cProd,xmlDesc:it.xml.xProd,xmlUnit:it.xml.uCom,xmlQty:it.xml.qty,fator:it.fator||1}:{}));
-    pushMov({id:uid(),ts,tipo:'entrada',obra,notaId,code:p.code,desc:p.desc,qty:it.qty,valorUnit:it.custo,valorTotal:it.qty*it.custo,doc,saldo:saldoOf(obra,p.code)});
+    movsNota.push(pushMov({id:uid(),ts,tipo:'entrada',obra,notaId,code:p.code,desc:p.desc,qty:it.qty,valorUnit:it.custo,valorTotal:it.qty*it.custo,doc,saldo:saldoOf(obra,p.code)}));
     if(p.max>0&&saldoOf(obra,p.code)>p.max)alerts.push(`${p.desc}: ${numf(saldoOf(obra,p.code))} acima do máximo`);
   });
   state.notas.unshift({id:notaId,numero,forn,dataEmissao,cnpjTomador:cnpjTom,cnpjEmit,obra,valor:total,itens:notaItens,ts});
   save('Entrada NF '+numero+' em '+obraName(obra)); const n=nfItems.length; nfItems=[];
   toast(`Entrada em ${esc(obraName(obra))} · ${n} item(ns).`,'ok'); alerts.forEach(a=>toast('⚠ '+a,'warn'));
+  if(_nfRepos){ const ctx=_nfRepos; _nfRepos=null; reposAposNota(ctx,obra,movsNota); return; }
   go('produtos');
 }
 
@@ -3034,7 +3050,8 @@ function reabrirPeriodoMutuo(id){
    Itens abaixo do mínimo por obra/estoque → registra a solicitação de compra feita no Sienge (com o nº).
    Enquanto a solicitação estiver aberta, o item fica travado: não dá para pedir de novo (a trava também
    existe no banco — índice único por obra+produto com status "solicitada"). */
-const REPOS_SQL="-- Reposição de estoque: registro das solicitações de compra feitas no Sienge\n-- Rodar uma vez no Supabase (SQL Editor). Pode rodar de novo sem problema.\n\ncreate table if not exists public.reposicoes_estoque (\n  id                         bigint generated always as identity primary key,\n  obra_id                    text        not null,\n  obra_nome                  text,\n  code                       text        not null,\n  descricao                  text,\n  unidade                    text,\n  quantidade                 numeric     not null check (quantidade > 0),\n  saldo_na_solicitacao       numeric,\n  numero_solicitacao_sienge  text        not null check (length(trim(numero_solicitacao_sienge)) > 0),\n  observacao                 text,\n  status                     text        not null default 'solicitada'\n                                         check (status in ('solicitada','recebida','cancelada')),\n  solicitado_por             uuid        default auth.uid(),\n  solicitado_por_nome        text,\n  criado_em                  timestamptz not null default now(),\n  finalizado_em              timestamptz,\n  finalizado_por_nome        text,\n  motivo_cancelamento        text\n);\n\n-- Trava de duplicidade no próprio banco: só pode existir UMA solicitação em aberto\n-- por produto em cada obra/estoque (vale mesmo se duas pessoas clicarem ao mesmo tempo).\ncreate unique index if not exists reposicoes_estoque_uma_aberta\n  on public.reposicoes_estoque (obra_id, code)\n  where status = 'solicitada';\n\ncreate index if not exists reposicoes_estoque_status_idx on public.reposicoes_estoque (status);\n\nalter table public.reposicoes_estoque enable row level security;\n\n-- Leitura: qualquer usuário ativo\ndrop policy if exists \"reposicoes: leitura\" on public.reposicoes_estoque;\ncreate policy \"reposicoes: leitura\" on public.reposicoes_estoque\n  for select to authenticated\n  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.ativo));\n\n-- Registrar: administrador, almoxarifado e compras\ndrop policy if exists \"reposicoes: registrar\" on public.reposicoes_estoque;\ncreate policy \"reposicoes: registrar\" on public.reposicoes_estoque\n  for insert to authenticated\n  with check (\n    solicitado_por = auth.uid()\n    and exists (select 1 from public.profiles p where p.id = auth.uid() and p.ativo\n                and (p.papel = 'admin' or p.setor in ('almoxarifado','compras')))\n  );\n\n-- Atualizar (recebida / cancelada / nº do Sienge): mesmos perfis\ndrop policy if exists \"reposicoes: atualizar\" on public.reposicoes_estoque;\ncreate policy \"reposicoes: atualizar\" on public.reposicoes_estoque\n  for update to authenticated\n  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.ativo\n                 and (p.papel = 'admin' or p.setor in ('almoxarifado','compras'))))\n  with check (exists (select 1 from public.profiles p where p.id = auth.uid() and p.ativo\n                 and (p.papel = 'admin' or p.setor in ('almoxarifado','compras'))));\n\n-- Sem política de DELETE: nada é apagado, só cancelado (fica o histórico).\n\n-- Atualização em tempo real entre usuários\ndo $$ begin\n  alter publication supabase_realtime add table public.reposicoes_estoque;\nexception when duplicate_object then null; end $$;\n";
+const REPOS_SQL="-- Reposição de estoque: registro das solicitações de compra feitas no Sienge\n-- Rodar uma vez no Supabase (SQL Editor). Pode rodar de novo sem problema.\n\ncreate table if not exists public.reposicoes_estoque (\n  id                         bigint generated always as identity primary key,\n  obra_id                    text        not null,\n  obra_nome                  text,\n  code                       text        not null,\n  descricao                  text,\n  unidade                    text,\n  quantidade                 numeric     not null check (quantidade > 0),\n  saldo_na_solicitacao       numeric,\n  numero_solicitacao_sienge  text        not null check (length(trim(numero_solicitacao_sienge)) > 0),\n  observacao                 text,\n  status                     text        not null default 'solicitada'\n                                         check (status in ('solicitada','recebida','cancelada')),\n  solicitado_por             uuid        default auth.uid(),\n  solicitado_por_nome        text,\n  criado_em                  timestamptz not null default now(),\n  finalizado_em              timestamptz,\n  finalizado_por_nome        text,\n  motivo_cancelamento        text\n);\n\n-- Trava de duplicidade no próprio banco: só pode existir UMA solicitação em aberto\n-- por produto em cada obra/estoque (vale mesmo se duas pessoas clicarem ao mesmo tempo).\ncreate unique index if not exists reposicoes_estoque_uma_aberta\n  on public.reposicoes_estoque (obra_id, code)\n  where status = 'solicitada';\n\ncreate index if not exists reposicoes_estoque_status_idx on public.reposicoes_estoque (status);\n\nalter table public.reposicoes_estoque enable row level security;\n\n-- Leitura: qualquer usuário ativo\ndrop policy if exists \"reposicoes: leitura\" on public.reposicoes_estoque;\ncreate policy \"reposicoes: leitura\" on public.reposicoes_estoque\n  for select to authenticated\n  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.ativo));\n\n-- Registrar: administrador, almoxarifado e compras\ndrop policy if exists \"reposicoes: registrar\" on public.reposicoes_estoque;\ncreate policy \"reposicoes: registrar\" on public.reposicoes_estoque\n  for insert to authenticated\n  with check (\n    solicitado_por = auth.uid()\n    and exists (select 1 from public.profiles p where p.id = auth.uid() and p.ativo\n                and (p.papel = 'admin' or p.setor in ('almoxarifado','compras')))\n  );\n\n-- Atualizar (recebida / cancelada / nº do Sienge): mesmos perfis\ndrop policy if exists \"reposicoes: atualizar\" on public.reposicoes_estoque;\ncreate policy \"reposicoes: atualizar\" on public.reposicoes_estoque\n  for update to authenticated\n  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.ativo\n                 and (p.papel = 'admin' or p.setor in ('almoxarifado','compras'))))\n  with check (exists (select 1 from public.profiles p where p.id = auth.uid() and p.ativo\n                 and (p.papel = 'admin' or p.setor in ('almoxarifado','compras'))));\n\n-- Sem política de DELETE: nada é apagado, só cancelado (fica o histórico).\n\n-- Atualização em tempo real entre usuários\ndo $$ begin\n  alter publication supabase_realtime add table public.reposicoes_estoque;\nexception when duplicate_object then null; end $$;\n\n-- ===== Recebimento por nota fiscal VINCULADA =====\n-- Entregue = soma das notas vinculadas à solicitação (reposicoes_recebimentos).\n-- Só entra a nota lançada pela solicitação ou vinculada explicitamente; nota lançada\n-- direto na Entrada não abate nada sozinha. Pode rodar de novo sem problema.\n\nalter table public.reposicoes_estoque add column if not exists nota_recebimento        text;\nalter table public.reposicoes_estoque add column if not exists quantidade_recebida     numeric not null default 0;\nalter table public.reposicoes_estoque add column if not exists quantidade_nao_entregue numeric;\nalter table public.reposicoes_estoque add column if not exists motivo_encerramento     text;\n\ncreate table if not exists public.reposicoes_recebimentos (\n  id               bigint generated always as identity primary key,\n  reposicao_id     bigint      not null references public.reposicoes_estoque(id) on delete cascade,\n  movimento_id     text        not null,\n  nota_id          text,\n  doc              text,\n  quantidade       numeric     not null check (quantidade > 0),\n  criado_por       uuid        default auth.uid(),\n  criado_por_nome  text,\n  criado_em        timestamptz not null default now()\n);\n-- Cada linha de entrada da nota só pode abater UMA solicitação (não conta duas vezes)\ncreate unique index if not exists reposicoes_recebimentos_mov_uk on public.reposicoes_recebimentos (movimento_id);\ncreate index if not exists reposicoes_recebimentos_rep_idx on public.reposicoes_recebimentos (reposicao_id);\n\nalter table public.reposicoes_recebimentos enable row level security;\ndrop policy if exists \"reposicoes_receb: leitura\" on public.reposicoes_recebimentos;\ncreate policy \"reposicoes_receb: leitura\" on public.reposicoes_recebimentos\n  for select to authenticated\n  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.ativo));\ndrop policy if exists \"reposicoes_receb: vincular\" on public.reposicoes_recebimentos;\ncreate policy \"reposicoes_receb: vincular\" on public.reposicoes_recebimentos\n  for insert to authenticated\n  with check (\n    criado_por = auth.uid()\n    and exists (select 1 from public.profiles p where p.id = auth.uid() and p.ativo\n                and (p.papel = 'admin' or p.setor in ('almoxarifado','compras')))\n  );\n-- Sem UPDATE/DELETE pelo app: o vínculo só some junto com a nota (gatilho abaixo).\n\n-- Valida o vínculo: entrada por NF, mesma obra e produto, depois da solicitação, solicitação em aberto.\n-- A quantidade e o documento vêm da própria movimentação (o app não consegue inflar o entregue).\ncreate or replace function public.reposicao_receb_valida()\nreturns trigger language plpgsql security definer set search_path = public as $$\ndeclare r public.reposicoes_estoque; m record;\nbegin\n  select * into r from public.reposicoes_estoque where id = new.reposicao_id;\n  if r.id is null then raise exception 'Solicitação de reposição não encontrada.'; end if;\n  if r.status <> 'solicitada' then\n    raise exception 'A solicitação Sienge % deste item não está mais em aberto.', r.numero_solicitacao_sienge;\n  end if;\n  select mv.tipo, mv.nota_id, mv.obra, mv.code, mv.ts, mv.qty, mv.doc into m\n    from public.movimentos_estoque mv where mv.id::text = new.movimento_id;\n  if not found then raise exception 'Movimentação da nota não encontrada no banco.'; end if;\n  if m.tipo <> 'entrada' or m.nota_id is null then\n    raise exception 'Só é possível vincular entrada por nota fiscal.';\n  end if;\n  if m.obra::text <> r.obra_id or m.code::text <> r.code then\n    raise exception 'A nota é de outra obra ou de outro produto.';\n  end if;\n  if m.ts < (extract(epoch from r.criado_em) * 1000)::bigint then\n    raise exception 'A nota foi lançada antes da solicitação.';\n  end if;\n  new.nota_id    := m.nota_id::text;\n  new.doc        := coalesce(m.doc, new.doc);\n  new.quantidade := m.qty;\n  new.criado_por_nome := coalesce((select nome from public.profiles where id = auth.uid()), new.criado_por_nome);\n  return new;\nend $$;\ndrop trigger if exists trg_reposicao_receb_valida on public.reposicoes_recebimentos;\ncreate trigger trg_reposicao_receb_valida\n  before insert on public.reposicoes_recebimentos\n  for each row execute function public.reposicao_receb_valida();\n\n-- Recalcula o entregue a cada vínculo; encerra sozinho quando chega tudo e\n-- reabre se uma nota for excluída (desde que não haja outra solicitação aberta do mesmo item).\ncreate or replace function public.reposicao_receb_atualiza()\nreturns trigger language plpgsql security definer set search_path = public as $$\ndeclare rid bigint := coalesce(new.reposicao_id, old.reposicao_id); tot numeric; r public.reposicoes_estoque;\nbegin\n  select * into r from public.reposicoes_estoque where id = rid;\n  if r.id is null then return null; end if;\n  select coalesce(sum(quantidade), 0) into tot from public.reposicoes_recebimentos where reposicao_id = rid;\n  if r.status = 'solicitada' and tot >= r.quantidade then\n    update public.reposicoes_estoque\n       set status = 'recebida', finalizado_em = now(),\n           finalizado_por_nome = coalesce((select nome from public.profiles where id = auth.uid()), 'automático')\n     where id = rid;\n  elsif r.status = 'recebida' and tot < r.quantidade and r.motivo_encerramento is null\n        and not exists (select 1 from public.reposicoes_estoque x\n                         where x.obra_id = r.obra_id and x.code = r.code and x.status = 'solicitada' and x.id <> rid) then\n    update public.reposicoes_estoque\n       set status = 'solicitada', finalizado_em = null, finalizado_por_nome = null\n     where id = rid;\n  else\n    update public.reposicoes_estoque set quantidade_recebida = tot where id = rid;\n  end if;\n  return null;\nend $$;\ndrop trigger if exists trg_reposicao_receb_atualiza on public.reposicoes_recebimentos;\ncreate trigger trg_reposicao_receb_atualiza\n  after insert or delete on public.reposicoes_recebimentos\n  for each row execute function public.reposicao_receb_atualiza();\n\n-- Toda alteração na solicitação recalcula entregue / notas a partir dos vínculos (o app não edita isso).\n-- Encerrar exige nota vinculada; encerrar com saldo não entregue exige motivo; cancelar só sem nota.\ncreate or replace function public.reposicao_exige_nota()\nreturns trigger language plpgsql security definer set search_path = public as $$\ndeclare tot numeric; docs text;\nbegin\n  select coalesce(sum(quantidade), 0), string_agg(distinct doc, ', ')\n    into tot, docs from public.reposicoes_recebimentos where reposicao_id = new.id;\n  new.quantidade_recebida := tot;\n  new.nota_recebimento    := left(docs, 500);\n  if new.status = 'recebida' and old.status is distinct from 'recebida' then\n    if tot <= 0 then\n      raise exception 'Recebimento bloqueado: dê entrada da nota fiscal de % pela solicitação (ou vincule a nota) antes de encerrar.',\n        coalesce(new.descricao, new.code) using errcode = 'P0001';\n    end if;\n    new.quantidade_nao_entregue := greatest(new.quantidade - tot, 0);\n    if new.quantidade_nao_entregue > 0 and coalesce(trim(new.motivo_encerramento), '') = '' then\n      raise exception 'Informe o motivo para encerrar com % não entregue.', new.quantidade_nao_entregue using errcode = 'P0001';\n    end if;\n  elsif new.status = 'solicitada' then\n    new.quantidade_nao_entregue := null;\n    new.motivo_encerramento := null;\n  end if;\n  if new.status = 'cancelada' and old.status is distinct from 'cancelada' and tot > 0 then\n    raise exception 'Já há nota vinculada a este item — encerre com saldo não entregue em vez de cancelar.' using errcode = 'P0001';\n  end if;\n  return new;\nend $$;\ndrop trigger if exists trg_reposicao_exige_nota on public.reposicoes_estoque;\ncreate trigger trg_reposicao_exige_nota\n  before update on public.reposicoes_estoque\n  for each row execute function public.reposicao_exige_nota();\n\n-- Nota excluída (movimentação apagada) => some o vínculo e o entregue é recalculado\ncreate or replace function public.reposicao_mov_excluido()\nreturns trigger language plpgsql security definer set search_path = public as $$\nbegin\n  delete from public.reposicoes_recebimentos where movimento_id = old.id::text;\n  return old;\nend $$;\ndrop trigger if exists trg_reposicao_mov_excluido on public.movimentos_estoque;\ncreate trigger trg_reposicao_mov_excluido\n  after delete on public.movimentos_estoque\n  for each row execute function public.reposicao_mov_excluido();\n";
+let _reposRecebOk=null; /* tabela reposicoes_recebimentos existe? */
 let _comprasAba='requisicoes', _reposAbertas=null, _reposErro=null, _reposSel={}, _reposQtd={}, _reposSalvando=false, _reposGrupos=[], _reposLinhas=[];
 async function loadReposAbertas(){
   const {data,error}=await fetchAllRows(()=>sb.from('reposicoes_estoque').select('*').eq('status','solicitada').order('id',{ascending:true}));
@@ -3051,13 +3068,14 @@ function reposTabelaFaltando(e){ const m=(e&&e.message)||''; return !!e&&(e.code
 function podeSolicitarRepos(){ return isAlmoxarife()||isCompras(); }
 function reposSugerida(p,s){ let q=p.max>0?p.max-s:p.min-s; if(!(q>0))q=p.min>0?p.min:1; return Math.round(q*1000)/1000; }
 function entradasDesde(obra,code,ts){ let q=0; const docs=new Set();
-  (state.movements||[]).forEach(m=>{ if(m.tipo==='entrada'&&m.obra===obra&&String(m.code)===String(code)&&m.ts>=ts){ q+=Number(m.qty)||0; if(m.doc)docs.add(m.doc); } });
+  (state.movements||[]).forEach(m=>{ if(m.tipo==='entrada'&&m.notaId&&m.obra===obra&&String(m.code)===String(code)&&m.ts>=ts){ q+=Number(m.qty)||0; if(m.doc)docs.add(m.doc); } });
   return {q,docs:[...docs]}; }
 
 async function drawReposicao(){ const box=$('#comprasBody'); if(!box)return;
   $('#topActions').innerHTML=obraSelectorHTML(true);
   if(!box.querySelector('#reposWrap'))box.innerHTML='<div class="empty" style="padding:24px">Carregando...</div>';
   await loadReposAbertas();
+  if(!_reposErro&&_reposRecebOk!==true){ const t=await sb.from('reposicoes_recebimentos').select('id',{head:true,count:'exact'}).limit(1); _reposRecebOk=!t.error; }
   const hist=_reposErro?{data:[]}:await sb.from('reposicoes_estoque').select('*').neq('status','solicitada').order('finalizado_em',{ascending:false,nullsFirst:false}).limit(30);
   const cpRes=await sb.from('compras_pendentes').select('code,requisicao_id,status,numero_solicitacao_sienge').in('status',['pendente','solicitada']);
   if(activeTab!=='compras'||_comprasAba!=='reposicao'||!$('#comprasBody'))return;
@@ -3094,15 +3112,20 @@ async function drawReposicao(){ const box=$('#comprasBody'); if(!box)return;
   /* solicitações abertas agrupadas por nº do Sienge + obra */
   const gm=new Map(); [..._reposAbertas.values()].forEach(r=>{ if(!all&&r.obra_id!==o)return; const k=r.numero_solicitacao_sienge+'|'+r.obra_id; if(!gm.has(k))gm.set(k,{sienge:r.numero_solicitacao_sienge,obra_id:r.obra_id,obra_nome:r.obra_nome||obraName(r.obra_id),itens:[]}); gm.get(k).itens.push(r); });
   _reposGrupos=[...gm.values()].sort((a,b)=>new Date(a.itens[0].criado_em)-new Date(b.itens[0].criado_em));
-  const grupoHTML=(g,gi)=>{ const r0=g.itens[0];
+  const podeRec=pode&&_reposRecebOk;
+  const grupoHTML=(g,gi)=>{ const r0=g.itens[0]; const pendG=g.itens.filter(r=>reposPend(r)>0).length;
     return `<div class="panel" style="margin-bottom:12px"><div class="sechead" style="margin-bottom:8px"><h3 style="font-size:14px">🛒 Sienge ${esc(g.sienge)} · ${esc(g.obra_nome)}</h3>
       <span class="muted" style="font-size:12px">${g.itens.length} item(ns) · ${esc(r0.solicitado_por_nome||'')} · ${fmtDate(new Date(r0.criado_em).getTime())}${r0.observacao?' · '+esc(r0.observacao):''}</span>
-      ${pode?`<div style="display:flex;gap:6px"><button class="btn ghost sm" onclick="reposEditarSienge(${gi})">✎ Nº Sienge</button><button class="btn primary sm" onclick="reposReceber(${gi},null)">✔ Tudo recebido</button></div>`:''}</div>
-      <table><thead><tr><th>Código</th><th>Produto</th><th class="num">Solicitado</th><th class="num">Saldo atual</th><th>Entradas desde a solicitação</th><th></th></tr></thead><tbody>${
-      g.itens.map(r=>{ const p=findProduct(r.code); const e=entradasDesde(r.obra_id,r.code,new Date(r.criado_em).getTime()); const un=r.unidade||(p?p.unit:'')||'';
-        return `<tr><td class="mono" style="font-size:12px">${esc(r.code)}</td><td>${esc(r.descricao||(p?p.desc:''))}</td><td class="num">${numf(r.quantidade)} ${esc(un)}</td><td class="num">${numf(saldoOf(r.obra_id,r.code))}</td>
-          <td style="font-size:12px">${e.q>0?`<span style="color:#1c7a52;font-weight:600">${numf(e.q)} ${esc(un)}</span> <span class="muted">${esc(e.docs.slice(0,2).join(', '))}</span>${e.q>=Number(r.quantidade)?' <span class="pill recebida">completo</span>':' <span class="pill pendente">parcial</span>'}`:'<span class="muted">nenhuma</span>'}</td>
-          <td class="num" style="white-space:nowrap">${pode?`<button class="btn ghost sm" onclick="reposReceber(${gi},${r.id})">Recebido</button> <button class="btn danger sm" title="Cancelar solicitação" onclick="reposCancelar(${r.id})">✕</button>`:''}</td></tr>`; }).join('')
+      ${pode?`<div style="display:flex;gap:6px"><button class="btn ghost sm" onclick="reposEditarSienge(${gi})">✎ Nº Sienge</button>${podeRec&&pendG?`<button class="btn primary sm" onclick="reposLancarNota(${gi},null)" title="Abre a Entrada / Nota Fiscal com todos os itens pendentes desta solicitação">📄 Lançar nota</button>`:''}</div>`:''}</div>
+      <table><thead><tr><th>Código</th><th>Produto</th><th class="num">Solicitado</th><th class="num">Entregue</th><th class="num">Pendente</th><th class="num">Saldo atual</th><th>Notas vinculadas</th><th></th></tr></thead><tbody>${
+      g.itens.map(r=>{ const p=findProduct(r.code); const un=reposUn(r); const ent=Number(r.quantidade_recebida)||0; const pen=reposPend(r);
+        return `<tr><td class="mono" style="font-size:12px">${esc(r.code)}</td><td>${esc(r.descricao||(p?p.desc:''))}</td>
+          <td class="num" style="white-space:nowrap">${numf(r.quantidade)} ${esc(un)}</td>
+          <td class="num" style="white-space:nowrap">${ent>0?`<b style="color:#1c7a52">${numf(ent)}</b>`:'<span class="muted">0</span>'}</td>
+          <td class="num" style="white-space:nowrap">${pen>0?`<b style="color:#a8731a">${numf(pen)}</b>`:'0'}${ent>0&&pen>0?' <span class="pill pendente">parcial</span>':''}</td>
+          <td class="num">${numf(saldoOf(r.obra_id,r.code))}</td>
+          <td style="font-size:12px">${r.nota_recebimento?esc(r.nota_recebimento):'<span class="muted">nenhuma</span>'}</td>
+          <td class="num" style="white-space:nowrap">${podeRec?`<button class="btn ghost sm" onclick="reposReceber(${gi},${r.id})">Receber</button> `:''}${pode&&!(ent>0)?`<button class="btn danger sm" title="Cancelar solicitação" onclick="reposCancelar(${r.id})">✕</button>`:''}</td></tr>`; }).join('')
       }</tbody></table></div>`; };
   const nSel=Object.keys(_reposSel).length;
   b.innerHTML=`<div id="reposWrap">
@@ -3115,12 +3138,13 @@ async function drawReposicao(){ const box=$('#comprasBody'); if(!box)return;
       </div></div>
     <div class="tbl-wrap" style="margin-bottom:24px"><table><thead><tr><th>${pode&&pend?`<input type="checkbox" style="width:auto" title="Marcar todos visíveis" onchange="reposMarcarTodos(this.checked)">`:''}</th>${all?'<th>Obra</th>':''}<th>Código</th><th>Produto</th><th class="num">Saldo</th><th class="num">Mín</th><th class="num">Máx</th><th class="num">Qtd a solicitar</th><th>Situação</th></tr></thead>
       <tbody id="reposRows">${_reposLinhas.map(linhaHTML).join('')||`<tr><td colspan="${all?9:8}" class="empty" style="padding:24px">Nenhum item abaixo do mínimo. 👍</td></tr>`}</tbody></table></div>
+    ${pode&&!_reposRecebOk?`<div class="panel" style="border-left:4px solid #c0392b;margin-bottom:12px"><h3 style="font-size:14px">⚠ Falta atualizar o banco para receber por nota vinculada</h3><p class="desc">O recebimento fica bloqueado até rodar o script de configuração da reposição (tabela <b>reposicoes_recebimentos</b>). ${isAdmin()?'Copie e rode no <b>SQL Editor</b> do Supabase; depois atualize a tela.':'Peça ao administrador para rodar o script.'}</p>${isAdmin()?`<div style="display:flex;gap:8px"><button class="btn primary sm" onclick="navigator.clipboard.writeText(REPOS_SQL).then(()=>toast('Script copiado.','ok'),()=>toast('Não foi possível copiar.','err'))">Copiar script SQL</button><button class="btn ghost sm" onclick="_reposRecebOk=null;drawReposicao()">Atualizar</button></div>`:''}</div>`:''}
     <div class="sechead"><h3>Solicitações em aberto <span class="muted" style="font-size:12px;font-weight:500">· ${_reposGrupos.reduce((t,g)=>t+g.itens.length,0)} item(ns)</span></h3></div>
     ${_reposGrupos.map(grupoHTML).join('')||'<div class="tbl-wrap" style="margin-bottom:24px"><div class="empty">Nenhuma solicitação de reposição em aberto.</div></div>'}
     <div class="sechead" style="margin-top:8px"><h3>Últimas finalizadas</h3></div>
-    <div class="tbl-wrap"><table><thead><tr><th>Sienge</th><th>Obra</th><th>Produto</th><th class="num">Qtd</th><th>Situação</th><th>Solicitado</th><th>Finalizado</th></tr></thead><tbody>${
-      (hist.data||[]).map(r=>`<tr><td class="mono" style="font-size:12px">${esc(r.numero_solicitacao_sienge)}</td><td class="muted" style="font-size:12px">${esc(r.obra_nome||obraName(r.obra_id))}</td><td>${esc(r.descricao||'')}</td><td class="num">${numf(r.quantidade)}</td>
-        <td><span class="pill ${r.status}">${r.status==='recebida'?'Recebida':'Cancelada'}</span>${r.motivo_cancelamento?`<div class="muted" style="font-size:11px">${esc(r.motivo_cancelamento)}</div>`:''}</td>
+    <div class="tbl-wrap"><table><thead><tr><th>Sienge</th><th>Obra</th><th>Produto</th><th class="num">Entregue</th><th>Situação</th><th>Solicitado</th><th>Finalizado</th></tr></thead><tbody>${
+      (hist.data||[]).map(r=>`<tr><td class="mono" style="font-size:12px">${esc(r.numero_solicitacao_sienge)}</td><td class="muted" style="font-size:12px">${esc(r.obra_nome||obraName(r.obra_id))}</td><td>${esc(r.descricao||'')}</td><td class="num" style="white-space:nowrap">${Number(r.quantidade_recebida)>0?`${numf(r.quantidade_recebida)} <span class="muted">de ${numf(r.quantidade)}</span>`:numf(r.quantidade)}${Number(r.quantidade_nao_entregue)>0?`<div style="font-size:11px;color:#a8731a">${numf(r.quantidade_nao_entregue)} não entregue</div>`:''}</td>
+        <td><span class="pill ${r.status}">${r.status==='recebida'?'Recebida':'Cancelada'}</span>${r.nota_recebimento?`<div class="muted" style="font-size:11px">${esc(r.nota_recebimento)}</div>`:''}${r.motivo_cancelamento?`<div class="muted" style="font-size:11px">${esc(r.motivo_cancelamento)}</div>`:''}${r.motivo_encerramento?`<div class="muted" style="font-size:11px">Encerrada: ${esc(r.motivo_encerramento)}</div>`:''}</td>
         <td class="muted" style="font-size:12px">${esc(r.solicitado_por_nome||'')}<br>${fmtDate(new Date(r.criado_em).getTime())}</td><td class="muted" style="font-size:12px">${esc(r.finalizado_por_nome||'')}${r.finalizado_em?'<br>'+fmtDate(new Date(r.finalizado_em).getTime()):''}</td></tr>`).join('')||'<tr><td colspan="7" class="empty" style="padding:18px">Nada finalizado ainda.</td></tr>'
     }</tbody></table></div></div>`;
   reposFiltrar();
@@ -3157,17 +3181,92 @@ async function reposSalvar(sel){ const sienge=($('#rpSienge').value||'').trim();
     try{ await sb.rpc('log_event',{p_acao:'reposicao_solicitada',p_entidade:'reposicoes_estoque',p_entidade_id:null,p_detalhes:{sienge,itens:rows.map(r=>({obra:r.obra_nome,code:r.code,qtd:r.quantidade}))}}); }catch(e){}
     await drawReposicao(); refreshTelaAtual();
   }finally{ _reposSalvando=false; } }
-async function reposReceber(gi,id){ const g=_reposGrupos[gi]; if(!g)return; const itens=id?g.itens.filter(r=>r.id===id):g.itens; if(!itens.length)return;
-  const txt=id?('Marcar como recebido: '+(itens[0].descricao||'')+' ('+numf(itens[0].quantidade)+')'):('Marcar TODOS os '+itens.length+' itens da solicitação '+g.sienge+' como recebidos');
-  modal(`<h3>Confirmar recebimento</h3><p class="mp">${esc(txt)}? O item volta a poder ser solicitado se ficar abaixo do mínimo de novo.</p>
-    <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" id="rrOk">Confirmar</button></div>`);
-  $('#rrOk').onclick=async()=>{ closeModal();
-    const {data,error}=await sb.from('reposicoes_estoque').update({status:'recebida',finalizado_em:new Date().toISOString(),finalizado_por_nome:profile.nome||profile.email}).in('id',itens.map(r=>r.id)).eq('status','solicitada').select('id');
-    if(error){ toast('Erro: '+esc(error.message),'err'); return; }
-    if(!data||!data.length){ toast('Nada foi alterado — já estava finalizado ou o banco bloqueou (permissão).','err'); }
-    else toast(data.length+' item(ns) marcado(s) como recebido(s).','ok');
+/* ===== Recebimento da reposição: só por nota fiscal VINCULADA à solicitação =====
+   Entregue = soma das notas vinculadas (reposicoes_recebimentos, mantido pelo banco em quantidade_recebida).
+   Nota lançada direto na Entrada não abate nada até ser vinculada. */
+function reposUn(r){ const p=findProduct(r.code); return r.unidade||(p?p.unit:'')||''; }
+function reposPend(r){ return Math.max(Number(r.quantidade)-(Number(r.quantidade_recebida)||0),0); }
+function reposItem(gi,id){ const g=_reposGrupos[gi]; return g?{g,r:g.itens.find(x=>x.id===id)}:{}; }
+function reposReceber(gi,id){ const {g,r}=reposItem(gi,id); if(!r)return;
+  const un=esc(reposUn(r)); const ent=Number(r.quantidade_recebida)||0; const pen=reposPend(r);
+  const box=(t,v,c)=>`<div style="flex:1;border:1px solid #e4dfd4;border-radius:8px;padding:10px;text-align:center"><div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.04em">${t}</div><div class="mono" style="font-size:18px;font-weight:600;color:${c}">${v}</div></div>`;
+  modal(`<h3>Recebimento</h3><p class="mp">${esc(r.descricao||'')} · Sienge ${esc(g.sienge)} · ${esc(g.obra_nome)}</p>
+    <div style="display:flex;gap:8px;margin-bottom:12px">${box('Solicitado',numf(r.quantidade)+' '+un,'#1c1c1c')}${box('Entregue',numf(ent),'#1c7a52')}${box('Pendente',numf(pen),pen>0?'#a8731a':'#1c1c1c')}</div>
+    <p class="mp" style="font-size:12.5px">${r.nota_recebimento?'Notas vinculadas: <b>'+esc(r.nota_recebimento)+'</b>':'Para receber é preciso dar entrada da nota fiscal. Nenhuma nota vinculada ainda.'}</p>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <button class="btn primary" onclick="closeModal();reposLancarNota(${gi},[${r.id}])">📄 Lançar nota fiscal</button>
+      <button class="btn ghost" onclick="reposVincularModal(${gi},${r.id})">🔗 Vincular nota já lançada</button>
+      ${ent>0&&pen>0?`<button class="btn ghost" onclick="reposEncerrarModal(${gi},${r.id})">Encerrar com ${numf(pen)} ${un} não entregue</button>`:''}
+      <button class="btn ghost" onclick="closeModal()">Fechar</button></div>`); }
+/* Notas deste produto/obra lançadas depois da solicitação e ainda sem vínculo com nenhuma reposição */
+async function reposVincularModal(gi,id){ const {g,r}=reposItem(gi,id); if(!r)return;
+  const desde=new Date(r.criado_em).getTime();
+  const {data:mv,error:e1}=await sb.from('movimentos_estoque').select('id,qty,doc,nota_id,ts').eq('tipo','entrada').eq('obra',r.obra_id).eq('code',String(r.code)).not('nota_id','is',null).gte('ts',desde).order('ts',{ascending:false}).limit(200);
+  if(e1){ toast('Erro ao buscar notas: '+esc(e1.message),'err'); return; }
+  let usados=new Set(); if((mv||[]).length){ const {data:lk,error:e2}=await sb.from('reposicoes_recebimentos').select('movimento_id').in('movimento_id',mv.map(m=>String(m.id)));
+    if(e2){ toast('Erro ao conferir vínculos: '+esc(e2.message),'err'); return; } usados=new Set((lk||[]).map(x=>String(x.movimento_id))); }
+  const cand=(mv||[]).filter(m=>!usados.has(String(m.id))&&Number(m.qty)>0); const un=esc(reposUn(r));
+  if(!cand.length){
+    modal(`<h3>🔗 Vincular nota já lançada</h3><p class="mp">Não há nota fiscal de <b>${esc(r.descricao||r.code)}</b> em ${esc(g.obra_nome)}, lançada depois de ${fmtDate(desde)}, que ainda esteja sem vínculo.</p>
+      <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Fechar</button><button class="btn primary" onclick="closeModal();reposLancarNota(${gi},[${r.id}])">📄 Lançar nota fiscal</button></div>`); return; }
+  modal(`<h3>🔗 Vincular nota já lançada</h3><p class="mp">${esc(r.descricao||'')} · pendente <b>${numf(reposPend(r))} ${un}</b>. Marque as notas desta compra — cada nota só pode abater uma solicitação.</p>
+    <div style="max-height:260px;overflow:auto;border:1px solid #e4dfd4;border-radius:8px;margin-bottom:12px"><table><thead><tr><th></th><th>Nota</th><th>Lançada em</th><th class="num">Qtd</th></tr></thead><tbody>${
+      cand.map(m=>`<tr><td style="width:28px"><input type="checkbox" class="rvChk" data-id="${esc(String(m.id))}" style="width:auto" onchange="reposAtualizarRv()"></td><td style="font-size:12.5px">${esc(m.doc||'NF')}</td><td class="muted" style="font-size:12px">${fmtDate(Number(m.ts))}</td><td class="num">${numf(m.qty)} ${un}</td></tr>`).join('')}</tbody></table></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" id="rvOk" disabled>Vincular</button></div>`);
+  $('#rvOk').onclick=async()=>{ const ids=[...document.querySelectorAll('.rvChk:checked')].map(c=>c.dataset.id); const sel=cand.filter(m=>ids.includes(String(m.id))); if(!sel.length)return;
+    const b=$('#rvOk'); b.disabled=true; b.textContent='Vinculando...';
+    const {error}=await sb.from('reposicoes_recebimentos').insert(sel.map(m=>({reposicao_id:r.id,movimento_id:String(m.id),nota_id:m.nota_id,doc:m.doc||null,quantidade:Number(m.qty),criado_por_nome:profile.nome||profile.email})));
+    closeModal(); if(error){ toast('Erro ao vincular: '+esc(error.message),'err'); return; }
+    await loadReposAbertas(); const aberta=reposAberta(r.obra_id,r.code);
+    toast(aberta&&aberta.id===r.id?`Nota vinculada · pendente ${numf(reposPend(aberta))} ${un}.`:'Nota vinculada · item recebido por completo.','ok');
+    try{ await sb.rpc('log_event',{p_acao:'reposicao_nota_vinculada',p_entidade:'reposicoes_estoque',p_entidade_id:String(r.id),p_detalhes:{sienge:g.sienge,code:r.code,notas:sel.map(m=>m.doc)}}); }catch(e){}
     await drawReposicao(); refreshTelaAtual(); }; }
+function reposAtualizarRv(){ const n=document.querySelectorAll('.rvChk:checked').length; const b=$('#rvOk'); if(b){ b.disabled=!n; b.textContent=n?'Vincular ('+n+')':'Vincular'; } }
+/* Encerrar parcial: grava o que não foi entregue e o motivo */
+function reposEncerrarModal(gi,id){ const {g,r}=reposItem(gi,id); if(!r)return; const un=esc(reposUn(r)); const pen=reposPend(r);
+  modal(`<h3>Encerrar com saldo não entregue</h3><p class="mp">${esc(r.descricao||'')} · Sienge ${esc(g.sienge)}<br>Entregue <b>${numf(r.quantidade_recebida)}</b> de ${numf(r.quantidade)} ${un} — <b style="color:#a8731a">${numf(pen)} ${un}</b> ficam registrados como não entregues.</p>
+    <div class="field"><label>Motivo *</label><select id="reMotSel"><option value="">Selecione...</option><option>Fornecedor não vai entregar o restante</option><option>Saldo cancelado no Sienge</option><option>Quantidade ajustada na compra</option><option value="outro">Outro</option></select></div>
+    <div class="field"><label>Observação</label><input id="reMotObs" placeholder="obrigatória se o motivo for Outro"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Voltar</button><button class="btn primary" id="reOkEnc">Encerrar</button></div>`);
+  $('#reOkEnc').onclick=async()=>{ const sv=$('#reMotSel').value; const ob=($('#reMotObs').value||'').trim();
+    if(!sv){ toast('Selecione o motivo.','err'); return; } if(sv==='outro'&&!ob){ toast('Descreva o motivo na observação.','err'); return; }
+    const mot=sv==='outro'?ob:(ob?sv+' — '+ob:sv); closeModal();
+    const {data,error}=await sb.from('reposicoes_estoque').update({status:'recebida',motivo_encerramento:mot,finalizado_em:new Date().toISOString(),finalizado_por_nome:profile.nome||profile.email}).eq('id',r.id).eq('status','solicitada').select('id');
+    if(error){ toast('Erro: '+esc(error.message),'err'); return; }
+    toast(data&&data.length?`Encerrado · ${numf(pen)} ${un} não entregue registrado.`:'Nada foi alterado (permissão ou já finalizado).',data&&data.length?'ok':'err');
+    await drawReposicao(); refreshTelaAtual(); }; }
+/* Abre a Entrada / Nota Fiscal já com a obra e os itens pendentes (ids=null → todos os pendentes do grupo) */
+function reposLancarNota(gi,ids){ const g=_reposGrupos[gi]; if(!g)return; const itens=g.itens.filter(r=>(!ids||ids.includes(r.id))&&reposPend(r)>0);
+  if(!itens.length){ toast('Nada pendente de entrega.','warn'); return; }
+  if(nfItems.some(i=>!i.reposPre)){ toast('Já existe uma nota em inserção na Entrada / Nota Fiscal. Conclua ou cancele essa nota antes.','err'); go('entrada'); return; }
+  _nfRepos={sienge:g.sienge,obra_id:g.obra_id,obra_nome:g.obra_nome,itens:itens.map(r=>({id:r.id,code:String(r.code)}))};
+  nfItems=itens.map(r=>{ const p=findProduct(r.code);
+    return {code:String(r.code),desc:p?p.desc:(r.descricao||''),unit:reposUn(r)||'UN',qty:reposPend(r),custo:p?(p.custo||0):0,preco:p?(p.preco||0):0,reposPre:true}; });
+  go('entrada'); }
+/* Depois de lançar a nota pela solicitação: vincula as linhas da nota aos itens (o banco recalcula e encerra o que completou) */
+async function reposAposNota(ctx,obraNota,movs){
+  const abrir=()=>{ _comprasAba='reposicao'; go(abaPermitida('compras')?'compras':'produtos'); };
+  if(obraNota!==ctx.obra_id){ toast(`A nota entrou em ${esc(obraName(obraNota))}, mas a solicitação Sienge ${esc(ctx.sienge)} é de ${esc(ctx.obra_nome)} — a nota não foi vinculada.`,'warn'); abrir(); return; }
+  try{
+    await aguardarMovs();
+    const rows=[], fora=[];
+    ctx.itens.forEach(i=>{ const ms=(movs||[]).filter(m=>String(m.code)===i.code&&Number(m.qty)>0);
+      if(!ms.length){ fora.push(i); return; }
+      ms.forEach(m=>rows.push({reposicao_id:i.id,movimento_id:String(m.id),nota_id:m.notaId||null,doc:m.doc||null,quantidade:Number(m.qty),criado_por_nome:profile.nome||profile.email})); });
+    if(rows.length){ const {error}=await sb.from('reposicoes_recebimentos').insert(rows);
+      if(error) toast('Nota lançada, mas não foi possível vincular à solicitação: '+esc(error.message)+' — use Receber › Vincular nota já lançada.','err');
+      else{ await loadReposAbertas(); const vinc=[...new Set(rows.map(x=>x.reposicao_id))];
+        const abertas=_reposAbertas?[..._reposAbertas.values()]:[];
+        const parc=vinc.filter(id=>abertas.some(r=>r.id===id)).length, comp=vinc.length-parc;
+        if(comp)toast(`${comp} item(ns) da solicitação Sienge ${esc(ctx.sienge)} recebido(s) por completo.`,'ok');
+        if(parc)toast(`${parc} item(ns) com entrega parcial — o pendente continua em aberto.`,'warn');
+        try{ await sb.rpc('log_event',{p_acao:'reposicao_nota_vinculada',p_entidade:'reposicoes_estoque',p_entidade_id:null,p_detalhes:{sienge:ctx.sienge,notas:[...new Set(rows.map(x=>x.doc))],itens:rows.map(x=>({id:x.reposicao_id,qtd:x.quantidade}))}}); }catch(e){}
+      } }
+    if(fora.length)toast(`${fora.length} item(ns) da solicitação não estavam na nota e continuam pendentes.`,'warn');
+  }catch(e){ toast('Nota lançada, mas houve um erro ao vincular à solicitação: '+esc(e.message||String(e)),'err'); }
+  abrir(); }
 function reposCancelar(id){ const r=_reposAbertas&&[..._reposAbertas.values()].find(x=>x.id===id); if(!r)return;
+  if(Number(r.quantidade_recebida)>0){ toast('Este item já tem nota vinculada — use Receber › Encerrar com saldo não entregue.','err'); return; }
   modal(`<h3>Cancelar solicitação de reposição</h3><p class="mp">${esc(r.descricao||'')} · ${numf(r.quantidade)} · Sienge ${esc(r.numero_solicitacao_sienge)}</p>
     <div class="field"><label>Motivo *</label><input id="rcMot" placeholder="ex.: solicitação cancelada no Sienge"></div>
     <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Voltar</button><button class="btn danger" id="rcOk">Cancelar solicitação</button></div>`);
