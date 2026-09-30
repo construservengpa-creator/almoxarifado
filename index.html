@@ -412,7 +412,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-09-28T20:00:00-03:00';
+const APP_VERSION='2026-09-30T18:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -427,15 +427,17 @@ let _verTag=null, _verLast=0;
 async function checkAppVersion(){
   if(_versionBannerShown||!isOnline)return;
   const agora=Date.now(); if(agora-_verLast<30000)return; _verLast=agora;
+  let tag=null;
   try{ const h=await fetch(location.pathname,{method:'HEAD',cache:'no-store'});
-    const tag=h.ok?(h.headers.get('etag')||h.headers.get('last-modified')):null;
-    if(tag){ if(_verTag!==null&&tag===_verTag)return; _verTag=tag; }
+    tag=h.ok?(h.headers.get('etag')||h.headers.get('last-modified')):null;
+    if(tag&&_verTag!==null&&tag===_verTag)return;
   }catch(e){}
   try{
     const res=await fetch(location.pathname+'?_v='+Date.now(),{cache:'no-store'});
     if(!res.ok)return;
     const text=await res.text();
     const m=text.match(/const APP_VERSION=['"]([^'"]+)['"]/);
+    if(tag)_verTag=tag; /* só memoriza o cabeçalho depois de conferir o arquivo — se o download falhar, tenta de novo na próxima */
     if(m&&m[1]&&m[1]!==APP_VERSION)showVersionBanner();
   }catch(e){ /* falha de rede não é motivo pra avisar nada */ }
 }
@@ -2347,7 +2349,8 @@ async function drawSeparacaoList(){ const box=$('#sepList'); if(!box)return;
             <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:500;margin:0"><input type="radio" name="tipoEnvioPre_${r.id}" value="aplicacao_direta" style="width:auto"> Retirada no balcão — compra p/ aplicação direta</label></div>
           <button class="btn primary sm" onclick="definirTipoEnvio(${r.id},${r.mutuo_empresa_destino?'true':'false'})">Confirmar e emitir romaneio</button>`
         :`<p class="mp" style="font-size:12px">${envioTipoLabel(r.tipo_envio)} — pronto para emitir o romaneio.</p>
-          <button class="btn primary sm" onclick="emitirRomaneio(${r.id},${r.mutuo_empresa_destino?'true':'false'})">Emitir romaneio${r.mutuo_empresa_destino?' 🖨':''}</button>`}
+          <button class="btn primary sm" onclick="emitirRomaneio(${r.id},${r.mutuo_empresa_destino?'true':'false'})">Emitir romaneio${r.mutuo_empresa_destino?' 🖨':''}</button>
+          <button class="btn ghost sm" onclick="trocarTipoEnvio(${r.id})">Trocar tipo de envio</button>`}
         </div>`;
     }
     return `<div class="panel" style="margin-bottom:14px">
@@ -2364,6 +2367,15 @@ function definirTipoEnvio(reqId,ehMutuo){ const sel=document.querySelector('inpu
     if(win) imprimirRomaneioMutuo(reqId,win);
     toast(ehBalcao(tipo)?'Retirada no balcão — indo direto pra embalagem (sem romaneio).':'Tipo de envio definido.','ok');
     drawSeparacaoList(); drawExpedicaoList(); refreshExpedBadge(); }); }
+async function trocarTipoEnvio(reqId){
+  const {data,error}=await sb.from('requisicoes').update({tipo_envio:null})
+    .eq('id',reqId).eq('status','separado').select('id');
+  if(error){ toast('Erro: '+esc(error.message),'err'); return; }
+  if(!data||!data.length){ toast('Essa requisição já saiu da separação — não dá mais para trocar o envio.','err'); return; }
+  try{ await sb.rpc('log_event',{p_acao:'tipo_envio_resetado',p_entidade:'requisicoes',p_entidade_id:String(reqId)}); }catch(e){}
+  toast('Tipo de envio liberado — escolha novamente.','ok');
+  drawSeparacaoList(); drawExpedicaoList(); refreshExpedBadge();
+}
 const _separandoItens=new Set();
 async function separarItem(id){
   if(_separandoItens.has(id))return; /* clique duplo / repetido no mesmo item */
