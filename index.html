@@ -3026,7 +3026,7 @@ body.is-admin .ctr-notif.admin-only{display:block !important;}
       <header><h3>Notificação por WhatsApp</h3><p>Dias úteis às 07:30: críticos quando houver novidade; segunda-feira, resumo semanal</p></header>
       <div class="ctr-body">
         <div class="ctr-frm" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
-          <label>Telefone com DDI e DDD<input type="text" id="ctrNTel" placeholder="+5591999999999"></label>
+          <label>Telefone (igual ao que o CallMeBot mostrou)<input type="text" id="ctrNTel" placeholder="ex.: 559183883120"></label>
           <label>Apikey do CallMeBot<input type="text" id="ctrNKey" placeholder="enviada pelo bot no WhatsApp"></label>
           <label>Vencendo em até (dias), no resumo<input type="number" id="ctrNJan" min="1" max="180"></label>
           <label class="ctr-chk"><input type="checkbox" id="ctrNAtivo"> Notificação ativa</label>
@@ -3040,7 +3040,7 @@ body.is-admin .ctr-notif.admin-only{display:block !important;}
           <span class="ctr-ok" id="ctrNOk">Salvo</span>
         </div>
         <div class="ctr-msg" id="ctrNMsg"></div>
-        <p class="ctr-note" style="margin-top:12px">Para obter a apikey (gratuita, uso pessoal): siga as instruções em <a href="https://www.callmebot.com/blog/free-api-whatsapp-messages/" target="_blank" rel="noopener" style="color:var(--yellow)">callmebot.com</a>. Salve o número do bot nos contatos, envie a ele pelo WhatsApp a frase <b>I allow callmebot to send me messages</b> e aguarde a resposta com a apikey.</p>
+        <p class="ctr-note" style="margin-top:12px">Para obter a apikey (gratuita, uso pessoal): siga as instruções em <a href="https://www.callmebot.com/blog/free-api-whatsapp-messages/" target="_blank" rel="noopener" style="color:var(--yellow)">callmebot.com</a>. Salve o número do bot nos contatos, envie a ele pelo WhatsApp a frase <b>I allow callmebot to send me messages</b> e aguarde a resposta com a apikey. Use o telefone exatamente como aparece na mensagem de ativação ("Activated for …"): muitas contas de WhatsApp no Brasil são registradas sem o 9 inicial.</p>
         <div class="ctr-sec" style="margin-top:12px">Últimos envios</div>
         <div class="table-scroll"><table class="data" id="ctrNLog"></table></div>
       </div>
