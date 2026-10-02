@@ -413,7 +413,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-02T19:00:00-03:00';
+const APP_VERSION='2026-10-02T20:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -3369,7 +3369,7 @@ async function drawDevolReqTela(){
   $('#topActions').innerHTML=`<button class="btn primary sm" onclick="devolReqModal()">+ Devolução de requisição</button>`;
   const b=$('#devolBody'); if(!b)return;
   b.innerHTML=`<div class="panel" style="margin-bottom:16px"><h3>📥 Devolução de requisição</h3><p class="desc">Material que já saiu numa requisição e voltou para o almoxarifado. A devolução fica registrada com o motivo, o saldo volta para o estoque de onde saiu e o consumo da aplicação é descontado nos relatórios.</p>
-    <div class="search" style="max-width:none"><span class="si">⌕</span><input id="devReqBusca" placeholder="Filtrar por requisição, produto, aplicação, OS, motivo ou quem devolveu..." autocomplete="off" oninput="drawDevolReqHist()"></div></div>
+    <div class="search" style="max-width:none"><span class="si">⌕</span><input id="devReqBusca" placeholder="Filtrar por nº da saída, requisição, produto, aplicação, OS, motivo ou quem devolveu..." autocomplete="off" oninput="drawDevolReqHist()"></div></div>
     <div class="tbl-wrap" id="devReqHist"><div class="empty">Carregando...</div></div>`;
   await loadDevolReqHist();
 }
@@ -3380,11 +3380,11 @@ async function loadDevolReqHist(){ const box=$('#devReqHist');
 function drawDevolReqHist(){ const box=$('#devReqHist'); if(!box)return;
   const q=($('#devReqBusca')?$('#devReqBusca').value:'').toLowerCase().trim();
   const reqN=d=>'REQ-'+String(d.requisicao_id).padStart(5,'0');
-  const list=!q?_devReqRows:_devReqRows.filter(d=>[reqN(d),String(d.requisicao_id),devReqDocf(d.documento),d.descricao,d.item_code,d.aplicacao_nome,d.ordem_servico,d.motivo,d.observacao,d.devolvido_por,d.registrado_por_nome,d.obra_nome].some(v=>String(v||'').toLowerCase().includes(q)));
+  const list=!q?_devReqRows:_devReqRows.filter(d=>[d.documento_saida,d.documento_saida?'saída '+d.documento_saida:'',reqN(d),String(d.requisicao_id),devReqDocf(d.documento),d.descricao,d.item_code,d.aplicacao_nome,d.ordem_servico,d.motivo,d.observacao,d.devolvido_por,d.registrado_por_nome,d.obra_nome].some(v=>String(v||'').toLowerCase().includes(q)));
   if(!list.length){ box.innerHTML='<div class="empty">'+(_devReqRows.length?'Nada encontrado para o filtro.':'Nenhuma devolução de requisição registrada ainda.')+'</div>'; return; }
-  box.innerHTML=`<table><thead><tr><th>Data</th><th>Doc.</th><th>Requisição</th><th>Aplicação</th><th>Item</th><th class="num">Qtd</th><th class="num">Valor</th><th>Motivo</th><th>Devolvido por</th><th></th></tr></thead><tbody>`+
+  box.innerHTML=`<table><thead><tr><th>Data</th><th>Doc.</th><th>Saída</th><th>Aplicação</th><th>Item</th><th class="num">Qtd</th><th class="num">Valor</th><th>Motivo</th><th>Devolvido por</th><th></th></tr></thead><tbody>`+
     list.map(d=>`<tr><td class="muted" style="font-size:12px">${fmtDate(new Date(d.criado_em).getTime())}</td><td class="mono" style="font-size:12.5px;white-space:nowrap">${devReqDocf(d.documento)}</td>
-      <td class="mono" style="font-size:12.5px">${reqN(d)}${d.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(d.ordem_servico)+'</span>':''}</td>
+      <td class="mono" style="font-size:12.5px;white-space:nowrap">${d.documento_saida?'<b>'+esc(d.documento_saida)+'</b><br>':''}<span class="muted" style="font-size:11px">${reqN(d)}${d.ordem_servico?' · OS '+esc(d.ordem_servico):''}</span></td>
       <td>${esc(d.aplicacao_nome||'—')}<br><span class="muted" style="font-size:11px">${esc(d.obra_nome||'')}</span></td>
       <td>${esc(d.descricao||'')}<br><span class="muted" style="font-size:11px">${esc(d.item_code)}</span></td>
       <td class="num pos" style="white-space:nowrap">+${numf(d.quantidade)} ${esc(d.unidade||'')}</td><td class="num" style="white-space:nowrap">${money(Number(d.quantidade)*Number(d.valor_unit||0))}</td>
@@ -3393,78 +3393,97 @@ function drawDevolReqHist(){ const box=$('#devReqHist'); if(!box)return;
       <td class="num"><button class="btn ghost sm" title="Comprovante" onclick="imprimirDevolReq('${esc(d.lote)}')">🖨</button></td></tr>`).join('')+
     `</tbody></table>`+(_devReqRows.length>=500?'<p class="muted" style="font-size:11.5px;padding:8px 12px">Mostrando as 500 devoluções mais recentes.</p>':'');
 }
-/* Passo 1: escolher a requisição (só as que já saíram do almoxarifado) */
+/* A referência da devolução é o Nº DA SAÍDA (o número grande do comprovante de saída = seq da baixa na separação).
+   Cada item separado tem a sua saída; a requisição (REQ) fica como informação de apoio. */
+function devSaidasFmt(seqs){ seqs=[...new Set((seqs||[]).map(Number).filter(n=>n>0))].sort((x,y)=>x-y); if(!seqs.length)return '';
+  return (seqs.length>2&&seqs[seqs.length-1]-seqs[0]===seqs.length-1)?seqf(seqs[0])+' a '+seqf(seqs[seqs.length-1]):seqs.map(seqf).join(', '); }
+function devReqDocSep(id){ return 'Separação REQ-'+String(id).padStart(5,'0'); }
+/* Passo 1: localizar a saída (só de requisições que já saíram do almoxarifado) */
 async function devolReqModal(reqId){
   if(!isAlmoxarife()){ toast('Devolução de requisição: restrito ao almoxarifado e administradores.','err'); return; }
   _devReqCtx=null;
-  modal(`<h3>📥 Devolução de requisição</h3><p class="mp">Escolha a requisição de onde o material saiu. Só aparecem requisições já retiradas ou despachadas.</p>
-    <div class="search" style="max-width:none"><span class="si">⌕</span><input id="drBusca" placeholder="Nº da requisição, aplicação, OS ou solicitante..." autocomplete="off" oninput="devolReqListar(this.value)"></div>
+  modal(`<h3>📥 Devolução de requisição</h3><p class="mp">Informe o <b>número da saída</b> (o número do comprovante de saída do material). Também dá para buscar por requisição, aplicação, OS ou solicitante.</p>
+    <div class="search" style="max-width:none"><span class="si">⌕</span><input id="drBusca" placeholder="Nº da saída, aplicação, OS, solicitante ou REQ..." autocomplete="off" oninput="devolReqListar(this.value)"></div>
     <div id="drLista" style="margin-top:8px"><div class="empty" style="padding:14px">Carregando...</div></div>
     <div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
   if(reqId)return devolReqEscolher(reqId);
   const i=$('#drBusca'); if(i)i.focus();
-  const {data,error}=await sb.from('requisicoes').select('id,obra_nome,aplicacao_nome,ordem_servico,solicitante_nome,status,criado_em').in('status',STATUS_ATENDIDA).order('id',{ascending:false}).limit(200);
+  const {data,error}=await sb.from('requisicoes').select('id,obra_nome,aplicacao_nome,ordem_servico,solicitante_nome,status,criado_em').in('status',STATUS_ATENDIDA).order('id',{ascending:false}).limit(60);
   if(error){ const l=$('#drLista'); if(l)l.innerHTML='<div class="empty" style="padding:14px">Erro: '+esc(error.message)+'</div>'; return; }
-  _drReqs=data||[]; devolReqListar($('#drBusca')?$('#drBusca').value:'');
+  _drReqs=data||[];
+  if(_drReqs.length){ /* nºs de saída de cada requisição listada */
+    const {data:mv}=await fetchAllRows(()=>sb.from('movimentos_estoque').select('id,seq,doc').eq('tipo','baixa').in('doc',_drReqs.map(r=>devReqDocSep(r.id))).order('id'));
+    const por={}; (mv||[]).forEach(m=>{ const id=reqIdFromDoc(m.doc); if(id&&m.seq)(por[id]=por[id]||[]).push(Number(m.seq)); });
+    _drReqs.forEach(r=>r.saidas=por[r.id]||[]); }
+  devolReqListar($('#drBusca')?$('#drBusca').value:'');
 }
-/* Linha de requisição na busca: clicável só se já saiu do almoxarifado */
-function devolReqLinha(r,rotulo){ const ok=STATUS_ATENDIDA.includes(r.status);
-  return `<tr ${ok?`style="cursor:pointer" onclick="devolReqEscolher(${r.id})"`:'style="opacity:.6" title="Ainda não saiu do almoxarifado — sem devolução por aqui"'}><td class="mono" style="font-size:12.5px;white-space:nowrap">${rotulo?rotulo+'<br>':''}REQ-${String(r.id).padStart(5,'0')}</td><td>${esc(r.aplicacao_nome||'—')}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}<br><span class="muted" style="font-size:11px">${esc(r.obra_nome||'')} · ${esc(r.solicitante_nome||'')} · ${fmtDate(new Date(r.criado_em).getTime())}</span></td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${ok?'':'<br><span class="muted" style="font-size:11px">ainda não saiu</span>'}</td></tr>`; }
+/* Linha da busca: clicável só se a requisição já saiu do almoxarifado. seq = saída que casou com o número digitado */
+function devolReqLinha(r,seq){ const ok=STATUS_ATENDIDA.includes(r.status); const sd=seq?seqf(seq):devSaidasFmt(r.saidas);
+  return `<tr ${ok?`style="cursor:pointer" onclick="devolReqEscolher(${r.id},${seq||'null'})"`:'style="opacity:.6" title="Ainda não saiu do almoxarifado — sem devolução por aqui"'}><td style="white-space:nowrap">${sd?`<b class="mono" style="font-size:13px">Saída ${sd}</b><br>`:''}<span class="mono muted" style="font-size:11px">REQ-${String(r.id).padStart(5,'0')}</span></td><td>${esc(r.aplicacao_nome||'—')}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}<br><span class="muted" style="font-size:11px">${esc(r.obra_nome||'')} · ${esc(r.solicitante_nome||'')} · ${fmtDate(new Date(r.criado_em).getTime())}</span></td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${ok?'':'<br><span class="muted" style="font-size:11px">ainda não saiu</span>'}</td></tr>`; }
 let _drNumTk=0, _drNumTimer=null;
 function devolReqListar(q){ const box=$('#drLista'); if(!box)return; q=String(q||'').toLowerCase().trim();
-  const qn=q.replace(/^(req|dev)?[\s\-nº°.]*/,''); const num=/^\d+$/.test(qn)?parseInt(qn,10):null;
-  const list=(!q?_drReqs:_drReqs.filter(r=>(num!==null&&r.id===num)||[String(r.id),'req-'+String(r.id).padStart(5,'0'),r.aplicacao_nome,r.ordem_servico,r.solicitante_nome,r.obra_nome].some(v=>String(v||'').toLowerCase().includes(q)))).slice(0,12);
-  box.innerHTML=(list.length?`<div class="tbl-wrap" style="max-height:300px;overflow:auto"><table><tbody>${list.map(r=>devolReqLinha(r)).join('')}</tbody></table></div>`
-    :(num!==null?'':'<div class="empty" style="padding:14px">Nenhuma requisição retirada/despachada encontrada'+(q?' para "<b>'+esc(q)+'</b>"':'')+'.</div>'))+'<div id="drNum"></div>';
-  /* número digitado: confere no banco se é uma requisição (em qualquer situação) ou o nº do documento de saída (comprovante) de uma requisição */
+  const qn=q.replace(/^(req|dev|sa[ií]da)?[\s\-nº°.:]*/,''); const num=/^\d+$/.test(qn)?parseInt(qn,10):null;
+  const temSaida=r=>num!==null&&(r.saidas||[]).includes(num);
+  let list=!q?_drReqs:_drReqs.filter(r=>temSaida(r)||(num!==null&&r.id===num)||[r.aplicacao_nome,r.ordem_servico,r.solicitante_nome,r.obra_nome].some(v=>String(v||'').toLowerCase().includes(q)));
+  if(num!==null)list=list.slice().sort((x,y)=>(temSaida(y)?1:0)-(temSaida(x)?1:0)); /* a saída com esse número vem antes da requisição com o mesmo número */
+  list=list.slice(0,12);
+  box.innerHTML=(list.length?`<div class="tbl-wrap" style="max-height:300px;overflow:auto"><table><tbody>${list.map(r=>devolReqLinha(r,temSaida(r)?num:null)).join('')}</tbody></table></div>`
+    :(num!==null?'':'<div class="empty" style="padding:14px">Nenhuma saída de requisição retirada/despachada encontrada'+(q?' para "<b>'+esc(q)+'</b>"':'')+'.</div>'))+'<div id="drNum"></div>';
+  /* número digitado e fora da lista recente: confere no banco (saída de qualquer data, ou requisição em qualquer situação) */
   clearTimeout(_drNumTimer); const tk=++_drNumTk;
-  if(num!==null){ $('#drNum').innerHTML='<p class="muted" style="font-size:12px;margin:8px 2px">Procurando o nº '+num+' no banco...</p>';
+  if(num!==null&&!list.some(temSaida)){ $('#drNum').innerHTML='<p class="muted" style="font-size:12px;margin:8px 2px">Procurando a saída nº '+seqf(num)+' no banco...</p>';
     _drNumTimer=setTimeout(()=>devolReqBuscaNumero(num,tk,list.map(r=>r.id)),350); } }
 async function devolReqBuscaNumero(num,tk,jaListadas){
   const cols='id,obra_nome,aplicacao_nome,ordem_servico,solicitante_nome,status,criado_em';
-  const [{data:r,error:e1},{data:mv,error:e2}]=await Promise.all([
-    sb.from('requisicoes').select(cols).eq('id',num).maybeSingle(),
-    sb.from('movimentos_estoque').select('seq,doc,descricao').eq('tipo','baixa').eq('seq',num).limit(30)]);
+  const [{data:mv,error:e2},{data:r,error:e1}]=await Promise.all([
+    sb.from('movimentos_estoque').select('seq,doc,descricao').eq('tipo','baixa').eq('seq',num).limit(30),
+    sb.from('requisicoes').select(cols).eq('id',num).maybeSingle()]);
   if(tk!==_drNumTk)return;
-  const idsDoc=[...new Set((mv||[]).map(m=>reqIdFromDoc(m.doc)).filter(id=>id&&id!==num))];
+  const idsDoc=[...new Set((mv||[]).map(m=>reqIdFromDoc(m.doc)).filter(Boolean))];
   const semReq=(mv||[]).filter(m=>!reqIdFromDoc(m.doc));
   let reqsDoc=[]; if(idsDoc.length){ const {data}=await sb.from('requisicoes').select(cols).in('id',idsDoc); reqsDoc=data||[]; if(tk!==_drNumTk)return; }
   const box=$('#drNum'); if(!box)return;
-  const rows=[]; if(r&&!jaListadas.includes(r.id))rows.push(devolReqLinha(r));
-  reqsDoc.forEach(x=>rows.push(devolReqLinha(x,'<span class="muted" style="font-size:11px">doc. de saída '+seqf(num)+' →</span>')));
+  const rows=reqsDoc.map(x=>devolReqLinha(x,num)); if(r&&!jaListadas.includes(r.id)&&!idsDoc.includes(r.id))rows.push(devolReqLinha(r));
   let html=rows.length?`<div class="tbl-wrap" style="margin-top:8px"><table><tbody>${rows.join('')}</tbody></table></div>`:'';
-  if(semReq.length&&!reqsDoc.length)html+='<p class="mp" style="margin-top:8px;font-size:12.5px">O documento de saída nº <b>'+seqf(num)+'</b> ('+esc(semReq[0].descricao||'')+') é uma baixa sem requisição — esta rotina só devolve material que saiu por requisição.</p>';
-  if(!rows.length&&!semReq.length&&!jaListadas.includes(num))html='<div class="empty" style="padding:14px">'+((e1||e2)?'Erro na busca: '+esc((e1||e2).message):'Não há requisição nº <b>'+num+'</b> nem documento de saída nº <b>'+seqf(num)+'</b> visível para o seu usuário.<br><span style="font-size:12px">O número da requisição aparece como REQ-00000 em Aprovações e, no comprovante de saída, na linha "Documento: Separação REQ-…".</span>')+'</div>';
+  if(semReq.length&&!reqsDoc.length)html+='<p class="mp" style="margin-top:8px;font-size:12.5px">A saída nº <b>'+seqf(num)+'</b> ('+esc(semReq[0].descricao||'')+') é uma baixa sem requisição — esta rotina só devolve material que saiu por requisição.</p>';
+  if(!rows.length&&!semReq.length&&!jaListadas.length)html='<div class="empty" style="padding:14px">'+((e1||e2)?'Erro na busca: '+esc((e1||e2).message):'Não há saída nº <b>'+seqf(num)+'</b> nem requisição nº <b>'+num+'</b> visível para o seu usuário.<br><span style="font-size:12px">O número da saída é o "Documento Nº" do comprovante de saída de material.</span>')+'</div>';
   box.innerHTML=html; }
-/* Passo 2: itens, quantidades, motivo */
-async function devolReqEscolher(id){
-  const [{data:r,error:e1},{data:its,error:e2},{data:devs,error:e3}]=await Promise.all([
+/* Passo 2: itens (cada um com o seu nº de saída), quantidades, motivo. seqSel = saída digitada na busca (fica em destaque) */
+async function devolReqEscolher(id,seqSel){
+  const [{data:r,error:e1},{data:its,error:e2},{data:devs,error:e3},{data:mvs}]=await Promise.all([
     sb.from('requisicoes').select('*').eq('id',id).maybeSingle(),
     sb.from('requisicao_itens_status').select('id,code,descricao,unidade,quantidade_separada').eq('requisicao_id',id).gt('quantidade_separada',0).order('id',{ascending:true}),
-    sb.from('devolucoes_requisicao').select('item_code,quantidade').eq('requisicao_id',id)]);
+    sb.from('devolucoes_requisicao').select('item_code,quantidade').eq('requisicao_id',id),
+    sb.from('movimentos_estoque').select('seq,code,qty,valor_total').eq('tipo','baixa').eq('doc',devReqDocSep(id)).gt('qty',0)]);
   if(e3&&devReqSemTabela(e3)){ toast(DEVREQ_MSG_SEM_TABELA,'err'); return; }
   if(e1||e2||e3){ toast('Erro ao carregar a requisição: '+esc((e1||e2||e3).message),'err'); return; }
   if(!r){ toast('Requisição REQ-'+String(id).padStart(5,'0')+' não encontrada.','err'); return; }
   if(!STATUS_ATENDIDA.includes(r.status)){ toast('A REQ-'+String(r.id).padStart(5,'0')+' ainda não saiu do almoxarifado (situação: '+esc(reqStatusLabel(r.status))+'). A devolução só pode ser registrada depois da retirada ou do despacho.','err'); return; }
   const dev={}; (devs||[]).forEach(d=>{ dev[d.item_code]=(dev[d.item_code]||0)+Number(d.quantidade||0); });
+  /* saída(s) e valor unitário de cada item, pelas baixas da separação desta requisição */
+  const sai={}; (mvs||[]).forEach(m=>{ const c=String(m.code); if(!sai[c])sai[c]={seqs:[],q:0,v:0}; if(m.seq)sai[c].seqs.push(Number(m.seq)); sai[c].q+=Number(m.qty)||0; sai[c].v+=Number(m.valor_total)||0; });
   const porCode={}; (its||[]).forEach(i=>{ const c=String(i.code); if(!porCode[c])porCode[c]={code:c,desc:i.descricao,unit:i.unidade||'',sep:0}; porCode[c].sep+=Number(i.quantidade_separada)||0; });
-  const itens=Object.values(porCode).map(i=>{ const d=dev[i.code]||0; return {...i,dev:d,max:Math.max(0,Math.round((i.sep-d)*1e6)/1e6)}; });
+  const itens=Object.values(porCode).map(i=>{ const d=dev[i.code]||0, sx=sai[i.code], p=findProduct(i.code);
+    return {...i,dev:d,max:Math.max(0,Math.round((i.sep-d)*1e6)/1e6),seqs:sx?sx.seqs:[],saida:sx?devSaidasFmt(sx.seqs):'',vu:(sx&&sx.q>0)?sx.v/sx.q:(p?(p.custo||0):0)}; });
   if(!itens.length){ toast('Esta requisição não tem item separado para devolver.','err'); return; }
   const obraSaldo=obraEstoqueParaRequisicao(r);
   _devReqCtx={r,itens,obraSaldo};
   const reqN='REQ-'+String(r.id).padStart(5,'0');
   const nada=itens.every(i=>!(i.max>0));
-  modal(`<h3>📥 Devolução — ${reqN}</h3>
-    <p class="mp">Obra: <b>${esc(r.obra_nome||'')}</b>${r.aplicacao_nome?' · Aplicação: <b>'+esc(r.aplicacao_nome)+'</b>':''}${r.ordem_servico?' · OS <b>'+esc(r.ordem_servico)+'</b>':''} · <span class="pill ${r.status}">${reqStatusLabel(r.status)}</span></p>
-    <p class="mp" style="font-size:12px">Solicitante: ${esc(r.solicitante_nome||'—')} · o material volta para o estoque <b>${esc(obraName(obraSaldo))}</b>.</p>
-    <div class="tbl-wrap"><table><thead><tr><th>Item</th><th class="num">Separado</th><th class="num">Já devolvido</th><th class="num" style="width:110px">Devolver agora</th></tr></thead><tbody>${
-      itens.map((i,x)=>`<tr><td>${esc(i.desc||'')}<br><span class="muted" style="font-size:11px">${esc(i.code)}</span></td><td class="num">${numf(i.sep)} ${esc(i.unit)}</td><td class="num">${i.dev?numf(i.dev):'—'}</td><td class="num">${i.max>0?`<input class="inline-edit" id="drQ_${x}" type="number" min="0" max="${i.max}" step="any" placeholder="0" title="Máximo: ${numf(i.max)}">`:'<span class="muted" style="font-size:11.5px">tudo devolvido</span>'}</td></tr>`).join('')
+  const sel=x=>!!seqSel&&x.seqs.includes(Number(seqSel));
+  const titulo=seqSel?'saída '+seqf(seqSel):(devSaidasFmt(itens.flatMap(i=>i.seqs))?'saída '+devSaidasFmt(itens.flatMap(i=>i.seqs)):reqN);
+  modal(`<h3>📥 Devolução — ${titulo}</h3>
+    <p class="mp">${reqN} · Obra: <b>${esc(r.obra_nome||'')}</b>${r.aplicacao_nome?' · Aplicação: <b>'+esc(r.aplicacao_nome)+'</b>':''}${r.ordem_servico?' · OS <b>'+esc(r.ordem_servico)+'</b>':''} · <span class="pill ${r.status}">${reqStatusLabel(r.status)}</span></p>
+    <p class="mp" style="font-size:12px">Solicitante: ${esc(r.solicitante_nome||'—')} · o material volta para o estoque <b>${esc(obraName(obraSaldo))}</b>.${seqSel&&itens.length>1?' Os outros itens da mesma requisição aparecem abaixo, cada um com a sua saída.':''}</p>
+    <div class="tbl-wrap"><table><thead><tr><th style="padding-right:6px">Saída</th><th>Item</th><th class="num">Saiu</th><th class="num" style="width:96px">Devolver</th></tr></thead><tbody>${
+      itens.map((i,x)=>`<tr${sel(i)?' style="background:#fff7e6"':''}><td class="mono" style="font-size:12.5px;padding-right:6px;${sel(i)?'font-weight:700':''}">${i.saida||'—'}</td><td>${esc(i.desc||'')}<br><span class="muted" style="font-size:11px">${esc(i.code)}</span></td><td class="num" style="white-space:nowrap">${numf(i.sep)} ${esc(i.unit)}${i.dev?`<br><span class="muted" style="font-size:11px">já devolvido: ${numf(i.dev)}</span>`:''}</td><td class="num">${i.max>0?`<input class="inline-edit" id="drQ_${x}" type="number" min="0" max="${i.max}" step="any" placeholder="0" title="Máximo: ${numf(i.max)}" style="width:76px">`:'<span class="muted" style="font-size:11.5px">tudo devolvido</span>'}</td></tr>`).join('')
     }</tbody></table></div>
     ${nada?'<p class="mp" style="margin-top:10px">Todos os itens desta requisição já foram devolvidos por inteiro.</p>':`
     <div class="field" style="margin-top:12px"><label>Motivo da devolução</label><select id="drMotivo"><option value="">— selecione —</option>${DEVREQ_MOTIVOS.map(m=>`<option>${esc(m)}</option>`).join('')}</select></div>
     <div class="field"><label>Observação (obrigatória se o motivo for "Outro")</label><textarea id="drObs" rows="2" placeholder="Detalhe o que aconteceu..."></textarea></div>
     <div class="field"><label>Devolvido por (quem trouxe o material)</label><input id="drQuem" autocomplete="off" placeholder="Nome do colaborador"></div>`}
-    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="devolReqModal()">← Outra requisição</button><button class="btn ghost" onclick="closeModal()">Cancelar</button>${nada?'':'<button class="btn primary" id="drOk" onclick="salvarDevolReq()">Registrar devolução</button>'}</div>`);
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="devolReqModal()">← Outra saída</button><button class="btn ghost" onclick="closeModal()">Cancelar</button>${nada?'':'<button class="btn primary" id="drOk" onclick="salvarDevolReq()">Registrar devolução</button>'}</div>`);
+  const foco=itens.findIndex(i=>sel(i)&&i.max>0); if(foco>=0){ const el=$('#drQ_'+foco); if(el)el.focus(); }
 }
 async function salvarDevolReq(){
   if(_devReqSalvando)return; const ctx=_devReqCtx; if(!ctx)return;
@@ -3484,33 +3503,32 @@ async function salvarDevolReq(){
   _devReqSalvando=true; const btn=$('#drOk'); if(btn){ btn.disabled=true; btn.textContent='Registrando...'; }
   try{
     const r=ctx.r, obraSaldo=ctx.obraSaldo, reqN='REQ-'+String(r.id).padStart(5,'0'), lote=uid(), quemReg=profile.nome||profile.email;
-    /* valor unitário = o mesmo da saída desta requisição (para o consumo da aplicação zerar na mesma moeda); sem a saída em mãos, usa o custo atual */
-    for(const it of sel){ const p=findProduct(it.code); let vu=p?(p.custo||0):0;
-      try{ const orig=(await movsDoProduto(it.code)).filter(m=>m.tipo==='baixa'&&m.qty>0&&m.doc==='Separação '+reqN);
-        const sq=orig.reduce((a,m)=>a+m.qty,0), sv=orig.reduce((a,m)=>a+(m.valorTotal||0),0); if(sq>0)vu=sv/sq; }catch(e){}
-      it.vu=vu; it.aux=p?p.aux:''; }
-    const rows=sel.map(it=>({lote,requisicao_id:r.id,item_code:it.code,descricao:it.desc||null,unidade:it.unit||null,quantidade:it.qty,valor_unit:it.vu,obra_id:obraSaldo,obra_nome:obraName(obraSaldo),aplicacao_id:r.aplicacao_id||null,aplicacao_nome:r.aplicacao_nome||null,ordem_servico:r.ordem_servico||null,motivo,observacao:obs||null,devolvido_por:quem,movimento_id:it.movId,registrado_por_nome:quemReg}));
+    const rows=sel.map(it=>({lote,requisicao_id:r.id,documento_saida:it.saida||null,item_code:it.code,descricao:it.desc||null,unidade:it.unit||null,quantidade:it.qty,valor_unit:it.vu,obra_id:obraSaldo,obra_nome:obraName(obraSaldo),aplicacao_id:r.aplicacao_id||null,aplicacao_nome:r.aplicacao_nome||null,ordem_servico:r.ordem_servico||null,motivo,observacao:obs||null,devolvido_por:quem,movimento_id:it.movId,registrado_por_nome:quemReg}));
     /* 1º o registro (o banco confere a quantidade e barra devolução em dobro); só depois mexe no saldo */
-    const {data:ins,error}=await sb.from('devolucoes_requisicao').insert(rows).select('*');
+    let {data:ins,error}=await sb.from('devolucoes_requisicao').insert(rows).select('*');
+    if(error&&/documento_saida/.test(error.message||'')){ /* banco ainda sem a coluna do nº da saída (script não foi rodado de novo): grava sem ela para não travar a devolução */
+      ({data:ins,error}=await sb.from('devolucoes_requisicao').insert(rows.map(({documento_saida,...x})=>x)).select('*'));
+      if(!error)toast('Devolução gravada, mas sem o nº da saída no registro: rode de novo o script <b>devolucao_requisicao.sql</b> no Supabase.','warn'); }
     if(error){ toast(devReqSemTabela(error)?DEVREQ_MSG_SEM_TABELA:'Devolução não registrada: '+esc(error.message),'err'); return; }
     const doc=ins&&ins[0]?ins[0].documento:0;
     sel.forEach(it=>{ addSaldo(obraSaldo,it.code,it.qty);
-      pushMov({id:it.movId,ts:Date.now(),tipo:'baixa',obra:obraSaldo,aplic:r.aplicacao_id||'',os:r.ordem_servico||'',code:it.code,desc:it.desc,qty:-it.qty,valorUnit:it.vu,valorTotal:-it.qty*it.vu,doc:'Devolução '+reqN+' · '+devReqDocf(doc),obs:'Motivo: '+motivo+(obs?' — '+obs:'')+' · devolvido por '+quem,saldo:saldoOf(obraSaldo,it.code)}); });
+      pushMov({id:it.movId,ts:Date.now(),tipo:'baixa',obra:obraSaldo,aplic:r.aplicacao_id||'',os:r.ordem_servico||'',code:it.code,desc:it.desc,qty:-it.qty,valorUnit:it.vu,valorTotal:-it.qty*it.vu,doc:'Devolução'+(it.saida?' da saída '+it.saida:'')+' · '+reqN+' · '+devReqDocf(doc),obs:'Motivo: '+motivo+(obs?' — '+obs:'')+' · devolvido por '+quem,saldo:saldoOf(obraSaldo,it.code)}); });
     await aguardarMovs();
     /* requisição com mútuo: a saída gerou débito entre empresas — a devolução lança o estorno (valor negativo) no período atual */
     if(r.mutuo_empresa_destino){ const estObra=state.obras.find(x=>x.id===r.mutuo_estoque_obra_id);
       const {error:eM}=await sb.from('mutuos_intercompany').insert(sel.map(it=>({periodo:periodoAtual(),empresa_origem:r.mutuo_empresa_origem,empresa_destino:r.mutuo_empresa_destino,obra_origem_nome:estObra?estObra.nome:'',obra_destino_nome:r.obra_nome,descricao:'Devolução: '+it.desc+' ('+reqN+' · '+devReqDocf(doc)+')',requisicao_id:r.id,item_code:it.code,valor:-(it.qty*it.vu),registrado_por:session.user.id,registrado_por_nome:quemReg})));
       if(eM)toast('Devolução registrada e saldo devolvido, mas o estorno do mútuo NÃO foi lançado — lance manualmente: '+esc(eM.message),'err'); }
-    try{ await sb.rpc('log_event',{p_acao:'devolucao_requisicao',p_entidade:'devolucoes_requisicao',p_entidade_id:String(doc),p_detalhes:{requisicao:r.id,motivo,observacao:obs||null,devolvido_por:quem,itens:sel.map(it=>({code:it.code,qtd:it.qty}))}}); }catch(e){}
-    (ins||[]).slice().reverse().forEach(d=>_devReqRows.unshift(d));
+    try{ await sb.rpc('log_event',{p_acao:'devolucao_requisicao',p_entidade:'devolucoes_requisicao',p_entidade_id:String(doc),p_detalhes:{requisicao:r.id,motivo,observacao:obs||null,devolvido_por:quem,itens:sel.map(it=>({saida:it.saida||null,code:it.code,qtd:it.qty}))}}); }catch(e){}
+    (ins||[]).slice().reverse().forEach(d=>_devReqRows.unshift({...d,documento_saida:d.documento_saida||(sel.find(it=>it.movId===d.movimento_id)||{}).saida||null}));
     cacheState(); refreshBadge(); drawDevolReqHist();
     toast('Devolução '+devReqDocf(doc)+' registrada — saldo devolvido ao estoque.','ok');
     modal(`<h3>✅ Devolução ${devReqDocf(doc)} registrada</h3><p class="mp">${reqN} · ${sel.length} ${sel.length===1?'item':'itens'} de volta ao estoque <b>${esc(obraName(obraSaldo))}</b>.</p>
-      <div class="tbl-wrap"><table><tbody>${sel.map(it=>`<tr><td>${esc(it.desc||it.code)}</td><td class="num pos">+${numf(it.qty)} ${esc(it.unit)}</td></tr>`).join('')}</tbody></table></div>
+      <div class="tbl-wrap"><table><tbody>${sel.map(it=>`<tr><td class="mono" style="font-size:12.5px;white-space:nowrap">${it.saida?'Saída '+it.saida:'—'}</td><td>${esc(it.desc||it.code)}</td><td class="num pos">+${numf(it.qty)} ${esc(it.unit)}</td></tr>`).join('')}</tbody></table></div>
       <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="closeModal()">Fechar</button><button class="btn primary" onclick="imprimirDevolReq('${esc(lote)}')">🖨 Imprimir comprovante</button></div>`);
   } finally { _devReqSalvando=false; const b2=$('#drOk'); if(b2){ b2.disabled=false; b2.textContent='Registrar devolução'; } }
 }
 /* Comprovante: abre a janela já no clique (senão o navegador bloqueia o pop-up) e busca os itens se não estiverem em memória */
+function devSaidasComp(rows){ return [...new Set(rows.map(d=>d.documento_saida).filter(Boolean))].join(', '); }
 async function imprimirDevolReq(lote,movId){
   const w=window.open('','_blank'); if(!w){ toast('Permita pop-ups para gerar o comprovante.','err'); return; }
   let rows=lote?_devReqRows.filter(d=>d.lote===lote):[];
@@ -3519,7 +3537,7 @@ async function imprimirDevolReq(lote,movId){
     const {data,error}=await q.order('id',{ascending:true}); if(error||!data||!data.length){ try{w.close();}catch(e){} toast('Registro da devolução não encontrado.','err'); return; } rows=data; }
   rows=rows.slice().sort((a,b)=>a.id-b.id); const d0=rows[0];
   printSignReport({win:w,titulo:'Comprovante de Devolução de Material',numero:devReqDocf(d0.documento),subtitulo:'Retorno ao estoque — material de requisição',data:fmtDate(new Date(d0.criado_em).getTime()),obra:d0.obra_nome,aplicacao:d0.aplicacao_nome||'',
-    doc:'REQ-'+String(d0.requisicao_id).padStart(5,'0')+(d0.ordem_servico?' · OS '+d0.ordem_servico:''),responsavel:d0.registrado_por_nome||'',
+    doc:(devSaidasComp(rows)?'Saída nº '+devSaidasComp(rows)+' · ':'')+'REQ-'+String(d0.requisicao_id).padStart(5,'0')+(d0.ordem_servico?' · OS '+d0.ordem_servico:''),responsavel:d0.registrado_por_nome||'',
     obs:'Motivo: '+d0.motivo+(d0.observacao?'\n'+d0.observacao:'')+'\nDevolvido por: '+(d0.devolvido_por||'—'),
     itens:rows.map(d=>{ const p=findProduct(d.item_code); return {code:d.item_code,aux:p?p.aux:'',desc:d.descricao||(p?p.desc:''),qty:Number(d.quantidade),unit:d.unidade||(p?p.unit:''),valor:Number(d.valor_unit||0)}; }),
     assinaturas:['Devolvido por','Recebido no almoxarifado']}); }
