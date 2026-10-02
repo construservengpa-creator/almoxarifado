@@ -413,7 +413,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-02T18:00:00-03:00';
+const APP_VERSION='2026-10-02T19:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -3407,12 +3407,34 @@ async function devolReqModal(reqId){
   if(error){ const l=$('#drLista'); if(l)l.innerHTML='<div class="empty" style="padding:14px">Erro: '+esc(error.message)+'</div>'; return; }
   _drReqs=data||[]; devolReqListar($('#drBusca')?$('#drBusca').value:'');
 }
+/* Linha de requisição na busca: clicável só se já saiu do almoxarifado */
+function devolReqLinha(r,rotulo){ const ok=STATUS_ATENDIDA.includes(r.status);
+  return `<tr ${ok?`style="cursor:pointer" onclick="devolReqEscolher(${r.id})"`:'style="opacity:.6" title="Ainda não saiu do almoxarifado — sem devolução por aqui"'}><td class="mono" style="font-size:12.5px;white-space:nowrap">${rotulo?rotulo+'<br>':''}REQ-${String(r.id).padStart(5,'0')}</td><td>${esc(r.aplicacao_nome||'—')}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}<br><span class="muted" style="font-size:11px">${esc(r.obra_nome||'')} · ${esc(r.solicitante_nome||'')} · ${fmtDate(new Date(r.criado_em).getTime())}</span></td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${ok?'':'<br><span class="muted" style="font-size:11px">ainda não saiu</span>'}</td></tr>`; }
+let _drNumTk=0, _drNumTimer=null;
 function devolReqListar(q){ const box=$('#drLista'); if(!box)return; q=String(q||'').toLowerCase().trim();
-  const num=/^\d+$/.test(q.replace(/^req-?/,''))?parseInt(q.replace(/^req-?/,''),10):null;
+  const qn=q.replace(/^(req|dev)?[\s\-nº°.]*/,''); const num=/^\d+$/.test(qn)?parseInt(qn,10):null;
   const list=(!q?_drReqs:_drReqs.filter(r=>(num!==null&&r.id===num)||[String(r.id),'req-'+String(r.id).padStart(5,'0'),r.aplicacao_nome,r.ordem_servico,r.solicitante_nome,r.obra_nome].some(v=>String(v||'').toLowerCase().includes(q)))).slice(0,12);
-  let html=list.length?`<div class="tbl-wrap" style="max-height:320px;overflow:auto"><table><tbody>${list.map(r=>`<tr style="cursor:pointer" onclick="devolReqEscolher(${r.id})"><td class="mono" style="font-size:12.5px">REQ-${String(r.id).padStart(5,'0')}</td><td>${esc(r.aplicacao_nome||'—')}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}<br><span class="muted" style="font-size:11px">${esc(r.obra_nome||'')} · ${esc(r.solicitante_nome||'')} · ${fmtDate(new Date(r.criado_em).getTime())}</span></td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span></td></tr>`).join('')}</tbody></table></div>`
-    :'<div class="empty" style="padding:14px">Nenhuma requisição retirada/despachada encontrada'+(q?' para "<b>'+esc(q)+'</b>"':'')+'.</div>';
-  if(num!==null&&!list.some(r=>r.id===num))html+=`<div style="margin-top:8px"><button class="btn ghost sm" onclick="devolReqEscolher(${num})">Buscar REQ-${String(num).padStart(5,'0')} no banco</button></div>`;
+  box.innerHTML=(list.length?`<div class="tbl-wrap" style="max-height:300px;overflow:auto"><table><tbody>${list.map(r=>devolReqLinha(r)).join('')}</tbody></table></div>`
+    :(num!==null?'':'<div class="empty" style="padding:14px">Nenhuma requisição retirada/despachada encontrada'+(q?' para "<b>'+esc(q)+'</b>"':'')+'.</div>'))+'<div id="drNum"></div>';
+  /* número digitado: confere no banco se é uma requisição (em qualquer situação) ou o nº do documento de saída (comprovante) de uma requisição */
+  clearTimeout(_drNumTimer); const tk=++_drNumTk;
+  if(num!==null){ $('#drNum').innerHTML='<p class="muted" style="font-size:12px;margin:8px 2px">Procurando o nº '+num+' no banco...</p>';
+    _drNumTimer=setTimeout(()=>devolReqBuscaNumero(num,tk,list.map(r=>r.id)),350); } }
+async function devolReqBuscaNumero(num,tk,jaListadas){
+  const cols='id,obra_nome,aplicacao_nome,ordem_servico,solicitante_nome,status,criado_em';
+  const [{data:r,error:e1},{data:mv,error:e2}]=await Promise.all([
+    sb.from('requisicoes').select(cols).eq('id',num).maybeSingle(),
+    sb.from('movimentos_estoque').select('seq,doc,descricao').eq('tipo','baixa').eq('seq',num).limit(30)]);
+  if(tk!==_drNumTk)return;
+  const idsDoc=[...new Set((mv||[]).map(m=>reqIdFromDoc(m.doc)).filter(id=>id&&id!==num))];
+  const semReq=(mv||[]).filter(m=>!reqIdFromDoc(m.doc));
+  let reqsDoc=[]; if(idsDoc.length){ const {data}=await sb.from('requisicoes').select(cols).in('id',idsDoc); reqsDoc=data||[]; if(tk!==_drNumTk)return; }
+  const box=$('#drNum'); if(!box)return;
+  const rows=[]; if(r&&!jaListadas.includes(r.id))rows.push(devolReqLinha(r));
+  reqsDoc.forEach(x=>rows.push(devolReqLinha(x,'<span class="muted" style="font-size:11px">doc. de saída '+seqf(num)+' →</span>')));
+  let html=rows.length?`<div class="tbl-wrap" style="margin-top:8px"><table><tbody>${rows.join('')}</tbody></table></div>`:'';
+  if(semReq.length&&!reqsDoc.length)html+='<p class="mp" style="margin-top:8px;font-size:12.5px">O documento de saída nº <b>'+seqf(num)+'</b> ('+esc(semReq[0].descricao||'')+') é uma baixa sem requisição — esta rotina só devolve material que saiu por requisição.</p>';
+  if(!rows.length&&!semReq.length&&!jaListadas.includes(num))html='<div class="empty" style="padding:14px">'+((e1||e2)?'Erro na busca: '+esc((e1||e2).message):'Não há requisição nº <b>'+num+'</b> nem documento de saída nº <b>'+seqf(num)+'</b> visível para o seu usuário.<br><span style="font-size:12px">O número da requisição aparece como REQ-00000 em Aprovações e, no comprovante de saída, na linha "Documento: Separação REQ-…".</span>')+'</div>';
   box.innerHTML=html; }
 /* Passo 2: itens, quantidades, motivo */
 async function devolReqEscolher(id){
