@@ -416,7 +416,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-02T23:00:00-03:00';
+const APP_VERSION='2026-10-02T23:30:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -3936,7 +3936,7 @@ function relTipoOpts(){ return '<option value="">Todos os tipos</option>'+(state
 function relSyncOpcoes(){ [['relObra',()=>obraOptions('__all',true)],['relGrupo',relGrupoOpts],['relLocal',relLocalOpts],['relTipoAplic',relTipoOpts]].forEach(([id,fn])=>{
     const el=document.getElementById(id); if(!el)return; const h=fn(); if(el._relOpts===h)return; const v=el.value; el.innerHTML=h; el._relOpts=h;
     if([...el.options].some(o=>o.value===v))el.value=v; }); }
-const REL_VISAO={aretirar:'A retirar por aplicação (posição atual)',atendidas:'Requisições atendidas — quem retirou',aplicacao:'Por aplicação',tipo:'Por tipo de aplicação',obra:'Por obra',produto:'Por produto',grupo:'Insumos por grupo',os:'Por Ordem de Serviço',consorcio:'P/ Consórcio (débito)'};
+const REL_VISAO={aretirar:'A retirar por aplicação (posição atual)',atendidas:'Requisições atendidas — quem retirou',aplicacao:'Por aplicação',tipo:'Por tipo de aplicação',obra:'Por obra',produto:'Por produto',grupo:'Insumos por grupo',os:'Por Ordem de Serviço',consorcio:'P/ Consórcio (débito)',ajustes:'Ajustes de inventário — itens lançados'};
 function renderRelatorios(){ if(needObra())return;
   const d2=new Date(),d1=new Date(); d1.setDate(d1.getDate()-90);
   $('#view').innerHTML=`
@@ -3972,6 +3972,7 @@ function renderRelatorios(){ if(needObra())return;
       <button id="rtOS" onclick="setRelTipo('os')">Por Ordem de Serviço</button>
       <button id="rtCons" onclick="setRelTipo('consorcio')">P/ Consórcio (débito)</button>
       <button id="rtARet" onclick="setRelTipo('aretirar')">Retiradas / a retirar</button>
+      <button id="rtAjInv" onclick="setRelTipo('ajustes')">Ajustes de inventário</button>
     </div>
   </div>
   <div id="relView"></div>`;
@@ -3982,7 +3983,60 @@ function renderRelatorios(){ if(needObra())return;
   ['relProdutoTxt','relOSTxt'].forEach(id=>{ const el=$('#'+id); if(el){ el.oninput=()=>relAgendar(300); el.onkeydown=e=>{ if(e.key==='Enter')relAgendar(0); }; } });
   ['relFrom','relTo'].forEach(id=>{ const el=$('#'+id); if(el){ el.onchange=()=>relAgendar(700); el.onkeydown=e=>{ if(e.key==='Enter')relAgendar(0); }; } });
 }
-function setRelTipo(t){ relTipo=t; [['aplicacao','rtAplic'],['tipo','rtTipo'],['obra','rtObra'],['produto','rtProd'],['grupo','rtGrupo'],['os','rtOS'],['consorcio','rtCons'],['aretirar','rtARet']].forEach(([k,id])=>{const b=$('#'+id); if(b)b.classList.toggle('on',k===t);}); drawRelatorio(); }
+function setRelTipo(t){ relTipo=t; [['aplicacao','rtAplic'],['tipo','rtTipo'],['obra','rtObra'],['produto','rtProd'],['grupo','rtGrupo'],['os','rtOS'],['consorcio','rtCons'],['aretirar','rtARet'],['ajustes','rtAjInv']].forEach(([k,id])=>{const b=$('#'+id); if(b)b.classList.toggle('on',k===t);}); drawRelatorio(); }
+/* ===== Relatório: insumos lançados por Inventário / Ajuste de Saldo (movimentos 'ajuste') =====
+   Um item por linha, para avaliar o que entrou (ou saiu) do estoque sem nota fiscal: saldo antes/depois,
+   custo usado e valor. Usa De/Até, Obra, Grupo, Localização e Produto; Tipo de aplicação, Aplicação e OS
+   não se aplicam (ajuste não tem aplicação). */
+let _relAjOrigem='', _relAjSentido='';
+function relAjOrigemDe(m){ const d=String(m.doc||''); if(m.invId||/^Ajuste de invent/i.test(d))return /item fora da lista/i.test(d)?'extra':'inv'; return 'manual'; }
+function relAjDetalhe(m){ return String(m.doc||'').replace(/^Ajuste de invent[aá]rio:\s*/i,'').replace(/^Ajuste:\s*/i,'').replace(/\s*·\s*item fora da lista/i,'')||'—'; }
+function drawRelAjustes(f,t,fobra,isAll,gf,lf,pf){ const box=$('#relView'); if(!box)return;
+  const OR={inv:'Inventário',extra:'Inventário · item fora da lista',manual:'Ajuste de saldo (manual)'};
+  let base=state.movements.filter(m=>m.tipo==='ajuste'&&m.ts>=f&&m.ts<=t&&(isAll||m.obra===fobra));
+  if(gf)base=base.filter(m=>produtoGrupo(m.code)===gf);
+  if(lf)base=base.filter(m=>produtoLocal(m.code)===lf);
+  if(pf)base=base.filter(m=>{ const p=relProd(m.code); return String(m.desc||'').toLowerCase().includes(pf)||String(m.code).toLowerCase().includes(pf)||(p&&(String(p.desc||'').toLowerCase().includes(pf)||(p.aux&&String(p.aux).toLowerCase().includes(pf)))); });
+  let lista=base.map(m=>{ const p=relProd(m.code); const q=Number(m.qty)||0; const vu=Number(m.valorUnit)||0; const v=m.valorTotal||(q*vu);
+    const dep=(m.saldo!=null&&!isNaN(m.saldo))?Number(m.saldo):null;
+    return {ts:m.ts,obra:obraName(m.obra),code:String(m.code||''),aux:p&&p.aux?String(p.aux):'',desc:(p&&p.desc)||m.desc||'',unit:p?(p.unit||''):'',grupo:produtoGrupo(m.code),local:produtoLocal(m.code),
+      origem:relAjOrigemDe(m),det:relAjDetalhe(m),q,vu,v,dep,ant:dep!=null?dep-q:null,semCad:!p}; });
+  if(_relAjOrigem)lista=lista.filter(a=>_relAjOrigem==='invtodos'?(a.origem==='inv'||a.origem==='extra'):a.origem===_relAjOrigem);
+  if(_relAjSentido)lista=lista.filter(a=>_relAjSentido==='pos'?a.q>0:a.q<0);
+  lista.sort((a,b)=>b.ts-a.ts);
+  const pos=lista.filter(a=>a.q>0), neg=lista.filter(a=>a.q<0);
+  const vPos=pos.reduce((s,a)=>s+a.v,0), vNeg=neg.reduce((s,a)=>s+Math.abs(a.v),0);
+  const semCusto=pos.filter(a=>!a.vu).length, nProd=new Set(lista.map(a=>a.code)).size;
+  const titulo='Insumos lançados por ajuste de inventário';
+  const sub=`${new Date(f).toLocaleDateString('pt-BR')} a ${new Date(t).toLocaleDateString('pt-BR')}`+(isAll?' · todas as obras':' · '+obraName(fobra))+(gf?' · grupo: '+gf:'')+(lf?' · local: '+lf:'')+(pf?' · produto: '+pf:'')
+    +(_relAjOrigem?' · origem: '+(_relAjOrigem==='invtodos'?'Inventário (todos)':OR[_relAjOrigem]):'')+(_relAjSentido?(_relAjSentido==='pos'?' · só entradas (+)':' · só saídas (−)'):'');
+  const sq=a=>a==null?'—':numf(a);
+  _rel={titulo,sub:sub+' · entradas: '+money(vPos)+' · saídas: '+money(vNeg),view:'ajustes',align:'lllllllrrrrr',
+    headers:['Data','Obra','Código','Cód. auxiliar','Insumo','Grupo / Localização','Origem','Saldo anterior','Ajuste','Saldo após','Custo unit.','Valor'],
+    rows:lista.map(a=>[fmtDate(a.ts),a.obra,a.code,a.aux||'—',a.desc+(a.unit?' ('+a.unit+')':''),a.grupo+' / '+a.local,OR[a.origem]+(a.det&&a.det!=='—'?': '+a.det:''),sq(a.ant),(a.q>0?'+':'')+numf(a.q),sq(a.dep),money(a.vu),money(a.v)]),
+    foot:['Total',lista.length+' lançamento(s)','','',nProd+' insumo(s)','','','','','','',money(vPos-vNeg)]};
+  const opt=(cur,v,l)=>`<option value="${v}" ${cur===v?'selected':''}>${l}</option>`;
+  const ss='style="width:auto;font-size:12.5px;padding:6px 8px"', td='style="font-size:12.5px"';
+  const pill=o=>o==='manual'?'<span class="pill high" style="white-space:nowrap">Ajuste manual</span>':o==='extra'?'<span class="pill tr" style="white-space:nowrap">Inventário · fora da lista</span>':'<span class="pill in" style="white-space:nowrap">Inventário</span>';
+  box.innerHTML=`<div class="sechead" style="flex-wrap:wrap;gap:8px"><h3>${esc(titulo)}</h3><span style="font-size:12px;color:#8a8377">${esc(sub)}</span>
+      <select ${ss} onchange="_relAjOrigem=this.value;drawRelatorio()">${opt(_relAjOrigem,'','Todas as origens')}${opt(_relAjOrigem,'invtodos','Inventário (todos)')}${opt(_relAjOrigem,'inv','Inventário · itens da lista')}${opt(_relAjOrigem,'extra','Inventário · itens fora da lista')}${opt(_relAjOrigem,'manual','Ajuste de saldo (manual)')}</select>
+      <select ${ss} onchange="_relAjSentido=this.value;drawRelatorio()">${opt(_relAjSentido,'','Entradas e saídas')}${opt(_relAjSentido,'pos','Só entradas (+)')}${opt(_relAjSentido,'neg','Só saídas (−)')}</select></div>
+    <div class="cards" style="margin-bottom:16px">
+      <div class="card ok"><div class="stripe"></div><div class="lbl">Entradas por ajuste (+)</div><div class="val">${money(vPos)}</div><div class="sub">${pos.length} lançamento(s)</div></div>
+      <div class="card alert"><div class="stripe"></div><div class="lbl">Saídas por ajuste (−)</div><div class="val">${money(vNeg)}</div><div class="sub">${neg.length} lançamento(s)</div></div>
+      <div class="card neutral"><div class="stripe"></div><div class="lbl">Efeito líquido no estoque</div><div class="val">${money(vPos-vNeg)}</div><div class="sub">${nProd} insumo(s) diferente(s)</div></div>
+      <div class="card ${semCusto?'warn':'neutral'}"><div class="stripe"></div><div class="lbl">Entradas sem custo</div><div class="val">${semCusto}</div><div class="sub">lançadas com custo unitário R$ 0,00</div></div>
+    </div>
+    <div class="tbl-wrap"><table><thead><tr><th>Data</th><th>Obra</th><th>Código</th><th>Cód. auxiliar</th><th>Insumo</th><th>Grupo / Localização</th><th>Origem</th><th class="num">Saldo anterior</th><th class="num">Ajuste</th><th class="num">Saldo após</th><th class="num">Custo unit.</th><th class="num">Valor</th></tr></thead><tbody>${
+      lista.length?lista.map(a=>`<tr><td style="font-size:12.5px;white-space:nowrap">${fmtDate(a.ts)}</td><td class="muted" ${td}>${esc(a.obra)}</td><td class="mono" ${td}>${esc(a.code)}</td><td class="mono" ${td}>${esc(a.aux||'—')}</td>
+        <td>${esc(a.desc)}${a.unit?` <span class="muted" style="font-size:11.5px">(${esc(a.unit)})</span>`:''}${a.semCad?'<div class="muted" style="font-size:11px">produto não está mais no cadastro</div>':''}</td>
+        <td ${td}>${esc(a.grupo)}<div class="muted" style="font-size:11px">${esc(a.local)}</div></td>
+        <td>${pill(a.origem)}${a.det&&a.det!=='—'?`<div class="muted" style="font-size:11px">${esc(a.det)}</div>`:''}</td>
+        <td class="num">${sq(a.ant)}</td><td class="num" style="font-weight:700;color:${a.q>0?'#1c7a52':'#c0392b'}">${a.q>0?'+':''}${numf(a.q)}</td><td class="num">${sq(a.dep)}</td>
+        <td class="num"${a.vu?'':' style="color:#c0392b"'}>${money(a.vu)}</td><td class="num">${money(a.v)}</td></tr>`).join(''):`<tr><td colspan="12" class="empty" style="padding:24px">Nenhum ajuste de inventário no período com esses filtros.</td></tr>`
+    }</tbody>${lista.length?`<tfoot><tr><td><b>Total</b></td><td colspan="6"><b>${lista.length} lançamento(s) · ${nProd} insumo(s)</b></td><td></td><td></td><td></td><td></td><td class="num"><b>${money(vPos-vNeg)}</b></td></tr></tfoot>`:''}</table></div>
+    <p class="muted" style="font-size:11.5px;margin-top:8px">Lista os lançamentos feitos pelas rotinas Inventário e Ajuste de Saldo no período (De/Até). "Ajuste" é a quantidade somada (+) ou retirada (−) do saldo; "Custo unit." é o custo gravado no momento do lançamento. Os filtros Tipo de aplicação, Aplicação e Ordem de Serviço não se aplicam a este relatório.</p>`;
+}
 function relPeriod(){ const f=$('#relFrom')&&$('#relFrom').value?new Date($('#relFrom').value+'T00:00:00').getTime():0; const t=$('#relTo')&&$('#relTo').value?new Date($('#relTo').value+'T23:59:59').getTime():Date.now(); return [f,t]; }
 function produtoGrupo(code){ const p=relProd(code); const g=p&&p.grupo&&p.grupo.trim()?p.grupo.trim():'(sem grupo)'; return g; }
 function movOS(m){ if(m.os)return m.os; const src=((m.doc||'')+' '+(m.obs||'')); const mt=src.match(/OS[\s:]*([^\s·]+)/i); return mt?mt[1]:''; }
@@ -4148,6 +4202,7 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
   const pf=($('#relProdutoTxt')?$('#relProdutoTxt').value:'').toLowerCase().trim();
   const osf=($('#relOSTxt')?$('#relOSTxt').value:'').toLowerCase().trim();
   let periodoLbl=`${new Date(f).toLocaleDateString('pt-BR')} a ${new Date(t).toLocaleDateString('pt-BR')}`+(isAll?' · todas as obras':' · '+obraName(fobra))+(gf?' · grupo: '+gf:'')+(lf?' · local: '+lf:'')+(taf?' · tipo aplic.: '+aplicTipoLabel(taf):'')+(aef?' · aplicação: '+aplicName(aef):'')+(atx?' · aplicação/prefixo contém: '+atx:'')+(pf?' · produto: '+pf:'')+(osf?' · OS: '+osf:'');
+  if(relTipo==='ajustes'){ drawRelAjustes(f,t,fobra,isAll,gf,lf,pf); return; }
   let inP=state.movements.filter(m=>{const d=mdate(m,emi); return d>=f&&d<=t && (isAll||m.obra===fobra||(m.tipo==='transferencia'&&m.obraDest===fobra));});
   if(gf)inP=inP.filter(m=>produtoGrupo(m.code)===gf);
   if(lf)inP=inP.filter(m=>produtoLocal(m.code)===lf);
@@ -4155,7 +4210,7 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
   if(aef)inP=inP.filter(m=>m.aplic===aef); else if(aset)inP=inP.filter(m=>m.aplic&&aset.has(m.aplic));
   if(pf)inP=inP.filter(m=>{ const p=relProd(m.code); return p&&(p.desc.toLowerCase().includes(pf)||String(p.code).toLowerCase().includes(pf)||(p.aux&&String(p.aux).toLowerCase().includes(pf))); });
   if(osf)inP=inP.filter(m=>movOS(m).toLowerCase().includes(osf));
-  if($('#relABC')&&$('#relABC').checked&&relTipo!=='grupo'&&relTipo!=='os'&&relTipo!=='consorcio'){ drawABC(inP,isAll,fobra,periodoLbl); return; }
+  if($('#relABC')&&$('#relABC').checked&&relTipo!=='grupo'&&relTipo!=='os'&&relTipo!=='consorcio'&&relTipo!=='ajustes'){ drawABC(inP,isAll,fobra,periodoLbl); return; }
   let titulo,headers,rows,foot;
   if(relTipo==='aplicacao'){
     titulo='Consumo por aplicação';
