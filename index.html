@@ -416,7 +416,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-02T23:30:00-03:00';
+const APP_VERSION='2026-10-03T00:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -586,6 +586,7 @@ function queueRefresh(...fns){ fns.forEach(f=>_pendRefresh.add(f)); clearTimeout
 function subscribeRealtime(){
   sb.channel('app_kv_sync').on('postgres_changes',{event:'UPDATE',schema:'public',table:'app_kv',filter:'key=eq.'+KEY},payload=>{
     if(!payload.new||!payload.new.value)return;
+    const prevAjLib=ajusteManualLiberado();
     const prevMovements=state.movements, prevEstoque=state.estoque, prevObra=state.currentObra; /* movements/estoque não vêm mais dentro deste documento — preserva o que já está em memória em vez de zerar */
     state=payload.new.value;
     state.movements=prevMovements||[]; state.estoque=prevEstoque||{};
@@ -593,6 +594,7 @@ function subscribeRealtime(){
     restaurarObraLocal(prevObra); /* atualização de outro usuário não troca a obra selecionada aqui */
     refreshBadge(); refreshAprovBadge(); refreshGlobalAlerts();
     refreshTelaAtual();
+    if(activeTab==='ajuste'&&prevAjLib!==ajusteManualLiberado()&&(!podeFazerAjusteManual()||!usuarioInteragindo())){ closeModal(); renderAjuste(); }
   }).subscribe();
   // Requisições (aprovação/separação/expedição/etc.) mudam em tabelas normalizadas do Postgres,
   // sem passar pelo app_kv — sem isto, uma exclusão/decisão feita por outra pessoa (ou em outra
@@ -1957,10 +1959,36 @@ function confirmSaida(){ const o=curObra()==='__all'?state.obras[0].id:curObra()
 }
 
 /* ===== AJUSTE DE SALDO (lançamento direto, sem nota fiscal) ===== */
+/* ===== Trava do Ajuste de Saldo (ajuste manual) =====
+   O ajuste manual nasce BLOQUEADO para os demais perfis. Só o usuário controlador (Daniel) libera e fecha;
+   ele próprio sempre pode ajustar. O estado fica em state.config.ajusteManual (documento compartilhado),
+   então vale para todos os aparelhos na hora e cada abertura/fechamento fica na Auditoria.
+   Não afeta os ajustes vindos da rotina Inventário (contagem autorizada). */
+function ajusteManualLiberado(){ const a=state.config&&state.config.ajusteManual; return !!(a&&a.aberto); }
+function podeControlarAjusteManual(){ return isDanielAdmin()&&!!profile.ativo; }
+function podeFazerAjusteManual(){ return podeControlarAjusteManual()||ajusteManualLiberado(); }
+let _ajTravaSalvando=false;
+async function setAjusteManual(aberto){
+  if(!podeControlarAjusteManual()){ toast('Somente o administrador responsável pode liberar ou bloquear o ajuste manual.','err'); return; }
+  if(_ajTravaSalvando)return; _ajTravaSalvando=true;
+  try{ if(!state.config)state.config={supHash:null};
+    state.config.ajusteManual={aberto:!!aberto,por:profile.nome||profile.email||'',em:Date.now()};
+    await save('Ajuste manual '+(aberto?'LIBERADO':'BLOQUEADO')+' para os demais perfis');
+    toast(aberto?'Ajuste manual liberado para os demais perfis.':'Ajuste manual bloqueado para os demais perfis.',aberto?'warn':'ok');
+  } finally { _ajTravaSalvando=false; }
+  if(activeTab==='ajuste')renderAjuste(); }
+function ajTravaInfo(){ const a=state.config&&state.config.ajusteManual; return a&&a.em?(' por '+esc(a.por||'—')+' em '+fmtDate(a.em)):''; }
+function ajTravaBanner(){ const ab=ajusteManualLiberado();
+  if(podeControlarAjusteManual()) return `<div class="panel" style="margin-bottom:14px;border-left:5px solid ${ab?'#c98a1a':'#1c7a52'};display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap">
+      <div><b>${ab?'🔓 Ajuste manual LIBERADO para os demais perfis':'🔒 Ajuste manual BLOQUEADO para os demais perfis'}</b>
+        <div class="muted" style="font-size:12px;margin-top:3px">${ab?'Encarregados conseguem ajustar saldo enquanto estiver liberado':'Só você consegue ajustar saldo'}${ajTravaInfo()?' · '+(ab?'liberado':'bloqueado')+ajTravaInfo():''}.</div></div>
+      <button class="btn ${ab?'danger':'primary'}" onclick="setAjusteManual(${ab?'false':'true'})">${ab?'🔒 Bloquear':'🔓 Liberar'}</button></div>`;
+  return ab?`<div class="panel" style="margin-bottom:14px;border-left:5px solid #c98a1a;font-size:13px">🔓 Ajuste manual liberado${ajTravaInfo()}. Ele pode ser bloqueado a qualquer momento.</div>`:''; }
 function renderAjuste(){
   if(!isEncarregado()||isEncFrotas()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito a encarregados/administradores.</div></div>'; return; }
+  if(!podeFazerAjusteManual()){ $('#view').innerHTML=`<div class="tbl-wrap"><div class="empty"><div class="ico">🔒</div><b>Ajuste manual bloqueado.</b><br>O ajuste de saldo só pode ser feito quando for liberado pelo administrador responsável.${ajTravaInfo()?'<br><span style="font-size:12px">Bloqueado'+ajTravaInfo()+'.</span>':''}</div></div>`; return; }
   if(needObra())return;
-  $('#view').innerHTML=`<div class="panel"><h3>Ajuste de saldo</h3><p class="desc">Lança um saldo inicial ou corrige o estoque de um produto <b>sem passar por nota fiscal</b>. Fica registrado na auditoria como "ajuste".</p>
+  $('#view').innerHTML=ajTravaBanner()+`<div class="panel"><h3>Ajuste de saldo</h3><p class="desc">Lança um saldo inicial ou corrige o estoque de um produto <b>sem passar por nota fiscal</b>. Fica registrado na auditoria como "ajuste".</p>
     <div class="field" style="max-width:320px"><label>Obra</label><select id="ajObra">${obraOptions(curObra()==='__all'?(state.obras[0]&&state.obras[0].id):curObra(),false)}</select></div>
     <div class="search" style="max-width:none"><span class="si">⌕</span><input id="ajSearch" placeholder="Nome ou código do produto..." autocomplete="off"></div>
     <div id="ajResults"></div>
@@ -1978,11 +2006,12 @@ function renderAjuste(){
 }
 function drawAjResults(q){ const box=$('#ajResults'); if(!box)return; const list=searchProducts(q).slice(0,8); if(!q||!list.length){box.innerHTML='';return;}
   box.innerHTML=`<div class="tbl-wrap" style="margin:6px 0 10px"><table><tbody>`+list.map(p=>`<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}</span></td><td class="num"><button class="btn ghost sm" onclick="selecionarAjuste('${esc(p.code)}')">Selecionar</button></td></tr>`).join('')+`</tbody></table></div>`; }
-function criarProdutoAjuste(){ const desc=$('#ajNewDesc').value.trim(); if(!desc){toast('Informe a descrição.','err');return;}
+function ajTravaBarrar(){ if(podeFazerAjusteManual())return false; toast('Ajuste manual bloqueado — aguarde a liberação do administrador responsável.','err'); renderAjuste(); return true; }
+function criarProdutoAjuste(){ if(ajTravaBarrar())return; const desc=$('#ajNewDesc').value.trim(); if(!desc){toast('Informe a descrição.','err');return;}
   const code=$('#ajNewCode').value.trim()||genCode(); if(findProduct(code)){toast('Já existe um produto com esse código.','err');return;}
   const unit=$('#ajNewUnit').value.trim()||'UN'; state.products.push({code,desc,unit,aux:'',min:0,max:0,custo:0,preco:0,ref:''}); save('Produto cadastrado via ajuste: '+desc);
   toast('Produto cadastrado.','ok'); selecionarAjuste(code); }
-function selecionarAjuste(code){ const p=findProduct(code); if(!p)return; const obra=$('#ajObra').value; const atual=saldoOf(obra,code);
+function selecionarAjuste(code){ if(ajTravaBarrar())return; const p=findProduct(code); if(!p)return; const obra=$('#ajObra').value; const atual=saldoOf(obra,code);
   $('#ajSearch').value=p.desc; $('#ajResults').innerHTML='';
   $('#ajForm').innerHTML=`<div class="panel" style="background:var(--panel2);margin-top:12px"><h3 style="margin-bottom:4px">${esc(p.desc)} <span class="muted" style="font-size:12px">(${esc(p.code)})</span></h3>
     <p class="desc">Saldo atual em <b>${esc(obraName(obra))}</b>: <b>${numf(atual)} ${esc(p.unit||'')}</b> · custo médio atual: <b>${money(p.custo||0)}</b></p>
@@ -1992,7 +2021,7 @@ function selecionarAjuste(code){ const p=findProduct(code); if(!p)return; const 
     </div>
     <div class="field"><label>Motivo / observação</label><input id="ajMotivo" placeholder="ex.: saldo inicial, contagem física..."></div>
     <button class="btn primary" onclick="aplicarAjuste('${esc(code)}')">Aplicar ajuste</button></div>`; }
-function aplicarAjuste(code){ const p=findProduct(code); if(!p)return; const obra=$('#ajObra').value; const atual=saldoOf(obra,code);
+function aplicarAjuste(code){ if(ajTravaBarrar())return; const p=findProduct(code); if(!p)return; const obra=$('#ajObra').value; const atual=saldoOf(obra,code);
   const novo=parseFloat($('#ajNovoSaldo').value); if(isNaN(novo)||novo<0){toast('Informe um saldo válido.','err');return;}
   const delta=novo-atual; if(delta===0){toast('Nenhuma mudança — o saldo já é esse.','err');return;}
   const custoInformado=parseFloat($('#ajCusto').value); const motivo=$('#ajMotivo').value.trim()||'Ajuste manual';
@@ -2002,6 +2031,7 @@ function aplicarAjuste(code){ const p=findProduct(code); if(!p)return; const obr
     else { custoFinal = custoInformado; }
   }
   requireSupervisor(`Ajustar saldo de "${p.desc}" em ${obraName(obra)} de ${numf(atual)} para ${numf(novo)}`,async()=>{
+    if(ajTravaBarrar())return; /* pode ter sido bloqueado enquanto a confirmação estava aberta */
     addSaldo(obra,code,delta); p.custo=custoFinal;
     pushMov({id:uid(),ts:Date.now(),tipo:'ajuste',obra,code:p.code,desc:p.desc,qty:delta,valorUnit:custoFinal,valorTotal:delta*custoFinal,doc:'Ajuste: '+motivo,saldo:saldoOf(obra,code)});
     toast('Salvando...','warn');
