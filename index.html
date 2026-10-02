@@ -413,7 +413,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-02T14:00:00-03:00';
+const APP_VERSION='2026-10-02T16:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -455,8 +455,28 @@ function showVersionBanner(){
 }
 const Store={
   async get(k){ try{ const {data,error}=await sb.from('app_kv').select('value').eq('key',k).maybeSingle(); if(error)throw error; return data?data.value:null; }catch(e){ console.warn('Store.get sem rede, usando cache:',e); return undefined; } },
-  async set(k,v,label){ const {error}=await sb.rpc('save_estado',{p_key:k,p_value:v,p_label:label||null}); if(error){console.error(error); toast('Erro ao salvar: '+error.message,'err');} }
+  /* Cada gravação envia o documento inteiro. Antes, várias alterações seguidas (ex.: mín/máx de vários produtos)
+     disparavam gravações simultâneas na mesma linha do banco — uma esperava a outra e o servidor cancelava por
+     tempo ("statement timeout"). Agora vai uma por vez por chave; as que chegam enquanto uma está em andamento
+     viram UMA só gravação com o estado mais recente. Timeout é repetido automaticamente antes de avisar. */
+  set(k,v,label){ const q=_saveQ[k]||(_saveQ[k]={busy:false,next:null,labels:[],waiters:[]});
+    return new Promise(res=>{ q.next=v; if(label&&!q.labels.includes(label))q.labels.push(label); q.waiters.push(res); if(!q.busy)_drainSave(k); }); }
 };
+const _saveQ={};
+function _saveTimeout(e){ return !!e&&(e.code==='57014'||/statement timeout/i.test(e.message||'')); }
+async function _drainSave(k){ const q=_saveQ[k]; q.busy=true;
+  while(q.next!==null){ const v=q.next, label=q.labels.join(' · ')||null, ws=q.waiters; q.next=null; q.labels=[]; q.waiters=[];
+    let error=null;
+    for(let t=0;t<3;t++){
+      try{ ({error}=await sb.rpc('save_estado',{p_key:k,p_value:v,p_label:label})); }catch(e){ error={message:(e&&e.message)||String(e)}; }
+      if(!error||!_saveTimeout(error)||q.next!==null)break; /* se já há estado mais novo na fila, ele substitui esta tentativa */
+      await new Promise(r=>setTimeout(r,1500*(t+1)));
+    }
+    if(error&&q.next===null){ console.error(error);
+      toast(_saveTimeout(error)?'Não foi possível salvar: o servidor demorou demais para gravar. A alteração NÃO foi gravada no banco — refaça em instantes.':'Erro ao salvar: '+error.message,'err'); }
+    ws.forEach(r=>{ try{ r(); }catch(e){} });
+  }
+  q.busy=false; }
 let state={ obras:[], aplicacoes:[], products:[], estoque:{}, movements:[], notas:[], seq:{baixa:0,transfer:0}, config:{supHash:null}, currentObra:null };
 let photos={};
 // Garante a estrutura mínima do state (usado no load e quando chega atualização em tempo real)
@@ -1648,7 +1668,7 @@ function printLabels(items,type){
   if(!items.length){toast('Nada para imprimir.','err');return;}
   const w=window.open('','_blank'); if(!w){toast('Permita pop-ups para gerar as etiquetas.','err');return;}
   const libTag=type==='qrcode'?'':'<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"><\/script>';
-  w.document.write(`<html><head><meta charset="utf-8"><title>Etiquetas</title>${libTag}<style>@page{size:auto;margin:8mm}body{font-family:sans-serif;margin:0}.lab{display:inline-block;padding:8px 6px;margin:4px;text-align:center;width:200px;vertical-align:top;page-break-inside:avoid;break-inside:avoid}.lab .d{font-size:11.5px;font-weight:bold;margin-bottom:2px;line-height:1.25;word-wrap:break-word}.lab .a{font-size:10px;color:#555;margin-bottom:4px}.lab svg{width:100%;height:auto;display:block}.lab .qrwrap{display:flex;justify-content:center;margin:4px 0}</style></head><body>`);
+  w.document.write(`<html><head><meta charset="utf-8"><title>Etiquetas</title>${libTag}<style>@page{size:auto;margin:8mm}body{font-family:sans-serif;margin:0}.lab{display:inline-block;padding:8px 6px;margin:4px;text-align:center;width:200px;vertical-align:top;page-break-inside:avoid;break-inside:avoid}.lab .d{font-size:11.5px;font-weight:bold;margin-bottom:2px;line-height:1.25;word-wrap:break-word}.lab .a{font-size:10px;color:#555;margin-bottom:4px}.lab svg{display:block;margin:0 auto;max-width:100%;height:auto}.lab .qrwrap{display:flex;justify-content:center;margin:4px 0}</style></head><body>`);
   if(type==='qrcode'){
     let idx=0; const initCalls=[];
     items.forEach(({p,qty})=>{ for(let i=0;i<qty;i++){ const elId='qr_'+idx;
@@ -1658,7 +1678,7 @@ function printLabels(items,type){
     w.document.write(`<script>var qrcode=window.opener.qrcode;${initCalls.join('')}setTimeout(()=>window.print(),400);<\/script></body></html>`);
   } else {
     items.forEach(({p,qty})=>{ for(let i=0;i<qty;i++){ w.document.write(`<div class="lab"><div class="d">${esc(p.desc)}</div>${p.aux?`<div class="a">Aux: ${esc(p.aux)}</div>`:''}<svg class="b" data-c="${esc(p.code)}"></svg></div>`); } });
-    w.document.write(`<script>document.querySelectorAll('.b').forEach(s=>{JsBarcode(s,s.dataset.c,{format:'CODE128',width:1.3,height:50,fontSize:13,margin:4});const bw=s.getAttribute('width'),bh=s.getAttribute('height');if(bw&&bh){s.setAttribute('viewBox','0 0 '+bw+' '+bh);s.removeAttribute('width');s.removeAttribute('height');}});setTimeout(()=>window.print(),400);<\/script></body></html>`);
+    w.document.write(`<script>document.querySelectorAll('.b').forEach(s=>{JsBarcode(s,s.dataset.c,{format:'CODE128',width:1.3,height:50,fontSize:13,margin:4});const bw=parseFloat(s.getAttribute('width')),bh=parseFloat(s.getAttribute('height'));if(bw>0&&bh>0)s.setAttribute('viewBox','0 0 '+bw+' '+bh);});setTimeout(()=>window.print(),400);<\/script></body></html>`);
   }
   w.document.close(); }
 
