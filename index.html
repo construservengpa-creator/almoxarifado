@@ -404,15 +404,16 @@ function podeVerCompras(){ return isAlmoxarife()||isCompras()||isFrotas(); }
 /* Operar retirada/expedição: almoxarifado e encarregados. Ver (só leitura): também o setor de compras */
 function podeOperarRetiradas(){ return isAlmoxarife()||isEncarregado(); }
 function podeVerRetiradas(){ return podeOperarRetiradas()||isCompras(); }
-/* Painel de Notificações: só leitura — almoxarifado, encarregados/admin e o setor de compras */
-function podeVerNotificacoes(){ return podeVerRetiradas()||isCompras(); }
+/* Painel de Notificações: só leitura — almoxarifado, encarregados/admin e os setores de compras e frotas
+   (inclusive operadores desses setores). Consulta e Relatórios não têm trava de perfil: todo usuário ativo vê. */
+function podeVerNotificacoes(){ return podeVerRetiradas()||isCompras()||isFrotas(); }
 
 /* ===== Persistência (Supabase: tabela app_kv + auditoria via RPC) ===== */
 const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-02T12:00:00-03:00';
+const APP_VERSION='2026-10-02T14:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -2746,7 +2747,7 @@ function notifSairApresentacao(){
 }
 document.addEventListener('fullscreenchange',()=>{ if(!document.fullscreenElement)document.body.classList.remove('apresentacao'); });
 function renderNotificacoes(){
-  if(!podeVerNotificacoes()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito ao almoxarifado, compras e encarregados/administradores.</div></div>'; return; }
+  if(!podeVerNotificacoes()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito ao almoxarifado, compras, frotas e encarregados/administradores.</div></div>'; return; }
   _notifSepKnown=new Set(); _notifRetKnown=new Set(); _notifFirstLoad=true;
   $('#view').innerHTML=`
     <div class="panel" id="notifHeader" style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:16px">
@@ -2796,7 +2797,7 @@ async function drawNotifSeparacao(){ const box=$('#notifSep'); if(!box)return;
   if(!_notifFirstLoad&&novos.length)notifAlarmSeparacao();
   if(!reqs||!reqs.length){ box.innerHTML='<div class="tbl-wrap"><div class="empty">Nada aguardando separação.</div></div>'; return; }
   box.innerHTML=reqs.map(r=>{ const isNew=novos.some(n=>n.id===r.id);
-    return `<div class="panel ${isNew?'notif-new':''}" style="margin-bottom:10px;${podeVerCompras()?'cursor:pointer':''}" ${podeVerCompras()?`onclick="go('separacao')"`:''}>
+    return `<div class="panel ${isNew?'notif-new':''}" style="margin-bottom:10px;${isAlmoxarife()?'cursor:pointer':''}" ${isAlmoxarife()?`onclick="go('separacao')"`:''}>
       <div class="sechead" style="margin-bottom:2px;flex-wrap:wrap;gap:6px"><h3 style="font-size:14px">REQ-${String(r.id).padStart(5,'0')} — ${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</h3><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span></div>
       ${r.aplicacao_nome?`<div class="notif-aplic" style="font-size:12px;font-weight:600;margin:1px 0 3px">🎯 ${esc(r.aplicacao_nome)}</div>`:''}
       <div class="muted" style="font-size:12px">Solicitante: ${esc(r.solicitante_nome)} · ${fmtDate(new Date(r.criado_em).getTime())}</div>
