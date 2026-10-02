@@ -413,7 +413,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-02T16:00:00-03:00';
+const APP_VERSION='2026-10-02T18:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -851,7 +851,7 @@ const titles={ painel:['Painel','Visão por obra'],entrada:['Entrada / Nota Fisc
   expedicao:['Expedição','Embalagem, romaneio, nota fiscal, etiquetas de volume e envio'],
   retiradas:['Aguardando Retirada','Material já separado do estoque que ainda não saiu — despacho ou retirada no balcão'],
   mutuo:['Mútuo entre Empresas','Controle de valores entre empresas e fechamento por período'],
-  devolucao:['Devolução de Materiais','Bloqueio de saldo, nota de devolução e estorno na conclusão'],
+  devolucao:['Devolução de Materiais','Ao fornecedor (nota de devolução) e de requisição (retorno ao estoque)'],
   compras:['Compras','Faltantes de requisições e reposição de estoque'],
   transfer:['Transferência entre Obras','Mover saldo de uma obra para outra'],consulta:['Consulta','Buscar por nome, código ou equipamento'],
   obras:['Obras','Cadastro de obras'],aplic:['Aplicações','Equipamentos e veículos (placa/tag)'],tiposetor:['Tipos & Setores','Opções de tipo e setor usadas em Aplicações'],produtos:['Produtos & Etiquetas','Catálogo e códigos de barras'],importar:['Importar Planilha','Carga inicial por obra'],empresas:['Empresas','Razão social, CNPJ e endereço'],admin:['Administração','Usuários e exclusões protegidas'],relatorios:['Relatórios','Consumo por aplicação, tipo, obra e produto'],auditoria:['Auditoria','Histórico de ações no sistema'] };
@@ -1062,7 +1062,7 @@ function drawDashboard(){
   const valTransf=inP.filter(m=>m.tipo==='transferencia').reduce((s,m)=>s+m.valorTotal,0);
   const cnt=(arr,key)=>{ const set=new Set(); arr.forEach(m=>set.add(m[key]||m.id)); return set.size; };
   const nEntr=cnt(inP.filter(m=>m.tipo==='entrada'),'notaId');
-  const nBaixa=cnt(inP.filter(m=>m.tipo==='baixa'),'baixaId');
+  const nBaixa=cnt(inP.filter(m=>m.tipo==='baixa'&&!isMovDevolReq(m)),'baixaId');
   const nTransf=cnt(inP.filter(m=>m.tipo==='transferencia'),'romaneioId');
   const valEstoque = isAll ? state.products.reduce((s,p)=>s+totalSaldo(p.code)*(p.custo||0),0) : state.products.reduce((s,p)=>s+saldoOf(fobra,p.code)*(p.custo||0),0);
   const fobraLbl = isAll?'todas as obras':obraName(fobra);
@@ -1870,7 +1870,7 @@ function setBaixaMode(m){ baixaMode=m; if($('#bmScan'))$('#bmScan').classList.to
 function toggleSaidaMutuo(){ const chk=$('#saidaMutuo'); const box=$('#saidaMutuoFields'); if(box)box.style.display=chk&&chk.checked?'':'none'; onSaidaMutuoChange(); }
 function updateSaidaTotal(){ const el=$('#saidaTotal'); if(!el)return; let t=0; saidaCart.forEach(i=>{const p=findProduct(i.code); t+=(i.qty||0)*((p&&p.custo)||0);}); el.textContent=money(t); }
 function drawBaixaHist(){ const _o=curObra(); const list=state.movements.filter(m=>m.tipo==='baixa'&&(_o==='__all'||m.obra===_o)).slice(0,40);
-  $('#baixaHist').innerHTML=list.length?list.map(m=>`<tr><td class="muted" style="font-size:12px">${fmtDate(m.ts)}</td><td class="mono">${m.seq?seqf(m.seq):'—'}</td><td>${esc(obraName(m.obra))}</td><td>${esc(m.desc)}${m.aplic?`<br><span class="muted" style="font-size:11px">→ ${esc(aplicName(m.aplic))}</span>`:''}${m.os?`<br><span class="muted" style="font-size:11px">OS ${esc(m.os)}</span>`:''}${m.obs?`<br><span class="muted" style="font-size:11px">obs: ${esc(m.obs)}</span>`:''}</td><td class="num neg">−${numf(m.qty)}</td><td class="num">${money(m.valorTotal)}</td><td class="num"><button class="btn ghost sm" title="Comprovante (agrupado)" onclick="reportBaixaGroup('${m.baixaId||m.id}')">🖨</button> ${reqIdFromDoc(m.doc)?`<button class="btn ghost sm" title="Ver requisição" onclick="abrirRequisicao(${reqIdFromDoc(m.doc)})">👁</button>`:''}</td></tr>`).join(''):`<tr><td colspan="7" class="empty" style="padding:24px">Nenhuma baixa.</td></tr>`; }
+  $('#baixaHist').innerHTML=list.length?list.map(m=>`<tr><td class="muted" style="font-size:12px">${fmtDate(m.ts)}</td><td class="mono">${m.seq?seqf(m.seq):'—'}</td><td>${esc(obraName(m.obra))}</td><td>${esc(m.desc)}${m.aplic?`<br><span class="muted" style="font-size:11px">→ ${esc(aplicName(m.aplic))}</span>`:''}${m.os?`<br><span class="muted" style="font-size:11px">OS ${esc(m.os)}</span>`:''}${m.obs?`<br><span class="muted" style="font-size:11px">obs: ${esc(m.obs)}</span>`:''}</td>${isMovDevolReq(m)?`<td class="num pos" title="Devolução de requisição — voltou ao estoque">↩ +${numf(-m.qty)}</td>`:`<td class="num neg">−${numf(m.qty)}</td>`}<td class="num">${money(m.valorTotal)}</td><td class="num">${isMovDevolReq(m)?`<button class="btn ghost sm" title="Comprovante da devolução" onclick="imprimirDevolReq(null,'${m.id}')">🖨</button>`:`<button class="btn ghost sm" title="Comprovante (agrupado)" onclick="reportBaixaGroup('${m.baixaId||m.id}')">🖨</button>`} ${reqIdFromDoc(m.doc)?`<button class="btn ghost sm" title="Ver requisição" onclick="abrirRequisicao(${reqIdFromDoc(m.doc)})">👁</button>`:''}</td></tr>`).join(''):`<tr><td colspan="7" class="empty" style="padding:24px">Nenhuma baixa.</td></tr>`; }
 function reportBaixaGroup(gid){ const ms=state.movements.filter(m=>m.tipo==='baixa'&&(m.baixaId||m.id)===gid); if(!ms.length)return; const m0=ms[0];
   const itens=ms.map(m=>{const p=findProduct(m.code); return {code:m.code,aux:p?p.aux:'',desc:m.desc,qty:m.qty,unit:p?p.unit:'',valor:m.valorUnit};});
   printSignReport({titulo:'Comprovante de Saída de Material',numero:seqf(m0.seq),subtitulo:'Baixa de estoque',data:fmtDate(m0.ts),obra:obraName(m0.obra),aplicacao:aplicName(m0.aplic),doc:m0.doc,obs:m0.obs,itens,assinaturas:['Solicitante','Responsável pelo almoxarifado','Recebedor']}); }
@@ -2195,6 +2195,8 @@ async function drawAprovHist(){ const box=$('#aprovHist'); if(!box)return;
     }).join('')||`<tr><td colspan="${isDanielAdmin()?8:7}" class="empty" style="padding:24px">Nenhuma decisão ainda.</td></tr>`}</tbody></table>`; }
 async function excluirEventoSeparacao(reqId){
   if(!isDanielAdmin()){toast('Apenas o usuário autorizado pode excluir o evento de separação.','err');return;}
+  { const {count,error:eD}=await sb.from('devolucoes_requisicao').select('id',{count:'exact',head:true}).eq('requisicao_id',reqId);
+    if(!eD&&count){ toast('A REQ-'+String(reqId).padStart(5,'0')+' tem devolução de material registrada — excluir a separação estornaria esse estoque em dobro. Exclusão bloqueada.','err'); return; } }
   requireSupervisor('Excluir separação da REQ-'+String(reqId).padStart(5,'0')+' (estorna o estoque separado)',async()=>{
     const {error}=await sb.rpc('excluir_separacao_admin',{p_req_id:reqId});
     if(error){toast('Erro: '+error.message,'err');return;}
@@ -3333,8 +3335,17 @@ async function refreshDevolucaoBadge(){ if(!isAlmoxarife())return; const b=$('#n
 let devolMostrarConcluidas=false;
 async function renderDevolucao(){
   if(!isAlmoxarife()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito ao almoxarifado e administradores.</div></div>'; return; }
+  $('#view').innerHTML=`<div class="tabs"><button id="dvTabForn" onclick="setDevolAba('fornecedor')">↩ Ao fornecedor</button><button id="dvTabReq" onclick="setDevolAba('requisicao')">📥 De requisição (retorno ao estoque)</button></div><div id="devolBody"></div>`;
+  await setDevolAba(_devolAba);
+}
+/* Sub-abas da tela de Devolução: ao fornecedor (bloqueio de saldo + nota) e de requisição (material que saiu e voltou ao estoque) */
+let _devolAba='fornecedor';
+async function setDevolAba(a){ _devolAba=a;
+  const t1=$('#dvTabForn'), t2=$('#dvTabReq'); if(t1)t1.classList.toggle('on',a==='fornecedor'); if(t2)t2.classList.toggle('on',a==='requisicao');
+  const body=$('#devolBody'); if(!body)return;
+  if(a==='requisicao')return drawDevolReqTela();
   $('#topActions').innerHTML=`<button class="btn primary sm" onclick="devolucaoModal()">+ Nova devolução</button>`;
-  $('#view').innerHTML=`<div class="panel"><h3>↩ Devolução de materiais</h3><p class="desc">Enquanto uma devolução está aberta (aguardando nota ou em envio), a quantidade fica bloqueada e não entra no saldo disponível para consumo. Ao concluir, o saldo é efetivamente estornado (baixa definitiva) e o documento assinado fica anexado ao registro.</p></div>
+  body.innerHTML=`<div class="panel"><h3>↩ Devolução de materiais ao fornecedor</h3><p class="desc">Enquanto uma devolução está aberta (aguardando nota ou em envio), a quantidade fica bloqueada e não entra no saldo disponível para consumo. Ao concluir, o saldo é efetivamente estornado (baixa definitiva) e o documento assinado fica anexado ao registro.</p></div>
   <div class="sechead"><h3>Aguardando nota de devolução</h3></div>
   <div class="tbl-wrap" id="devolAguardando" style="margin-bottom:22px"><div class="empty">Carregando...</div></div>
   <div class="sechead"><h3>Em processo de envio ao fornecedor</h3></div>
@@ -3343,6 +3354,153 @@ async function renderDevolucao(){
   <div class="tbl-wrap" id="devolConcluidas"><div class="empty" style="padding:20px">Marque "mostrar" para ver o histórico.</div></div>`;
   await drawDevolAbertas(); 
 }
+/* ===== DEVOLUÇÃO DE REQUISIÇÃO (material que saiu numa requisição e voltou para o almoxarifado) =====
+   Registro: tabela devolucoes_requisicao (uma linha por item; o banco valida a quantidade contra o que foi
+   separado menos o já devolvido). Estoque: o saldo volta para a obra de onde saiu. Histórico: lança um movimento
+   do tipo 'baixa' com quantidade NEGATIVA e a mesma aplicação/OS — assim todo relatório de consumo já desconta
+   a devolução sem precisar de regra nova. */
+const DEVREQ_MOTIVOS=['Sobra de material (não utilizado)','Material errado / não era o aplicável','Material com defeito ou avariado','Serviço cancelado ou alterado','Requisitado em duplicidade','Outro'];
+let _devReqRows=[], _devReqCtx=null, _devReqSalvando=false, _drReqs=[];
+function isMovDevolReq(m){ return !!m&&m.tipo==='baixa'&&Number(m.qty)<0; }
+function devReqDocf(n){ return 'DEV-'+String(n||0).padStart(5,'0'); }
+function devReqSemTabela(e){ return !!e&&(e.code==='42P01'||e.code==='PGRST205'||(/devolucoes_requisicao/.test(e.message||'')&&/(does not exist|find the table|schema cache)/i.test(e.message||''))); }
+const DEVREQ_MSG_SEM_TABELA='A tabela desta rotina ainda não existe no banco. Rode o script <b>devolucao_requisicao.sql</b> no SQL Editor do Supabase e recarregue a página.';
+async function drawDevolReqTela(){
+  $('#topActions').innerHTML=`<button class="btn primary sm" onclick="devolReqModal()">+ Devolução de requisição</button>`;
+  const b=$('#devolBody'); if(!b)return;
+  b.innerHTML=`<div class="panel" style="margin-bottom:16px"><h3>📥 Devolução de requisição</h3><p class="desc">Material que já saiu numa requisição e voltou para o almoxarifado. A devolução fica registrada com o motivo, o saldo volta para o estoque de onde saiu e o consumo da aplicação é descontado nos relatórios.</p>
+    <div class="search" style="max-width:none"><span class="si">⌕</span><input id="devReqBusca" placeholder="Filtrar por requisição, produto, aplicação, OS, motivo ou quem devolveu..." autocomplete="off" oninput="drawDevolReqHist()"></div></div>
+    <div class="tbl-wrap" id="devReqHist"><div class="empty">Carregando...</div></div>`;
+  await loadDevolReqHist();
+}
+async function loadDevolReqHist(){ const box=$('#devReqHist');
+  const {data,error}=await sb.from('devolucoes_requisicao').select('*').order('criado_em',{ascending:false}).order('id',{ascending:false}).limit(500);
+  if(error){ _devReqRows=[]; if(box)box.innerHTML='<div class="empty">'+(devReqSemTabela(error)?DEVREQ_MSG_SEM_TABELA:'Erro: '+esc(error.message))+'</div>'; return; }
+  _devReqRows=data||[]; drawDevolReqHist(); }
+function drawDevolReqHist(){ const box=$('#devReqHist'); if(!box)return;
+  const q=($('#devReqBusca')?$('#devReqBusca').value:'').toLowerCase().trim();
+  const reqN=d=>'REQ-'+String(d.requisicao_id).padStart(5,'0');
+  const list=!q?_devReqRows:_devReqRows.filter(d=>[reqN(d),String(d.requisicao_id),devReqDocf(d.documento),d.descricao,d.item_code,d.aplicacao_nome,d.ordem_servico,d.motivo,d.observacao,d.devolvido_por,d.registrado_por_nome,d.obra_nome].some(v=>String(v||'').toLowerCase().includes(q)));
+  if(!list.length){ box.innerHTML='<div class="empty">'+(_devReqRows.length?'Nada encontrado para o filtro.':'Nenhuma devolução de requisição registrada ainda.')+'</div>'; return; }
+  box.innerHTML=`<table><thead><tr><th>Data</th><th>Doc.</th><th>Requisição</th><th>Aplicação</th><th>Item</th><th class="num">Qtd</th><th class="num">Valor</th><th>Motivo</th><th>Devolvido por</th><th></th></tr></thead><tbody>`+
+    list.map(d=>`<tr><td class="muted" style="font-size:12px">${fmtDate(new Date(d.criado_em).getTime())}</td><td class="mono" style="font-size:12.5px;white-space:nowrap">${devReqDocf(d.documento)}</td>
+      <td class="mono" style="font-size:12.5px">${reqN(d)}${d.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(d.ordem_servico)+'</span>':''}</td>
+      <td>${esc(d.aplicacao_nome||'—')}<br><span class="muted" style="font-size:11px">${esc(d.obra_nome||'')}</span></td>
+      <td>${esc(d.descricao||'')}<br><span class="muted" style="font-size:11px">${esc(d.item_code)}</span></td>
+      <td class="num pos" style="white-space:nowrap">+${numf(d.quantidade)} ${esc(d.unidade||'')}</td><td class="num" style="white-space:nowrap">${money(Number(d.quantidade)*Number(d.valor_unit||0))}</td>
+      <td style="font-size:12.5px">${esc(d.motivo)}${d.observacao?'<br><span class="muted" style="font-size:11px">'+esc(d.observacao)+'</span>':''}</td>
+      <td style="font-size:12.5px">${esc(d.devolvido_por||'—')}<br><span class="muted" style="font-size:11px">registrou: ${esc(d.registrado_por_nome||'—')}</span></td>
+      <td class="num"><button class="btn ghost sm" title="Comprovante" onclick="imprimirDevolReq('${esc(d.lote)}')">🖨</button></td></tr>`).join('')+
+    `</tbody></table>`+(_devReqRows.length>=500?'<p class="muted" style="font-size:11.5px;padding:8px 12px">Mostrando as 500 devoluções mais recentes.</p>':'');
+}
+/* Passo 1: escolher a requisição (só as que já saíram do almoxarifado) */
+async function devolReqModal(reqId){
+  if(!isAlmoxarife()){ toast('Devolução de requisição: restrito ao almoxarifado e administradores.','err'); return; }
+  _devReqCtx=null;
+  modal(`<h3>📥 Devolução de requisição</h3><p class="mp">Escolha a requisição de onde o material saiu. Só aparecem requisições já retiradas ou despachadas.</p>
+    <div class="search" style="max-width:none"><span class="si">⌕</span><input id="drBusca" placeholder="Nº da requisição, aplicação, OS ou solicitante..." autocomplete="off" oninput="devolReqListar(this.value)"></div>
+    <div id="drLista" style="margin-top:8px"><div class="empty" style="padding:14px">Carregando...</div></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
+  if(reqId)return devolReqEscolher(reqId);
+  const i=$('#drBusca'); if(i)i.focus();
+  const {data,error}=await sb.from('requisicoes').select('id,obra_nome,aplicacao_nome,ordem_servico,solicitante_nome,status,criado_em').in('status',STATUS_ATENDIDA).order('id',{ascending:false}).limit(200);
+  if(error){ const l=$('#drLista'); if(l)l.innerHTML='<div class="empty" style="padding:14px">Erro: '+esc(error.message)+'</div>'; return; }
+  _drReqs=data||[]; devolReqListar($('#drBusca')?$('#drBusca').value:'');
+}
+function devolReqListar(q){ const box=$('#drLista'); if(!box)return; q=String(q||'').toLowerCase().trim();
+  const num=/^\d+$/.test(q.replace(/^req-?/,''))?parseInt(q.replace(/^req-?/,''),10):null;
+  const list=(!q?_drReqs:_drReqs.filter(r=>(num!==null&&r.id===num)||[String(r.id),'req-'+String(r.id).padStart(5,'0'),r.aplicacao_nome,r.ordem_servico,r.solicitante_nome,r.obra_nome].some(v=>String(v||'').toLowerCase().includes(q)))).slice(0,12);
+  let html=list.length?`<div class="tbl-wrap" style="max-height:320px;overflow:auto"><table><tbody>${list.map(r=>`<tr style="cursor:pointer" onclick="devolReqEscolher(${r.id})"><td class="mono" style="font-size:12.5px">REQ-${String(r.id).padStart(5,'0')}</td><td>${esc(r.aplicacao_nome||'—')}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}<br><span class="muted" style="font-size:11px">${esc(r.obra_nome||'')} · ${esc(r.solicitante_nome||'')} · ${fmtDate(new Date(r.criado_em).getTime())}</span></td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span></td></tr>`).join('')}</tbody></table></div>`
+    :'<div class="empty" style="padding:14px">Nenhuma requisição retirada/despachada encontrada'+(q?' para "<b>'+esc(q)+'</b>"':'')+'.</div>';
+  if(num!==null&&!list.some(r=>r.id===num))html+=`<div style="margin-top:8px"><button class="btn ghost sm" onclick="devolReqEscolher(${num})">Buscar REQ-${String(num).padStart(5,'0')} no banco</button></div>`;
+  box.innerHTML=html; }
+/* Passo 2: itens, quantidades, motivo */
+async function devolReqEscolher(id){
+  const [{data:r,error:e1},{data:its,error:e2},{data:devs,error:e3}]=await Promise.all([
+    sb.from('requisicoes').select('*').eq('id',id).maybeSingle(),
+    sb.from('requisicao_itens_status').select('id,code,descricao,unidade,quantidade_separada').eq('requisicao_id',id).gt('quantidade_separada',0).order('id',{ascending:true}),
+    sb.from('devolucoes_requisicao').select('item_code,quantidade').eq('requisicao_id',id)]);
+  if(e3&&devReqSemTabela(e3)){ toast(DEVREQ_MSG_SEM_TABELA,'err'); return; }
+  if(e1||e2||e3){ toast('Erro ao carregar a requisição: '+esc((e1||e2||e3).message),'err'); return; }
+  if(!r){ toast('Requisição REQ-'+String(id).padStart(5,'0')+' não encontrada.','err'); return; }
+  if(!STATUS_ATENDIDA.includes(r.status)){ toast('A REQ-'+String(r.id).padStart(5,'0')+' ainda não saiu do almoxarifado (situação: '+esc(reqStatusLabel(r.status))+'). A devolução só pode ser registrada depois da retirada ou do despacho.','err'); return; }
+  const dev={}; (devs||[]).forEach(d=>{ dev[d.item_code]=(dev[d.item_code]||0)+Number(d.quantidade||0); });
+  const porCode={}; (its||[]).forEach(i=>{ const c=String(i.code); if(!porCode[c])porCode[c]={code:c,desc:i.descricao,unit:i.unidade||'',sep:0}; porCode[c].sep+=Number(i.quantidade_separada)||0; });
+  const itens=Object.values(porCode).map(i=>{ const d=dev[i.code]||0; return {...i,dev:d,max:Math.max(0,Math.round((i.sep-d)*1e6)/1e6)}; });
+  if(!itens.length){ toast('Esta requisição não tem item separado para devolver.','err'); return; }
+  const obraSaldo=obraEstoqueParaRequisicao(r);
+  _devReqCtx={r,itens,obraSaldo};
+  const reqN='REQ-'+String(r.id).padStart(5,'0');
+  const nada=itens.every(i=>!(i.max>0));
+  modal(`<h3>📥 Devolução — ${reqN}</h3>
+    <p class="mp">Obra: <b>${esc(r.obra_nome||'')}</b>${r.aplicacao_nome?' · Aplicação: <b>'+esc(r.aplicacao_nome)+'</b>':''}${r.ordem_servico?' · OS <b>'+esc(r.ordem_servico)+'</b>':''} · <span class="pill ${r.status}">${reqStatusLabel(r.status)}</span></p>
+    <p class="mp" style="font-size:12px">Solicitante: ${esc(r.solicitante_nome||'—')} · o material volta para o estoque <b>${esc(obraName(obraSaldo))}</b>.</p>
+    <div class="tbl-wrap"><table><thead><tr><th>Item</th><th class="num">Separado</th><th class="num">Já devolvido</th><th class="num" style="width:110px">Devolver agora</th></tr></thead><tbody>${
+      itens.map((i,x)=>`<tr><td>${esc(i.desc||'')}<br><span class="muted" style="font-size:11px">${esc(i.code)}</span></td><td class="num">${numf(i.sep)} ${esc(i.unit)}</td><td class="num">${i.dev?numf(i.dev):'—'}</td><td class="num">${i.max>0?`<input class="inline-edit" id="drQ_${x}" type="number" min="0" max="${i.max}" step="any" placeholder="0" title="Máximo: ${numf(i.max)}">`:'<span class="muted" style="font-size:11.5px">tudo devolvido</span>'}</td></tr>`).join('')
+    }</tbody></table></div>
+    ${nada?'<p class="mp" style="margin-top:10px">Todos os itens desta requisição já foram devolvidos por inteiro.</p>':`
+    <div class="field" style="margin-top:12px"><label>Motivo da devolução</label><select id="drMotivo"><option value="">— selecione —</option>${DEVREQ_MOTIVOS.map(m=>`<option>${esc(m)}</option>`).join('')}</select></div>
+    <div class="field"><label>Observação (obrigatória se o motivo for "Outro")</label><textarea id="drObs" rows="2" placeholder="Detalhe o que aconteceu..."></textarea></div>
+    <div class="field"><label>Devolvido por (quem trouxe o material)</label><input id="drQuem" autocomplete="off" placeholder="Nome do colaborador"></div>`}
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="devolReqModal()">← Outra requisição</button><button class="btn ghost" onclick="closeModal()">Cancelar</button>${nada?'':'<button class="btn primary" id="drOk" onclick="salvarDevolReq()">Registrar devolução</button>'}</div>`);
+}
+async function salvarDevolReq(){
+  if(_devReqSalvando)return; const ctx=_devReqCtx; if(!ctx)return;
+  if(!isAlmoxarife()){ toast('Devolução de requisição: restrito ao almoxarifado e administradores.','err'); return; }
+  if(!isOnline){ toast('Sem conexão — a devolução precisa ser registrada online.','err'); return; }
+  const motivo=$('#drMotivo').value, obs=$('#drObs').value.trim(), quem=$('#drQuem').value.trim();
+  const sel=[];
+  for(let x=0;x<ctx.itens.length;x++){ const it=ctx.itens[x], el=$('#drQ_'+x); if(!el||el.value==='')continue;
+    const q=parseFloat(String(el.value).replace(',','.')); if(!q)continue;
+    if(!(q>0)){ toast('Quantidade inválida em "'+esc(it.desc||it.code)+'".','err'); return; }
+    if(q>it.max+1e-9){ toast('"'+esc(it.desc||it.code)+'": o máximo que pode ser devolvido é '+numf(it.max)+' '+esc(it.unit)+'.','err'); return; }
+    sel.push({...it,qty:q,movId:uid()}); }
+  if(!sel.length){ toast('Informe a quantidade devolvida de pelo menos um item.','err'); return; }
+  if(!motivo){ toast('Selecione o motivo da devolução.','err'); return; }
+  if(motivo==='Outro'&&!obs){ toast('Descreva o motivo no campo de observação.','err'); return; }
+  if(!quem){ toast('Informe quem devolveu o material.','err'); return; }
+  _devReqSalvando=true; const btn=$('#drOk'); if(btn){ btn.disabled=true; btn.textContent='Registrando...'; }
+  try{
+    const r=ctx.r, obraSaldo=ctx.obraSaldo, reqN='REQ-'+String(r.id).padStart(5,'0'), lote=uid(), quemReg=profile.nome||profile.email;
+    /* valor unitário = o mesmo da saída desta requisição (para o consumo da aplicação zerar na mesma moeda); sem a saída em mãos, usa o custo atual */
+    for(const it of sel){ const p=findProduct(it.code); let vu=p?(p.custo||0):0;
+      try{ const orig=(await movsDoProduto(it.code)).filter(m=>m.tipo==='baixa'&&m.qty>0&&m.doc==='Separação '+reqN);
+        const sq=orig.reduce((a,m)=>a+m.qty,0), sv=orig.reduce((a,m)=>a+(m.valorTotal||0),0); if(sq>0)vu=sv/sq; }catch(e){}
+      it.vu=vu; it.aux=p?p.aux:''; }
+    const rows=sel.map(it=>({lote,requisicao_id:r.id,item_code:it.code,descricao:it.desc||null,unidade:it.unit||null,quantidade:it.qty,valor_unit:it.vu,obra_id:obraSaldo,obra_nome:obraName(obraSaldo),aplicacao_id:r.aplicacao_id||null,aplicacao_nome:r.aplicacao_nome||null,ordem_servico:r.ordem_servico||null,motivo,observacao:obs||null,devolvido_por:quem,movimento_id:it.movId,registrado_por_nome:quemReg}));
+    /* 1º o registro (o banco confere a quantidade e barra devolução em dobro); só depois mexe no saldo */
+    const {data:ins,error}=await sb.from('devolucoes_requisicao').insert(rows).select('*');
+    if(error){ toast(devReqSemTabela(error)?DEVREQ_MSG_SEM_TABELA:'Devolução não registrada: '+esc(error.message),'err'); return; }
+    const doc=ins&&ins[0]?ins[0].documento:0;
+    sel.forEach(it=>{ addSaldo(obraSaldo,it.code,it.qty);
+      pushMov({id:it.movId,ts:Date.now(),tipo:'baixa',obra:obraSaldo,aplic:r.aplicacao_id||'',os:r.ordem_servico||'',code:it.code,desc:it.desc,qty:-it.qty,valorUnit:it.vu,valorTotal:-it.qty*it.vu,doc:'Devolução '+reqN+' · '+devReqDocf(doc),obs:'Motivo: '+motivo+(obs?' — '+obs:'')+' · devolvido por '+quem,saldo:saldoOf(obraSaldo,it.code)}); });
+    await aguardarMovs();
+    /* requisição com mútuo: a saída gerou débito entre empresas — a devolução lança o estorno (valor negativo) no período atual */
+    if(r.mutuo_empresa_destino){ const estObra=state.obras.find(x=>x.id===r.mutuo_estoque_obra_id);
+      const {error:eM}=await sb.from('mutuos_intercompany').insert(sel.map(it=>({periodo:periodoAtual(),empresa_origem:r.mutuo_empresa_origem,empresa_destino:r.mutuo_empresa_destino,obra_origem_nome:estObra?estObra.nome:'',obra_destino_nome:r.obra_nome,descricao:'Devolução: '+it.desc+' ('+reqN+' · '+devReqDocf(doc)+')',requisicao_id:r.id,item_code:it.code,valor:-(it.qty*it.vu),registrado_por:session.user.id,registrado_por_nome:quemReg})));
+      if(eM)toast('Devolução registrada e saldo devolvido, mas o estorno do mútuo NÃO foi lançado — lance manualmente: '+esc(eM.message),'err'); }
+    try{ await sb.rpc('log_event',{p_acao:'devolucao_requisicao',p_entidade:'devolucoes_requisicao',p_entidade_id:String(doc),p_detalhes:{requisicao:r.id,motivo,observacao:obs||null,devolvido_por:quem,itens:sel.map(it=>({code:it.code,qtd:it.qty}))}}); }catch(e){}
+    (ins||[]).slice().reverse().forEach(d=>_devReqRows.unshift(d));
+    cacheState(); refreshBadge(); drawDevolReqHist();
+    toast('Devolução '+devReqDocf(doc)+' registrada — saldo devolvido ao estoque.','ok');
+    modal(`<h3>✅ Devolução ${devReqDocf(doc)} registrada</h3><p class="mp">${reqN} · ${sel.length} ${sel.length===1?'item':'itens'} de volta ao estoque <b>${esc(obraName(obraSaldo))}</b>.</p>
+      <div class="tbl-wrap"><table><tbody>${sel.map(it=>`<tr><td>${esc(it.desc||it.code)}</td><td class="num pos">+${numf(it.qty)} ${esc(it.unit)}</td></tr>`).join('')}</tbody></table></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="closeModal()">Fechar</button><button class="btn primary" onclick="imprimirDevolReq('${esc(lote)}')">🖨 Imprimir comprovante</button></div>`);
+  } finally { _devReqSalvando=false; const b2=$('#drOk'); if(b2){ b2.disabled=false; b2.textContent='Registrar devolução'; } }
+}
+/* Comprovante: abre a janela já no clique (senão o navegador bloqueia o pop-up) e busca os itens se não estiverem em memória */
+async function imprimirDevolReq(lote,movId){
+  const w=window.open('','_blank'); if(!w){ toast('Permita pop-ups para gerar o comprovante.','err'); return; }
+  let rows=lote?_devReqRows.filter(d=>d.lote===lote):[];
+  if(!rows.length){ let q=sb.from('devolucoes_requisicao').select('*');
+    if(lote)q=q.eq('lote',lote); else { const {data:a}=await sb.from('devolucoes_requisicao').select('lote').eq('movimento_id',movId).maybeSingle(); if(!a){ try{w.close();}catch(e){} toast('Registro da devolução não encontrado.','err'); return; } q=q.eq('lote',a.lote); }
+    const {data,error}=await q.order('id',{ascending:true}); if(error||!data||!data.length){ try{w.close();}catch(e){} toast('Registro da devolução não encontrado.','err'); return; } rows=data; }
+  rows=rows.slice().sort((a,b)=>a.id-b.id); const d0=rows[0];
+  printSignReport({win:w,titulo:'Comprovante de Devolução de Material',numero:devReqDocf(d0.documento),subtitulo:'Retorno ao estoque — material de requisição',data:fmtDate(new Date(d0.criado_em).getTime()),obra:d0.obra_nome,aplicacao:d0.aplicacao_nome||'',
+    doc:'REQ-'+String(d0.requisicao_id).padStart(5,'0')+(d0.ordem_servico?' · OS '+d0.ordem_servico:''),responsavel:d0.registrado_por_nome||'',
+    obs:'Motivo: '+d0.motivo+(d0.observacao?'\n'+d0.observacao:'')+'\nDevolvido por: '+(d0.devolvido_por||'—'),
+    itens:rows.map(d=>{ const p=findProduct(d.item_code); return {code:d.item_code,aux:p?p.aux:'',desc:d.descricao||(p?p.desc:''),qty:Number(d.quantidade),unit:d.unidade||(p?p.unit:''),valor:Number(d.valor_unit||0)}; }),
+    assinaturas:['Devolvido por','Recebido no almoxarifado']}); }
 async function drawDevolAbertas(){
   const {data,error}=await sb.from('devolucoes').select('*').in('status',['aguardando_nota','em_envio']).order('criado_em',{ascending:true});
   const ag=$('#devolAguardando'), en=$('#devolEnvio'); if(!ag||!en)return;
@@ -3497,7 +3655,7 @@ async function showConsulta(p){ _consAtual=p.code; const o=curObra(); const all=
     <div class="tbl-wrap" style="margin-bottom:22px"><table><thead><tr><th>Obra</th><th class="num">Saldo</th><th class="num">Valor</th><th>Situação</th></tr></thead><tbody>${obrasRows||`<tr><td colspan="4" class="empty" style="padding:20px">Sem saldo.</td></tr>`}</tbody></table></div>
     <div class="sechead"><h3>Histórico de movimentações${all?'':' · '+esc(obraName(o))}</h3></div>
     <div class="tbl-wrap"><table><thead><tr><th>Data</th><th>Tipo</th><th>Obra</th><th>Documento</th><th class="num">Qtd</th><th class="num">Valor un.</th><th class="num">Total</th></tr></thead><tbody>`+
-    (movs.length?movs.map(m=>{ const tp=m.tipo==='entrada'?'<span class="pill in">Entrada</span>':m.tipo==='baixa'?'<span class="pill out">Baixa</span>':m.tipo==='ajuste'?'<span class="pill high">Ajuste</span>':m.tipo==='devolucao'?'<span class="pill out">Devolução</span>':'<span class="pill tr">Transf.</span>';
+    (movs.length?movs.map(m=>{ const tp=m.tipo==='entrada'?'<span class="pill in">Entrada</span>':m.tipo==='baixa'?(isMovDevolReq(m)?'<span class="pill in">Devol. requisição</span>':'<span class="pill out">Baixa</span>'):m.tipo==='ajuste'?'<span class="pill high">Ajuste</span>':m.tipo==='devolucao'?'<span class="pill out">Devolução</span>':'<span class="pill tr">Transf.</span>';
       const obraCell=m.tipo==='transferencia'?`${esc(obraName(m.obra))} → ${esc(obraName(m.obraDest))}`:esc(obraName(m.obra));
       const e=efeito(m); const qtdTxt=(m.tipo==='transferencia'&&all)?'⇄'+numf(m.qty):(e>0?'+':e<0?'−':'')+numf(Math.abs(e||m.qty)); const cls=e>0?'pos':e<0?'neg':'';
       return `<tr><td class="muted" style="font-size:12px">${fmtDate(m.ts)}</td><td>${tp}</td><td style="font-size:12.5px">${obraCell}</td><td style="font-size:12.5px">${esc(m.doc||'')}${m.aplic?' · '+esc(aplicName(m.aplic)):''}</td><td class="num ${cls}">${qtdTxt}</td><td class="num">${money(m.valorUnit)}</td><td class="num">${money(m.valorTotal)}</td></tr>`;}).join('')
