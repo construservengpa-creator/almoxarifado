@@ -416,7 +416,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-02T22:30:00-03:00';
+const APP_VERSION='2026-10-02T23:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -4191,12 +4191,14 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
       const bx=inP.filter(m=>m.tipo==='baixa'&&m.obra===o.id).reduce((s,m)=>s+m.valorTotal,0);
       const tIn=inP.filter(m=>m.tipo==='transferencia'&&m.obraDest===o.id).reduce((s,m)=>s+m.valorTotal,0);
       const tOut=inP.filter(m=>m.tipo==='transferencia'&&m.obra===o.id).reduce((s,m)=>s+m.valorTotal,0);
+      /* Inventário e Ajuste de Saldo entram como movimento 'ajuste' (qtd positiva = entrada, negativa = saída) — antes ficavam fora deste relatório */
+      let ajP=0, ajN=0; inP.forEach(m=>{ if(m.tipo!=='ajuste'||m.obra!==o.id)return; const q=Number(m.qty)||0; const v=Math.abs(m.valorTotal||(q*(m.valorUnit||0))); if(q>=0)ajP+=v; else ajN+=v; });
       const estoque=state.products.filter(p=>produtoPassaFiltros(p,gf,lf,pf)).reduce((s,p)=>s+saldoOf(o.id,p.code)*(p.custo||0),0);
-      return {nome:o.nome,ent,bx,tIn,tOut,estoque}; });
-    headers=['Obra','Entradas','Baixas','Transf. recebidas','Transf. enviadas','Valor em estoque'];
-    rows=arr.map(a=>[a.nome,money(a.ent),money(a.bx),money(a.tIn),money(a.tOut),money(a.estoque)]);
+      return {nome:o.nome,ent,ajP,ajN,bx,tIn,tOut,estoque}; });
+    headers=['Obra','Entradas','Inventário/ajuste (+)','Inventário/ajuste (−)','Baixas','Transf. recebidas','Transf. enviadas','Valor em estoque'];
+    rows=arr.map(a=>[a.nome,money(a.ent),money(a.ajP),money(a.ajN),money(a.bx),money(a.tIn),money(a.tOut),money(a.estoque)]);
     const S=k=>arr.reduce((s,a)=>s+a[k],0);
-    foot=['Total',money(S('ent')),money(S('bx')),money(S('tIn')),money(S('tOut')),money(S('estoque'))];
+    foot=['Total',money(S('ent')),money(S('ajP')),money(S('ajN')),money(S('bx')),money(S('tIn')),money(S('tOut')),money(S('estoque'))];
   } else if(relTipo==='grupo'){
     titulo='Insumos cadastrados por grupo';
     const list=state.products.filter(p=>produtoPassaFiltros(p,gf,lf,pf))
@@ -4241,7 +4243,7 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
     rows=arr.map(a=>[`${a.desc} (${a.code})`,`${numf(a.entQ)} ${a.unit}`,money(a.entV),`${numf(a.bxQ)} ${a.unit}`,money(a.bxV),`${numf(a.saldo)} ${a.unit}`]);
     foot=['Total','',money(arr.reduce((s,a)=>s+a.entV,0)),'',money(arr.reduce((s,a)=>s+a.bxV,0)),''];
   }
-  _rel={titulo,sub:periodoLbl,headers,rows,foot,view:relTipo,align:({tipo:'lrrr',obra:'lrrrrr',produto:'lrrrrr',grupo:'llllrr',os:'llllrr',consorcio:'lllllrrr'})[relTipo]||''};
+  _rel={titulo,sub:periodoLbl,headers,rows,foot,view:relTipo,align:({tipo:'lrrr',obra:'lrrrrrrr',produto:'lrrrrr',grupo:'llllrr',os:'llllrr',consorcio:'lllllrrr'})[relTipo]||''};
   box.innerHTML=`<div class="sechead"><h3>${esc(titulo)}</h3><span style="font-size:12px;color:#8a8377">${esc(periodoLbl)}</span></div>
     <div class="tbl-wrap"><table><thead><tr>${headers.map((h,i)=>`<th${i>0?' class="num"':''}>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.length?rows.map(r=>`<tr>${r.map((c,i)=>`<td${i>0?' class="num"':''}>${esc(c)}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${headers.length}" class="empty" style="padding:24px">Sem dados no período.</td></tr>`}</tbody>${rows.length&&foot?`<tfoot><tr>${foot.map((c,i)=>`<td${i>0?' class="num"':''}><b>${esc(c)}</b></td>`).join('')}</tr></tfoot>`:''}</table></div>`;
 }
