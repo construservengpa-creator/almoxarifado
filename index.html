@@ -143,7 +143,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   .tabs{display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid #e4dfd4}
   .tabs button{background:none;border:none;border-bottom:3px solid transparent;padding:9px 14px;font-family:inherit;font-size:13px;font-weight:600;color:#8a8377;cursor:pointer;margin-bottom:-1px}
   .tabs button.on{color:#1c1c1c;border-color:var(--amber)}
-  .relcb{position:relative;min-width:320px}
+  /* Relatórios: as abas quebram linha em vez de ficarem cortadas/fora da tela em janelas estreitas */
+  .tabs.rel-tabs{flex-wrap:wrap;overflow-x:visible;row-gap:2px}
+  .tabs.rel-tabs button{white-space:nowrap}
+  .relcb{position:relative;min-width:min(320px,calc(100vw - 62px))}
   .relcb input.relcb-in{width:100%;padding-right:30px}
   .relcb-x{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:none;background:none;color:#8a8377;cursor:pointer;font-size:14px;padding:4px 6px;line-height:1}
   .relcb-x:hover{color:#1c1c1c}
@@ -413,7 +416,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-02T20:00:00-03:00';
+const APP_VERSION='2026-10-02T22:30:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -553,6 +556,14 @@ function refreshTelaAtual(){
     if(modalAberto()){ _liveRefreshTimer=setTimeout(refreshTelaAtual,1500); return; }
     if(_consAtual)showConsultaCode(_consAtual); else { const i=document.getElementById('consInput'); drawConsList(i?i.value:''); } return; }
   if(usuarioInteragindo()){ _liveRefreshTimer=setTimeout(refreshTelaAtual,1500); return; }
+  if(tab==='relatorios'&&document.getElementById('relView')){
+    /* Relatórios: NÃO recria a barra de filtros a cada movimentação de outro usuário (antes a tela inteira era
+       refeita — e o relatório calculado duas vezes — sempre que alguém lançava algo). Só renova as opções dos
+       seletores e o resultado, mantendo filtros, foco e rolagem. */
+    const y0=window.scrollY; const w0=[...document.querySelectorAll('#view .tbl-wrap')].map(e=>[e.scrollTop,e.scrollLeft]);
+    try{ relSyncOpcoes(); drawRelatorio(); }catch(e){ console.warn('refreshTelaAtual',e); }
+    requestAnimationFrame(()=>{ window.scrollTo(0,y0); document.querySelectorAll('#view .tbl-wrap').forEach((e,i)=>{ if(w0[i]){ e.scrollTop=w0[i][0]; e.scrollLeft=w0[i][1]; } }); });
+    return; }
   const snap={}; document.querySelectorAll('#view input[id],#view select[id],#view textarea[id]').forEach(el=>{
     snap[el.id]=(el.type==='checkbox'||el.type==='radio')?{c:el.checked}:{v:el.value}; });
   const y=window.scrollY; const wraps=[...document.querySelectorAll('#view .tbl-wrap')].map(e=>[e.scrollTop,e.scrollLeft]);
@@ -737,6 +748,7 @@ function applyMovimentosEDaldos(r){ if(!r)return;
 }
 // Garante em memória as movimentações desde f. Devolve true se precisou buscar e deu certo.
 function ensureMovsSince(f){
+  f=Math.max(Number(f)||0,0); /* data anterior a 1970 (ex.: ano ainda sendo digitado) vale como "desde o início" */
   const run=async()=>{
     if(movLoadedFrom==null||f>=movLoadedFrom||!isOnline)return false;
     const ate=movLoadedFrom;
@@ -744,7 +756,7 @@ function ensureMovsSince(f){
     if(error){ toast('Erro ao carregar o histórico do período: '+error.message,'err'); return false; }
     mergeMovs(data); movLoadedFrom=Math.max(f,0); return true; };
   _movFetch=_movFetch.then(run,run); return _movFetch; }
-function precisaHistorico(f){ return isOnline&&movLoadedFrom!=null&&f<movLoadedFrom; }
+function precisaHistorico(f){ return isOnline&&movLoadedFrom!=null&&Math.max(Number(f)||0,0)<movLoadedFrom; }
 // Histórico completo de um produto (a consulta mostra tudo, não só a janela)
 async function movsDoProduto(code){
   const local=state.movements.filter(m=>String(m.code)===String(code));
@@ -3901,11 +3913,32 @@ sb.auth.onAuthStateChange((event,s)=>{ session=s;
 
 /* ===== RELATÓRIOS ===== */
 let _rel=null, relTipo='aplicacao';
+/* --- Desempenho dos filtros ---
+   Antes, cada filtro procurava o produto percorrendo o cadastro inteiro para CADA movimentação
+   (movimentações × produtos) e o relatório era refeito a cada tecla: com o volume real a tela ficava
+   travada por segundos e os filtros paravam de responder. Agora o relatório usa um índice (válido só
+   durante o desenho), os campos de texto esperam a pessoa parar de digitar e as datas esperam ficar completas. */
+let _relPIdx=null, _relAIdx=null, _relDrawTimer=null, _relDetLazy=[];
+function relIdxOff(){ _relPIdx=null; _relAIdx=null; }
+function relIdxOn(){ const pm=new Map(); state.products.forEach(p=>{ const k=String(p.code); if(!pm.has(k))pm.set(k,p); });
+  const am=new Map(); state.aplicacoes.forEach(a=>{ if(!am.has(a.id))am.set(a.id,a); });
+  _relPIdx=pm; _relAIdx=am; queueMicrotask(relIdxOff); }
+function relProd(code){ return _relPIdx?_relPIdx.get(String(code).trim()):findProduct(code); }
+function relAplicById(id){ return _relAIdx?_relAIdx.get(id):state.aplicacoes.find(a=>a.id===id); }
+function relAgendar(ms){ clearTimeout(_relDrawTimer); _relDrawTimer=setTimeout(()=>{ _relDrawTimer=null; if(activeTab==='relatorios')drawRelatorio(); },ms||0); }
+function relDataOk(v){ if(!v)return true; const y=parseInt(String(v).split('-')[0],10); return y>=2000&&y<=2100; }
+function relGrupoOpts(){ const grupos=[...new Set(state.products.map(p=>p.grupo&&p.grupo.trim()?p.grupo.trim():'(sem grupo)'))].sort((a,b)=>a==='(sem grupo)'?1:b==='(sem grupo)'?-1:a.localeCompare(b,'pt-BR'));
+  return '<option value="">Todos os grupos</option>'+grupos.map(g=>`<option value="${esc(g)}">${esc(g)}</option>`).join(''); }
+function relLocalOpts(){ const locais=[...new Set(state.products.map(p=>p.localizacao&&p.localizacao.trim()?p.localizacao.trim():'(sem localização)'))].sort((a,b)=>a==='(sem localização)'?1:b==='(sem localização)'?-1:a.localeCompare(b,'pt-BR'));
+  return '<option value="">Todas as localizações</option>'+locais.map(l=>`<option value="${esc(l)}">${esc(l)}</option>`).join(''); }
+function relTipoOpts(){ return '<option value="">Todos os tipos</option>'+(state.aplicTipos||[]).map(x=>`<option value="${x.id}">${esc(x.label)}</option>`).join(''); }
+/* Atualização ao vivo: renova só as opções dos seletores (obra/grupo/localização/tipo) mantendo o que está escolhido */
+function relSyncOpcoes(){ [['relObra',()=>obraOptions('__all',true)],['relGrupo',relGrupoOpts],['relLocal',relLocalOpts],['relTipoAplic',relTipoOpts]].forEach(([id,fn])=>{
+    const el=document.getElementById(id); if(!el)return; const h=fn(); if(el._relOpts===h)return; const v=el.value; el.innerHTML=h; el._relOpts=h;
+    if([...el.options].some(o=>o.value===v))el.value=v; }); }
 const REL_VISAO={aretirar:'A retirar por aplicação (posição atual)',atendidas:'Requisições atendidas — quem retirou',aplicacao:'Por aplicação',tipo:'Por tipo de aplicação',obra:'Por obra',produto:'Por produto',grupo:'Insumos por grupo',os:'Por Ordem de Serviço',consorcio:'P/ Consórcio (débito)'};
 function renderRelatorios(){ if(needObra())return;
   const d2=new Date(),d1=new Date(); d1.setDate(d1.getDate()-90);
-  const grupos=[...new Set(state.products.map(p=>p.grupo&&p.grupo.trim()?p.grupo.trim():'(sem grupo)'))].sort((a,b)=>a==='(sem grupo)'?1:b==='(sem grupo)'?-1:a.localeCompare(b,'pt-BR'));
-  const locais=[...new Set(state.products.map(p=>p.localizacao&&p.localizacao.trim()?p.localizacao.trim():'(sem localização)'))].sort((a,b)=>a==='(sem localização)'?1:b==='(sem localização)'?-1:a.localeCompare(b,'pt-BR'));
   $('#view').innerHTML=`
   <div class="panel" style="margin-bottom:16px">
     <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
@@ -3917,9 +3950,9 @@ function renderRelatorios(){ if(needObra())return;
       <label style="display:flex;align-items:center;gap:7px;text-transform:none;font-weight:600;font-size:13px;margin:0;color:#1c1c1c;align-self:center"><input type="checkbox" id="relABC" style="width:auto"> Curva ABC</label>
     </div>
     <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;margin-top:12px">
-      <div class="field" style="margin:0"><label>Grupo de insumo</label><select id="relGrupo"><option value="">Todos os grupos</option>${grupos.map(g=>`<option value="${esc(g)}">${esc(g)}</option>`).join('')}</select></div>
-      <div class="field" style="margin:0"><label>Localização do estoque</label><select id="relLocal"><option value="">Todas as localizações</option>${locais.map(l=>`<option value="${esc(l)}">${esc(l)}</option>`).join('')}</select></div>
-      <div class="field" style="margin:0"><label>Tipo de aplicação</label><select id="relTipoAplic"><option value="">Todos os tipos</option>${(state.aplicTipos||[]).map(x=>`<option value="${x.id}">${esc(x.label)}</option>`).join('')}</select></div>
+      <div class="field" style="margin:0"><label>Grupo de insumo</label><select id="relGrupo">${relGrupoOpts()}</select></div>
+      <div class="field" style="margin:0"><label>Localização do estoque</label><select id="relLocal">${relLocalOpts()}</select></div>
+      <div class="field" style="margin:0"><label>Tipo de aplicação</label><select id="relTipoAplic">${relTipoOpts()}</select></div>
       <div class="field" style="margin:0"><label>Aplicação / Equipamento</label>
         <div class="relcb">
           <input id="relAplicTxt" class="relcb-in" autocomplete="off" placeholder="Digite nome ou prefixo..." onfocus="relAplicOpen()" oninput="relAplicType()" onkeydown="relAplicKey(event)">
@@ -3930,7 +3963,7 @@ function renderRelatorios(){ if(needObra())return;
       <div class="field" style="margin:0"><label>Produto (nome/código)</label><input id="relProdutoTxt" placeholder="Buscar produto..."></div>
       <div class="field" style="margin:0"><label>Ordem de Serviço</label><input id="relOSTxt" placeholder="Nº da OS..."></div>
     </div>
-    <div class="tabs" style="margin-top:14px">
+    <div class="tabs rel-tabs" style="margin-top:14px">
       <button id="rtAplic" onclick="setRelTipo('aplicacao')">Por aplicação</button>
       <button id="rtTipo" onclick="setRelTipo('tipo')">Por tipo de aplicação</button>
       <button id="rtObra" onclick="setRelTipo('obra')">Por obra</button>
@@ -3943,14 +3976,18 @@ function renderRelatorios(){ if(needObra())return;
   </div>
   <div id="relView"></div>`;
   setRelTipo(relTipo);
-  ['relFrom','relTo','relObra','relGrupo','relLocal','relTipoAplic','relAplicEsp','relProdutoTxt','relOSTxt','relABC'].forEach(id=>{const el=$('#'+id); if(el){el.onchange=drawRelatorio; if(el.tagName==='INPUT'&&el.type!=='date')el.oninput=drawRelatorio;}});
+  /* Seletores e a caixa Curva ABC aplicam na hora; campos de texto esperam a pessoa parar de digitar (Enter aplica já);
+     datas esperam a data ficar completa — digitar o ano à mão passa por 0002, 0020, 0202... */
+  ['relObra','relGrupo','relLocal','relTipoAplic','relABC'].forEach(id=>{ const el=$('#'+id); if(el)el.onchange=()=>drawRelatorio(); });
+  ['relProdutoTxt','relOSTxt'].forEach(id=>{ const el=$('#'+id); if(el){ el.oninput=()=>relAgendar(300); el.onkeydown=e=>{ if(e.key==='Enter')relAgendar(0); }; } });
+  ['relFrom','relTo'].forEach(id=>{ const el=$('#'+id); if(el){ el.onchange=()=>relAgendar(700); el.onkeydown=e=>{ if(e.key==='Enter')relAgendar(0); }; } });
 }
 function setRelTipo(t){ relTipo=t; [['aplicacao','rtAplic'],['tipo','rtTipo'],['obra','rtObra'],['produto','rtProd'],['grupo','rtGrupo'],['os','rtOS'],['consorcio','rtCons'],['aretirar','rtARet']].forEach(([k,id])=>{const b=$('#'+id); if(b)b.classList.toggle('on',k===t);}); drawRelatorio(); }
 function relPeriod(){ const f=$('#relFrom')&&$('#relFrom').value?new Date($('#relFrom').value+'T00:00:00').getTime():0; const t=$('#relTo')&&$('#relTo').value?new Date($('#relTo').value+'T23:59:59').getTime():Date.now(); return [f,t]; }
-function produtoGrupo(code){ const p=findProduct(code); const g=p&&p.grupo&&p.grupo.trim()?p.grupo.trim():'(sem grupo)'; return g; }
+function produtoGrupo(code){ const p=relProd(code); const g=p&&p.grupo&&p.grupo.trim()?p.grupo.trim():'(sem grupo)'; return g; }
 function movOS(m){ if(m.os)return m.os; const src=((m.doc||'')+' '+(m.obs||'')); const mt=src.match(/OS[\s:]*([^\s·]+)/i); return mt?mt[1]:''; }
 function produtoPassaFiltros(p,gf,lf,pf){ if(gf&&produtoGrupo(p.code)!==gf)return false; if(lf&&produtoLocal(p.code)!==lf)return false; if(pf&&!(p.desc.toLowerCase().includes(pf)||String(p.code).toLowerCase().includes(pf)||(p.aux&&String(p.aux).toLowerCase().includes(pf))))return false; return true; }
-function produtoLocal(code){ const p=findProduct(code); const l=p&&p.localizacao&&p.localizacao.trim()?p.localizacao.trim():'(sem localização)'; return l; }
+function produtoLocal(code){ const p=relProd(code); const l=p&&p.localizacao&&p.localizacao.trim()?p.localizacao.trim():'(sem localização)'; return l; }
 /* ===== Relatório: material separado aguardando retirada, por aplicação (posição atual, não usa o período) ===== */
 let _relARetEnvio='', _relARetTk=0, _relRetModo='atendidas';
 function relRetModoBtns(){ const b=(m,l)=>`<button class="btn ${_relRetModo===m?'primary':'ghost'} sm" onclick="_relRetModo='${m}';drawRelARetirar()">${l}</button>`;
@@ -3973,24 +4010,27 @@ async function drawRelARetirar(){ if(_relRetModo==='atendidas')return drawRelAte
   const gf=$('#relGrupo')?$('#relGrupo').value:'';
   const pf=($('#relProdutoTxt')?$('#relProdutoTxt').value:'').toLowerCase().trim();
   const osf=($('#relOSTxt')?$('#relOSTxt').value:'').toLowerCase().trim();
+  const lf=$('#relLocal')?$('#relLocal').value:'';
+  relIdxOn();
   let itens=(data||[]).filter(i=>i.requisicoes&&STATUS_AINDA_NAO_SAIU.includes(i.requisicoes.status));
   if(!isAll)itens=itens.filter(i=>i.requisicoes.obra_id===fobra||i.requisicoes.mutuo_estoque_obra_id===fobra);
   if(_relARetEnvio==='_indef')itens=itens.filter(i=>!i.requisicoes.tipo_envio); else if(_relARetEnvio)itens=itens.filter(i=>i.requisicoes.tipo_envio===_relARetEnvio);
   if(aef)itens=itens.filter(i=>i.requisicoes.aplicacao_id===aef); else if(aset)itens=itens.filter(i=>aset.has(i.requisicoes.aplicacao_id));
-  if(taf)itens=itens.filter(i=>{ const a=state.aplicacoes.find(x=>x.id===i.requisicoes.aplicacao_id); return a&&a.tipo===taf; });
+  if(taf)itens=itens.filter(i=>{ const a=relAplicById(i.requisicoes.aplicacao_id); return a&&a.tipo===taf; });
   if(gf)itens=itens.filter(i=>produtoGrupo(i.code)===gf);
-  if(pf)itens=itens.filter(i=>{ const p=findProduct(i.code); return String(i.descricao||'').toLowerCase().includes(pf)||String(i.code).toLowerCase().includes(pf)||(p&&p.aux&&String(p.aux).toLowerCase().includes(pf)); });
+  if(lf)itens=itens.filter(i=>produtoLocal(i.code)===lf);
+  if(pf)itens=itens.filter(i=>{ const p=relProd(i.code); return String(i.descricao||'').toLowerCase().includes(pf)||String(i.code).toLowerCase().includes(pf)||(p&&p.aux&&String(p.aux).toLowerCase().includes(pf)); });
   if(osf)itens=itens.filter(i=>String(i.requisicoes.ordem_servico||'').toLowerCase().includes(osf));
   const g={};
-  itens.forEach(i=>{ const r=i.requisicoes; const k=r.aplicacao_id||('__'+(r.aplicacao_nome||'sem')); const p=findProduct(i.code); const vu=p?(p.custo||0):0; const q=Number(i.quantidade_separada)||0;
+  itens.forEach(i=>{ const r=i.requisicoes; const k=r.aplicacao_id||('__'+(r.aplicacao_nome||'sem')); const p=relProd(i.code); const vu=p?(p.custo||0):0; const q=Number(i.quantidade_separada)||0;
     if(!g[k])g[k]={key:k,nome:r.aplicacao_nome||'(sem aplicação)',reqs:new Set(),itens:0,valor:0,det:[]};
     g[k].reqs.add(r.id); g[k].itens++; g[k].valor+=q*vu;
     g[k].det.push({req:'REQ-'+String(r.id).padStart(5,'0'),data:new Date(r.criado_em).getTime(),desc:i.descricao,qty:q,unit:i.unidade||(p?p.unit:''),valor:q*vu,os:r.ordem_servico||'',envio:envioTipoLabel(r.tipo_envio).replace(/^\S+\s/,''),obra:r.obra_nome}); });
-  const arr=Object.values(g).map(a=>{ const ap=state.aplicacoes.find(x=>x.id===a.key); return {...a,tag:ap&&ap.tag?ap.tag:'',tipo:ap?aplicTipoLabel(ap.tipo,ap.sub):'—',nreq:a.reqs.size,det:a.det.sort((x,y)=>x.data-y.data)}; }).sort((a,b)=>b.valor-a.valor);
+  const arr=Object.values(g).map(a=>{ const ap=relAplicById(a.key); return {...a,tag:ap&&ap.tag?ap.tag:'',tipo:ap?aplicTipoLabel(ap.tipo,ap.sub):'—',nreq:a.reqs.size,det:a.det.sort((x,y)=>x.data-y.data)}; }).sort((a,b)=>b.valor-a.valor);
   const totItens=arr.reduce((s,a)=>s+a.itens,0), totValor=arr.reduce((s,a)=>s+a.valor,0), totReq=new Set(itens.map(i=>i.requisicoes.id)).size;
   const titulo='Material a retirar por aplicação';
   const envLbl={'':'',despacho:'Despacho',interna:'Retirada no balcão',aplicacao_direta:'Balcão — aplicação direta',_indef:'Envio não definido'}[_relARetEnvio];
-  const sub='Posição em '+fmtDate(Date.now())+(isAll?' · todas as obras':' · '+obraName(fobra))+(envLbl?' · '+envLbl:'')+(taf?' · tipo aplic.: '+aplicTipoLabel(taf):'')+(aef?' · aplicação: '+aplicName(aef):'')+(gf?' · grupo: '+gf:'');
+  const sub='Posição em '+fmtDate(Date.now())+(isAll?' · todas as obras':' · '+obraName(fobra))+(envLbl?' · '+envLbl:'')+(taf?' · tipo aplic.: '+aplicTipoLabel(taf):'')+(aef?' · aplicação: '+aplicName(aef):'')+(atx?' · aplicação/prefixo contém: '+atx:'')+(gf?' · grupo: '+gf:'')+(lf?' · local: '+lf:'')+(pf?' · produto: '+pf:'')+(osf?' · OS: '+osf:'');
   _rel={titulo,sub,view:'aretirar',align:'llllrrr',headers:['Aplicação','Prefixo','Tipo','Requisições','Nº itens','Valor total'].slice(0,6),rows:arr.map(a=>[a.nome,a.tag||'—',a.tipo,String(a.nreq),String(a.itens),money(a.valor)]),foot:['Total','','',String(totReq),String(totItens),money(totValor)],
     detailHeaders:['REQ','Desde','Item','Qtd','Valor','OS','Envio'],detailAlign:'lllrrll',detail:arr.map(a=>a.det.map(d=>[d.req,fmtDate(d.data),d.desc,numf(d.qty)+' '+(d.unit||''),money(d.valor),d.os||'—',d.envio]))};
   _rel.align='lllrrr';
@@ -4038,6 +4078,7 @@ async function drawRelAtendidas(){ const box=$('#relView'); if(!box)return;
     reqs=reqs.concat(rq||[]); its=its.concat(it||[]); }
   if(relTipo!=='aretirar'||_relRetModo!=='atendidas'||tk!==_relARetTk||!box.isConnected)return;
   /* filtros do painel */
+  relIdxOn(); const lf=$('#relLocal')?$('#relLocal').value:'';
   const fobra=$('#relObra')?$('#relObra').value:'__all'; const isAll=fobra==='__all';
   const taf=$('#relTipoAplic')?$('#relTipoAplic').value:'';
   const aef=$('#relAplicEsp')?$('#relAplicEsp').value:'';
@@ -4046,22 +4087,22 @@ async function drawRelAtendidas(){ const box=$('#relView'); if(!box)return;
   const pf=($('#relProdutoTxt')?$('#relProdutoTxt').value:'').toLowerCase().trim();
   const osf=($('#relOSTxt')?$('#relOSTxt').value:'').toLowerCase().trim();
   const itPorReq={}; its.forEach(i=>{ (itPorReq[i.requisicao_id]=itPorReq[i.requisicao_id]||[]).push(i); });
-  const itemOk=i=>{ if(gf&&produtoGrupo(i.code)!==gf)return false; if(pf){ const p=findProduct(i.code); if(!(String(i.descricao||'').toLowerCase().includes(pf)||String(i.code).toLowerCase().includes(pf)||(p&&p.aux&&String(p.aux).toLowerCase().includes(pf))))return false; } return true; };
+  const itemOk=i=>{ if(gf&&produtoGrupo(i.code)!==gf)return false; if(lf&&produtoLocal(i.code)!==lf)return false; if(pf){ const p=relProd(i.code); if(!(String(i.descricao||'').toLowerCase().includes(pf)||String(i.code).toLowerCase().includes(pf)||(p&&p.aux&&String(p.aux).toLowerCase().includes(pf))))return false; } return true; };
   let lista=reqs.filter(r=>STATUS_ATENDIDA.includes(r.status));
   if(!isAll)lista=lista.filter(r=>r.obra_id===fobra||r.mutuo_estoque_obra_id===fobra);
   if(_relARetEnvio==='_indef')lista=lista.filter(r=>!r.tipo_envio); else if(_relARetEnvio)lista=lista.filter(r=>r.tipo_envio===_relARetEnvio);
   if(aef)lista=lista.filter(r=>r.aplicacao_id===aef); else if(aset)lista=lista.filter(r=>aset.has(r.aplicacao_id));
-  if(taf)lista=lista.filter(r=>{ const a=state.aplicacoes.find(x=>x.id===r.aplicacao_id); return a&&a.tipo===taf; });
+  if(taf)lista=lista.filter(r=>{ const a=relAplicById(r.aplicacao_id); return a&&a.tipo===taf; });
   if(osf)lista=lista.filter(r=>String(r.ordem_servico||'').toLowerCase().includes(osf));
-  const arr=lista.map(r=>{ const s=saida[r.id]; const ap=state.aplicacoes.find(x=>x.id===r.aplicacao_id);
-      const itens=(itPorReq[r.id]||[]).filter(itemOk).map(i=>{ const p=findProduct(i.code); const q=Number(i.quantidade_separada)||0; const vu=p?(p.custo||0):0; return {code:i.code,desc:i.descricao||(p?p.desc:''),qty:q,unit:i.unidade||(p?p.unit:''),valor:q*vu}; });
+  const arr=lista.map(r=>{ const s=saida[r.id]; const ap=relAplicById(r.aplicacao_id);
+      const itens=(itPorReq[r.id]||[]).filter(itemOk).map(i=>{ const p=relProd(i.code); const q=Number(i.quantidade_separada)||0; const vu=p?(p.custo||0):0; return {code:i.code,desc:i.descricao||(p?p.desc:''),qty:q,unit:i.unidade||(p?p.unit:''),valor:q*vu}; });
       return {r,s,req:'REQ-'+String(r.id).padStart(5,'0'),aplic:r.aplicacao_nome||(ap?ap.nome:'')||'(sem aplicação)',tag:ap&&ap.tag?ap.tag:'',itens,valor:itens.reduce((t,i)=>t+i.valor,0)}; })
-    .filter(x=>!(gf||pf)||x.itens.length)
+    .filter(x=>!(gf||pf||lf)||x.itens.length)
     .sort((a,b)=>b.s.ts-a.s.ts);
   const totValor=arr.reduce((t,a)=>t+a.valor,0), totItens=arr.reduce((t,a)=>t+a.itens.length,0);
   const envLbl={'':'',despacho:'Despacho',interna:'Retirada no balcão',aplicacao_direta:'Balcão — aplicação direta',_indef:'Envio não definido'}[_relARetEnvio];
   const titulo='Requisições atendidas — quem retirou';
-  const sub='Saídas de '+new Date(f||0).toLocaleDateString('pt-BR')+' a '+new Date(t).toLocaleDateString('pt-BR')+(isAll?' · todas as obras':' · '+obraName(fobra))+(envLbl?' · '+envLbl:'')+(taf?' · tipo aplic.: '+aplicTipoLabel(taf):'')+(aef?' · aplicação: '+aplicName(aef):'')+(gf?' · grupo: '+gf:'')+(osf?' · OS: '+osf:'');
+  const sub='Saídas de '+new Date(f||0).toLocaleDateString('pt-BR')+' a '+new Date(t).toLocaleDateString('pt-BR')+(isAll?' · todas as obras':' · '+obraName(fobra))+(envLbl?' · '+envLbl:'')+(taf?' · tipo aplic.: '+aplicTipoLabel(taf):'')+(aef?' · aplicação: '+aplicName(aef):'')+(atx?' · aplicação/prefixo contém: '+atx:'')+(gf?' · grupo: '+gf:'')+(lf?' · local: '+lf:'')+(pf?' · produto: '+pf:'')+(osf?' · OS: '+osf:'');
   const quemTxt=a=>a.s.quem+(a.s.doc?' ('+a.s.doc+')':'');
   _rel={titulo,sub,view:'atendidas',align:'llllllllrr',
     headers:['Data da saída','REQ','Aplicação','Obra','OS','Solicitante','Retirado por','Registrado por','Nº itens','Valor'],
@@ -4088,9 +4129,17 @@ async function drawRelAtendidas(){ const box=$('#relView'); if(!box)return;
     <p class="muted" style="font-size:11.5px;margin-top:8px">Considera requisições retiradas no balcão ou despachadas no período (De/Até), pela data da saída. "Retirado por" é o colaborador informado na retirada; em despachos, a transportadora. Valor = quantidade separada × custo cadastrado do produto.</p>`;
 }
 function drawRelatorio(){ const box=$('#relView'); if(!box)return;
+  clearTimeout(_relDrawTimer); _relDrawTimer=null;
+  if(!relDataOk($('#relFrom')&&$('#relFrom').value)||!relDataOk($('#relTo')&&$('#relTo').value)){ _rel=null; box.innerHTML='<div class="empty" style="padding:24px">Informe as datas De/Até completas (ano com 4 dígitos) para gerar o relatório.</div>'; return; }
   if(relTipo==='aretirar'){ drawRelARetirar(); return; }
   const [f,t]=relPeriod();
-  if(precisaHistorico(f)){ box.innerHTML='<div class="empty" style="padding:24px">Carregando histórico do período...</div>'; ensureMovsSince(f).then(ok=>{ if(ok&&activeTab==='relatorios')drawRelatorio(); }); return; } const emi=emiMap(); const fobra=$('#relObra')?$('#relObra').value:'__all'; const isAll=fobra==='__all';
+  if(precisaHistorico(f)){ box.innerHTML='<div class="empty" style="padding:24px">Carregando histórico do período...</div>';
+    ensureMovsSince(f).then(ok=>{ if(activeTab!=='relatorios'||!$('#relView'))return;
+      if(ok||!precisaHistorico(f)){ drawRelatorio(); return; }
+      /* a busca falhou: avisa e deixa tentar de novo, em vez de ficar em "Carregando..." para sempre */
+      $('#relView').innerHTML='<div class="empty" style="padding:24px">Não foi possível carregar o histórico deste período.<br><button class="btn ghost sm" onclick="drawRelatorio()">Tentar novamente</button></div>'; });
+    return; }
+  relIdxOn(); const emi=emiMap(); const fobra=$('#relObra')?$('#relObra').value:'__all'; const isAll=fobra==='__all';
   const gf=$('#relGrupo')?$('#relGrupo').value:'';
   const lf=$('#relLocal')?$('#relLocal').value:'';
   const taf=$('#relTipoAplic')?$('#relTipoAplic').value:'';
@@ -4102,31 +4151,33 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
   let inP=state.movements.filter(m=>{const d=mdate(m,emi); return d>=f&&d<=t && (isAll||m.obra===fobra||(m.tipo==='transferencia'&&m.obraDest===fobra));});
   if(gf)inP=inP.filter(m=>produtoGrupo(m.code)===gf);
   if(lf)inP=inP.filter(m=>produtoLocal(m.code)===lf);
-  if(taf)inP=inP.filter(m=>{ const a=state.aplicacoes.find(x=>x.id===m.aplic); return a&&a.tipo===taf; });
+  if(taf)inP=inP.filter(m=>{ const a=relAplicById(m.aplic); return a&&a.tipo===taf; });
   if(aef)inP=inP.filter(m=>m.aplic===aef); else if(aset)inP=inP.filter(m=>m.aplic&&aset.has(m.aplic));
-  if(pf)inP=inP.filter(m=>{ const p=findProduct(m.code); return p&&(p.desc.toLowerCase().includes(pf)||String(p.code).toLowerCase().includes(pf)||(p.aux&&String(p.aux).toLowerCase().includes(pf))); });
+  if(pf)inP=inP.filter(m=>{ const p=relProd(m.code); return p&&(p.desc.toLowerCase().includes(pf)||String(p.code).toLowerCase().includes(pf)||(p.aux&&String(p.aux).toLowerCase().includes(pf))); });
   if(osf)inP=inP.filter(m=>movOS(m).toLowerCase().includes(osf));
   if($('#relABC')&&$('#relABC').checked&&relTipo!=='grupo'&&relTipo!=='os'&&relTipo!=='consorcio'){ drawABC(inP,isAll,fobra,periodoLbl); return; }
   let titulo,headers,rows,foot;
   if(relTipo==='aplicacao'){
     titulo='Consumo por aplicação';
     const g={}; inP.filter(m=>m.tipo==='baixa').forEach(m=>{ const k=m.aplic||'__sem'; if(!g[k])g[k]={itens:0,valor:0,os:new Set(),movs:[]}; g[k].itens++; g[k].valor+=m.valorTotal; const mo=movOS(m); if(mo)g[k].os.add(mo); g[k].movs.push(m); });
-    const arr=Object.entries(g).map(([k,v])=>{ const a=state.aplicacoes.find(x=>x.id===k); return {key:k, nome:k==='__sem'?'(sem aplicação)':(a?a.nome:'(removida)'), tag:(a&&a.tag)?a.tag:'', tipo:k==='__sem'?'—':aplicTipoLabel(a&&a.tipo,a&&a.sub), itens:v.itens, valor:v.valor, os:[...v.os].sort().join(', ')||'—', movs:v.movs.sort((x,y)=>y.ts-x.ts)}; }).sort((a,b)=>b.valor-a.valor);
+    const arr=Object.entries(g).map(([k,v])=>{ const a=relAplicById(k); return {key:k, nome:k==='__sem'?'(sem aplicação)':(a?a.nome:'(removida)'), tag:(a&&a.tag)?a.tag:'', tipo:k==='__sem'?'—':aplicTipoLabel(a&&a.tipo,a&&a.sub), itens:v.itens, valor:v.valor, os:[...v.os].sort().join(', ')||'—', movs:v.movs.sort((x,y)=>y.ts-x.ts)}; }).sort((a,b)=>b.valor-a.valor);
     const totItens=arr.reduce((s,a)=>s+a.itens,0), totValor=arr.reduce((s,a)=>s+a.valor,0);
     const box=$('#relView');
     _rel={titulo,sub:periodoLbl,view:'aplicacao',align:'llllrr',headers:['Aplicação','Prefixo','Tipo','Ordens de Serviço','Nº itens','Valor total'],rows:arr.map(a=>[a.nome,a.tag||'—',a.tipo,a.os,String(a.itens),money(a.valor)]),foot:['Total','','','',String(totItens),money(totValor)],
-      detailHeaders:['Data','Item','Qtd','Valor','OS'],detailAlign:'llrrl',detail:arr.map(a=>a.movs.map(m=>[fmtDate(m.ts),m.desc,numf(m.qty),money(m.valorTotal),movOS(m)||'—']))};
+      detailHeaders:['Data','Item','Qtd','Valor','OS'],detailAlign:'llrrl',
+      /* detalhe montado só quando for usado (impressão) — antes formatava todas as movimentações a cada filtro */
+      get detail(){ return this._det||(this._det=arr.map(a=>a.movs.map(m=>[fmtDate(m.ts),m.desc,numf(m.qty),money(m.valorTotal),movOS(m)||'—']))); }};
+    /* as linhas de itens de cada aplicação só entram na página quando a linha é expandida */
+    _relDetLazy=arr.map(a=>()=>a.movs.map(m=>`<tr><td style="font-size:12.5px">${fmtDate(m.ts)}</td><td style="font-size:12.5px">${esc(m.desc)}</td><td class="num" style="font-size:12.5px">${numf(m.qty)}</td><td class="num" style="font-size:12.5px">${money(m.valorTotal)}</td><td style="font-size:12.5px">${esc(movOS(m)||'—')}</td></tr>`).join(''));
     box.innerHTML=`<div class="sechead"><h3>${esc(titulo)}</h3><span style="font-size:12px;color:#8a8377">${esc(periodoLbl)}</span><button class="btn ghost sm" onclick="toggleAllRelAplic()">Expandir / recolher itens</button></div>
       <div class="tbl-wrap"><table><thead><tr><th style="width:24px"></th><th>Aplicação</th><th>Prefixo</th><th>Tipo</th><th>Ordens de Serviço</th><th class="num">Nº itens</th><th class="num">Valor total</th></tr></thead><tbody>${
         arr.length?arr.map((a,i)=>`<tr class="rel-ap-row" style="cursor:pointer" onclick="toggleRelAplicRow(${i})"><td class="num" id="relApChev${i}" style="color:#8a8377">▸</td><td>${esc(a.nome)}</td><td class="mono" style="font-size:12.5px">${esc(a.tag||'—')}</td><td>${esc(a.tipo)}</td><td>${esc(a.os)}</td><td class="num">${a.itens}</td><td class="num">${money(a.valor)}</td></tr>
-          <tr id="relApDet${i}" style="display:none"><td></td><td colspan="6" style="padding:0 0 10px 0"><table style="width:100%;background:#faf8f3"><thead><tr><th style="font-size:10.5px">Data</th><th style="font-size:10.5px">Item</th><th style="font-size:10.5px" class="num">Qtd</th><th style="font-size:10.5px" class="num">Valor</th><th style="font-size:10.5px">OS</th></tr></thead><tbody>${
-            a.movs.map(m=>`<tr><td style="font-size:12.5px">${fmtDate(m.ts)}</td><td style="font-size:12.5px">${esc(m.desc)}</td><td class="num" style="font-size:12.5px">${numf(m.qty)}</td><td class="num" style="font-size:12.5px">${money(m.valorTotal)}</td><td style="font-size:12.5px">${esc(movOS(m)||'—')}</td></tr>`).join('')
-          }</tbody></table></td></tr>`).join(''):`<tr><td colspan="7" class="empty" style="padding:24px">Sem dados no período.</td></tr>`
+          <tr id="relApDet${i}" style="display:none"><td></td><td colspan="6" style="padding:0 0 10px 0"><table style="width:100%;background:#faf8f3"><thead><tr><th style="font-size:10.5px">Data</th><th style="font-size:10.5px">Item</th><th style="font-size:10.5px" class="num">Qtd</th><th style="font-size:10.5px" class="num">Valor</th><th style="font-size:10.5px">OS</th></tr></thead><tbody id="relApDetB${i}"></tbody></table></td></tr>`).join(''):`<tr><td colspan="7" class="empty" style="padding:24px">Sem dados no período.</td></tr>`
       }</tbody>${arr.length?`<tfoot><tr><td></td><td><b>Total</b></td><td></td><td></td><td></td><td class="num"><b>${totItens}</b></td><td class="num"><b>${money(totValor)}</b></td></tr></tfoot>`:''}</table></div>`;
     return;
   } else if(relTipo==='tipo'){
     titulo='Consumo por tipo de aplicação';
-    const g={}; inP.filter(m=>m.tipo==='baixa').forEach(m=>{ const a=state.aplicacoes.find(x=>x.id===m.aplic); let k=a?(a.tipo==='sede'?'sede:'+(a.sub||''):a.tipo):'__sem'; if(!g[k])g[k]={itens:0,valor:0}; g[k].itens++; g[k].valor+=m.valorTotal; });
+    const g={}; inP.filter(m=>m.tipo==='baixa').forEach(m=>{ const a=relAplicById(m.aplic); let k=a?(a.tipo==='sede'?'sede:'+(a.sub||''):a.tipo):'__sem'; if(!g[k])g[k]={itens:0,valor:0}; g[k].itens++; g[k].valor+=m.valorTotal; });
     const lbl=k=>{ if(k==='__sem')return '(sem aplicação)'; if(k.indexOf('sede:')===0){const s=(state.setores||[]).find(x=>x.id===k.slice(5)); return 'SEDE — '+(s?s.nome:k.slice(5));} const x=(state.aplicTipos||[]).find(y=>y.id===k); return x?x.label:k; };
     const tot=Object.values(g).reduce((s,v)=>s+v.valor,0)||1;
     const arr=Object.entries(g).map(([k,v])=>({nome:lbl(k),itens:v.itens,valor:v.valor})).sort((a,b)=>b.valor-a.valor);
@@ -4157,7 +4208,7 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
     periodoLbl=(isAll?'Todas as obras':obraName(fobra))+(gf?' · grupo: '+gf:'')+' · cadastro atual (não depende do período)';
   } else if(relTipo==='os'){
     titulo='Insumos aplicados por Ordem de Serviço';
-    const rowsRaw=inP.filter(m=>m.tipo==='baixa'&&movOS(m)).map(m=>{const p=findProduct(m.code); return {os:movOS(m),obra:obraName(m.obra),aplic:m.aplic?aplicName(m.aplic):'—',desc:m.desc,code:m.code,unit:p?(p.unit||''):'',qty:m.qty,valor:m.valorTotal,ts:m.ts};})
+    const rowsRaw=inP.filter(m=>m.tipo==='baixa'&&movOS(m)).map(m=>{const p=relProd(m.code); return {os:movOS(m),obra:obraName(m.obra),aplic:m.aplic?aplicName(m.aplic):'—',desc:m.desc,code:m.code,unit:p?(p.unit||''):'',qty:m.qty,valor:m.valorTotal,ts:m.ts};})
       .sort((a,b)=>a.os.localeCompare(b.os,'pt-BR',{numeric:true})||a.ts-b.ts);
     headers=['Ordem de Serviço','Obra','Aplicação/Equipamento','Insumo','Qtd','Valor'];
     rows=rowsRaw.map(a=>[a.os,a.obra,a.aplic,a.desc+' ('+a.code+')',numf(a.qty)+' '+a.unit,money(a.valor)]);
@@ -4175,17 +4226,17 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
       let rowsRaw=state.movements.filter(m=>m.tipo==='transferencia'&&destIds.includes(m.obraDest)).filter(m=>{const d=mdate(m,emi); return d>=f&&d<=t;});
       if(gf)rowsRaw=rowsRaw.filter(m=>produtoGrupo(m.code)===gf);
       if(lf)rowsRaw=rowsRaw.filter(m=>produtoLocal(m.code)===lf);
-      if(pf)rowsRaw=rowsRaw.filter(m=>{const p=findProduct(m.code); return p&&(p.desc.toLowerCase().includes(pf)||String(p.code).toLowerCase().includes(pf)||(p.aux&&String(p.aux).toLowerCase().includes(pf)));});
+      if(pf)rowsRaw=rowsRaw.filter(m=>{const p=relProd(m.code); return p&&(p.desc.toLowerCase().includes(pf)||String(p.code).toLowerCase().includes(pf)||(p.aux&&String(p.aux).toLowerCase().includes(pf)));});
       rowsRaw.sort((a,b)=>(a.seq||0)-(b.seq||0)||a.ts-b.ts);
       headers=['Nº Romaneio','Data','Obra de origem','Obra Consórcio','Insumo','Qtd','Valor Unitário','Valor Total'];
-      rows=rowsRaw.map(m=>{const p=findProduct(m.code); return [m.seq?seqf(m.seq):'—',fmtDate(m.ts),obraName(m.obra),obraName(m.obraDest),m.desc+' ('+m.code+')'+(p&&p.unit?' - '+esc(p.unit):''),numf(m.qty),money(m.valorUnit),money(m.valorTotal)];});
+      rows=rowsRaw.map(m=>{const p=relProd(m.code); return [m.seq?seqf(m.seq):'—',fmtDate(m.ts),obraName(m.obra),obraName(m.obraDest),m.desc+' ('+m.code+')'+(p&&p.unit?' - '+esc(p.unit):''),numf(m.qty),money(m.valorUnit),money(m.valorTotal)];});
       foot=['Total','','','','',numf(rowsRaw.reduce((s,m)=>s+m.qty,0)),'',money(rowsRaw.reduce((s,m)=>s+m.valorTotal,0))];
       periodoLbl=`${new Date(f).toLocaleDateString('pt-BR')} a ${new Date(t).toLocaleDateString('pt-BR')} · destino(s): ${destObras.map(o=>o.nome).join(', ')}`;
     }
   } else {
     titulo='Movimentação por produto';
     const g={}; inP.forEach(m=>{ if(m.tipo==='transferencia')return; if(!g[m.code])g[m.code]={entQ:0,entV:0,bxQ:0,bxV:0}; if(m.tipo==='entrada'){g[m.code].entQ+=m.qty;g[m.code].entV+=m.valorTotal;} else if(m.tipo==='baixa'){g[m.code].bxQ+=m.qty;g[m.code].bxV+=m.valorTotal;} });
-    const arr=Object.entries(g).map(([code,v])=>{const p=findProduct(code); return {code,desc:p?p.desc:code,unit:p?(p.unit||''):'',saldo:isAll?totalSaldo(code):saldoOf(fobra,code),...v};}).sort((a,b)=>b.bxV-a.bxV);
+    const arr=Object.entries(g).map(([code,v])=>{const p=relProd(code); return {code,desc:p?p.desc:code,unit:p?(p.unit||''):'',saldo:isAll?totalSaldo(code):saldoOf(fobra,code),...v};}).sort((a,b)=>b.bxV-a.bxV);
     headers=['Produto','Entradas (qtd)','Entradas (R$)','Saídas (qtd)','Saídas (R$)','Saldo atual'];
     rows=arr.map(a=>[`${a.desc} (${a.code})`,`${numf(a.entQ)} ${a.unit}`,money(a.entV),`${numf(a.bxQ)} ${a.unit}`,money(a.bxV),`${numf(a.saldo)} ${a.unit}`]);
     foot=['Total','',money(arr.reduce((s,a)=>s+a.entV,0)),'',money(arr.reduce((s,a)=>s+a.bxV,0)),''];
@@ -4194,10 +4245,11 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
   box.innerHTML=`<div class="sechead"><h3>${esc(titulo)}</h3><span style="font-size:12px;color:#8a8377">${esc(periodoLbl)}</span></div>
     <div class="tbl-wrap"><table><thead><tr>${headers.map((h,i)=>`<th${i>0?' class="num"':''}>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.length?rows.map(r=>`<tr>${r.map((c,i)=>`<td${i>0?' class="num"':''}>${esc(c)}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${headers.length}" class="empty" style="padding:24px">Sem dados no período.</td></tr>`}</tbody>${rows.length&&foot?`<tfoot><tr>${foot.map((c,i)=>`<td${i>0?' class="num"':''}><b>${esc(c)}</b></td>`).join('')}</tr></tfoot>`:''}</table></div>`;
 }
+function relDetFill(i){ const tb=document.getElementById('relApDetB'+i), fn=_relDetLazy[i]; if(tb&&fn&&!tb.dataset.ok){ tb.innerHTML=fn(); tb.dataset.ok='1'; } }
 function toggleRelAplicRow(i){ const row=$('#relApDet'+i); const chev=$('#relApChev'+i); if(!row)return;
-  const open=row.style.display!=='none'; row.style.display=open?'none':''; if(chev)chev.textContent=open?'▸':'▾'; }
+  const open=row.style.display!=='none'; if(!open)relDetFill(i); row.style.display=open?'none':''; if(chev)chev.textContent=open?'▸':'▾'; }
 function toggleAllRelAplic(){ const rows=[...document.querySelectorAll('[id^="relApDet"]')]; if(!rows.length)return;
-  const anyClosed=rows.some(r=>r.style.display==='none'); rows.forEach(r=>{ r.style.display=anyClosed?'':'none'; const ch=document.getElementById('relApChev'+r.id.slice(8)); if(ch)ch.textContent=anyClosed?'▾':'▸'; }); }
+  const anyClosed=rows.some(r=>r.style.display==='none'); rows.forEach(r=>{ if(anyClosed)relDetFill(+r.id.slice(8)); r.style.display=anyClosed?'':'none'; const ch=document.getElementById('relApChev'+r.id.slice(8)); if(ch)ch.textContent=anyClosed?'▾':'▸'; }); }
 /* --- combobox de Aplicação/Equipamento nos Relatórios (digite nome ou prefixo) --- */
 let _relApHl=0, _relApItems=[];
 function relNorm(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
@@ -4213,7 +4265,7 @@ function relAplicRender(q){ const box=$('#relAplicList'); if(!box)return; const 
   box.innerHTML=h; box.style.display='block';
   box.onmousedown=e=>{ const it=e.target.closest('.it'); if(!it)return; e.preventDefault(); relAplicChoose(+it.dataset.i); }; }
 function relAplicOpen(){ const inp=$('#relAplicTxt'); if(!inp)return; const hid=$('#relAplicEsp'); _relApHl=0; if(hid&&hid.value){ inp.select(); relAplicRender(''); } else relAplicRender(inp.value); }
-function relAplicType(){ const inp=$('#relAplicTxt'), hid=$('#relAplicEsp'); if(hid)hid.value=''; _relApHl=0; relAplicRender(inp.value); const c=$('#relAplicClr'); if(c)c.style.display=inp.value?'':'none'; drawRelatorio(); }
+function relAplicType(){ const inp=$('#relAplicTxt'), hid=$('#relAplicEsp'); if(hid)hid.value=''; _relApHl=0; relAplicRender(inp.value); const c=$('#relAplicClr'); if(c)c.style.display=inp.value?'':'none'; relAgendar(300); }
 function relAplicChoose(i){ const a=_relApItems[i]; if(!a){ relAplicClear(); return; } $('#relAplicEsp').value=a.id; $('#relAplicTxt').value=relAplicLabel(a); const c=$('#relAplicClr'); if(c)c.style.display=''; relAplicClose(); drawRelatorio(); }
 function relAplicClear(){ const inp=$('#relAplicTxt'); if($('#relAplicEsp'))$('#relAplicEsp').value=''; if(inp){ inp.value=''; } const c=$('#relAplicClr'); if(c)c.style.display='none'; relAplicClose(); drawRelatorio(); if(inp)inp.focus(); }
 function relAplicClose(){ const b=$('#relAplicList'); if(b){ b.style.display='none'; } }
@@ -4227,9 +4279,9 @@ function drawABC(inP,isAll,fobra,periodoLbl){ const box=$('#relView'); if(!box)r
   const bx=inP.filter(m=>m.tipo==='baixa'); let metric={}, itemLabel, titulo;
   if(relTipo==='aplicacao'){ itemLabel='Aplicação'; titulo='Curva ABC — consumo por aplicação';
     bx.forEach(m=>{const k=m.aplic||'__sem'; metric[k]=(metric[k]||0)+m.valorTotal;});
-    metric=Object.entries(metric).map(([k,v])=>{ const ap=state.aplicacoes.find(a=>a.id===k); return {nome:k==='__sem'?'(sem aplicação)':(ap?ap.nome:'(removida)'),tag:ap&&ap.tag?ap.tag:'',valor:v}; });
+    metric=Object.entries(metric).map(([k,v])=>{ const ap=relAplicById(k); return {nome:k==='__sem'?'(sem aplicação)':(ap?ap.nome:'(removida)'),tag:ap&&ap.tag?ap.tag:'',valor:v}; });
   } else if(relTipo==='tipo'){ itemLabel='Tipo de aplicação'; titulo='Curva ABC — consumo por tipo';
-    bx.forEach(m=>{const a=state.aplicacoes.find(x=>x.id===m.aplic); let k=a?(a.tipo==='sede'?'sede:'+(a.sub||''):a.tipo):'__sem'; metric[k]=(metric[k]||0)+m.valorTotal;});
+    bx.forEach(m=>{const a=relAplicById(m.aplic); let k=a?(a.tipo==='sede'?'sede:'+(a.sub||''):a.tipo):'__sem'; metric[k]=(metric[k]||0)+m.valorTotal;});
     const lbl=k=>{ if(k==='__sem')return '(sem aplicação)'; if(k.indexOf('sede:')===0){const s=(state.setores||[]).find(x=>x.id===k.slice(5)); return 'SEDE — '+(s?s.nome:k.slice(5));} const x=(state.aplicTipos||[]).find(y=>y.id===k); return x?x.label:k; };
     metric=Object.entries(metric).map(([k,v])=>({nome:lbl(k),valor:v}));
   } else if(relTipo==='obra'){ itemLabel='Obra'; titulo='Curva ABC — consumo por obra';
@@ -4237,7 +4289,7 @@ function drawABC(inP,isAll,fobra,periodoLbl){ const box=$('#relView'); if(!box)r
     metric=Object.entries(metric).map(([k,v])=>({nome:obraName(k),valor:v}));
   } else { itemLabel='Produto'; titulo='Curva ABC — consumo por produto';
     bx.forEach(m=>{metric[m.code]=(metric[m.code]||0)+m.valorTotal;});
-    metric=Object.entries(metric).map(([k,v])=>{const p=findProduct(k); return {nome:(p?p.desc:k)+' ('+k+')',valor:v};});
+    metric=Object.entries(metric).map(([k,v])=>{const p=relProd(k); return {nome:(p?p.desc:k)+' ('+k+')',valor:v};});
   }
   metric.sort((a,b)=>b.valor-a.valor);
   const tot=metric.reduce((s,x)=>s+x.valor,0)||1; let acc=0; const cnt={A:0,B:0,C:0}, valc={A:0,B:0,C:0};
