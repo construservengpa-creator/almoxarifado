@@ -416,7 +416,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-03T00:00:00-03:00';
+const APP_VERSION='2026-10-03T01:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -2482,6 +2482,91 @@ async function _separarItem(id){
   drawSeparacaoList(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshMinhasBadge(); refreshRetiradasBadge(); refreshGlobalAlerts();
 }
 
+/* ===== ENTREGA PARCIAL NO BALCÃO =====
+   Retirada no balcão em mais de uma vez: cada entrega registra quem retirou e quais itens/quantidades levou
+   (retiradas_internas.itens) e soma em requisicao_itens_status.quantidade_entregue. A requisição só vira
+   "retirado" quando tudo o que foi solicitado já foi entregue; até lá continua na etapa em que está e o saldo
+   pendente segue em "Aguardando Retirada". Gravação atômica pelas funções registrar_entrega_balcao /
+   estornar_entrega_balcao (script ENTREGA_SQL — rodar uma vez no Supabase). Sem o script, vale o fluxo antigo. */
+const ENTREGA_SQL="-- Entrega parcial no balcão (retirada no balcão em mais de uma vez)\n-- Rodar uma vez no Supabase (SQL Editor) do projeto Estoque. Pode rodar de novo sem problema.\n\nalter table public.requisicao_itens_status add column if not exists quantidade_entregue numeric not null default 0;\nalter table public.retiradas_internas add column if not exists itens jsonb;\nalter table public.retiradas_internas add column if not exists parcial boolean not null default false;\nalter table public.retiradas_internas add column if not exists status_anterior text;\n\n-- Registra uma entrega no balcão (total ou parcial) de uma vez só: soma o entregue em cada item,\n-- grava quem retirou e, se tudo o que foi solicitado já foi entregue, encerra a requisição como \"retirado\".\ncreate or replace function public.registrar_entrega_balcao(\n  p_requisicao_id bigint, p_colaborador text, p_documento text, p_observacao text,\n  p_registrado_por_nome text, p_itens jsonb, p_tipo_envio text default null)\nreturns jsonb language plpgsql security invoker set search_path = public as $$\ndeclare\n  v_req record; v_el jsonb; v_row record; v_q numeric; v_lista jsonb := '[]'::jsonb;\n  v_falta integer; v_final boolean; v_tipo text;\nbegin\n  if coalesce(btrim(p_colaborador),'') = '' then raise exception 'Informe o colaborador que retirou.'; end if;\n  select * into v_req from requisicoes where id = p_requisicao_id for update;\n  if not found then raise exception 'Requisição não encontrada.'; end if;\n  if v_req.status not in ('em_separacao','aguardando_compra','separado','romaneio_emitido','embalado','faturado') then\n    raise exception 'A requisição está em \"%\" e não aceita entrega no balcão.', v_req.status; end if;\n  v_tipo := coalesce(v_req.tipo_envio, p_tipo_envio);\n  if v_tipo is null or v_tipo not in ('interna','aplicacao_direta') then\n    raise exception 'Entrega parcial só vale para retirada no balcão.'; end if;\n  if p_itens is null or jsonb_typeof(p_itens) <> 'array' then raise exception 'Nenhum item informado.'; end if;\n\n  for v_el in select * from jsonb_array_elements(p_itens) loop\n    v_q := nullif(v_el->>'quantidade','')::numeric;\n    if v_q is null or v_q <= 0 then continue; end if;\n    select * into v_row from requisicao_itens_status\n      where requisicao_id = p_requisicao_id and id::text = (v_el->>'id') for update;\n    if not found then raise exception 'Item não pertence a esta requisição.'; end if;\n    if v_q > coalesce(v_row.quantidade_separada,0) - coalesce(v_row.quantidade_entregue,0) + 0.0001 then\n      raise exception 'Quantidade maior que o separado ainda não entregue: %', v_row.descricao; end if;\n    update requisicao_itens_status set quantidade_entregue = coalesce(quantidade_entregue,0) + v_q\n      where requisicao_id = p_requisicao_id and id::text = (v_el->>'id');\n    v_lista := v_lista || jsonb_build_array(jsonb_build_object(\n      'id', v_el->>'id', 'code', v_row.code, 'descricao', v_row.descricao, 'unidade', v_row.unidade, 'quantidade', v_q));\n  end loop;\n  if jsonb_array_length(v_lista) = 0 then raise exception 'Informe a quantidade de pelo menos um item.'; end if;\n\n  select count(*) into v_falta from requisicao_itens_status\n    where requisicao_id = p_requisicao_id\n      and coalesce(quantidade_entregue,0) < coalesce(quantidade_solicitada,0) - 0.0001;\n  v_final := (v_falta = 0);\n\n  insert into retiradas_internas (requisicao_id, colaborador_nome, colaborador_documento, registrado_por,\n      registrado_por_nome, observacao, itens, parcial, status_anterior)\n    values (p_requisicao_id, btrim(p_colaborador), nullif(btrim(coalesce(p_documento,'')),''), auth.uid(),\n      p_registrado_por_nome, nullif(btrim(coalesce(p_observacao,'')),''), v_lista, not v_final, v_req.status);\n\n  if v_req.tipo_envio is null then update requisicoes set tipo_envio = v_tipo where id = p_requisicao_id; end if;\n  if v_final then update requisicoes set status = 'retirado' where id = p_requisicao_id; end if;\n  return jsonb_build_object('final', v_final, 'itens', jsonb_array_length(v_lista));\nend $$;\n\n-- Desfaz a entrega mais recente de uma requisição: devolve as quantidades para \"aguardando retirada\"\n-- e, se a requisição tinha sido encerrada por essa entrega, volta para a etapa em que estava.\ncreate or replace function public.estornar_entrega_balcao(p_retirada_id text)\nreturns jsonb language plpgsql security invoker set search_path = public as $$\ndeclare v_ret record; v_req record; v_el jsonb;\nbegin\n  select * into v_ret from retiradas_internas where id::text = p_retirada_id for update;\n  if not found then raise exception 'Entrega não encontrada.'; end if;\n  if v_ret.itens is null or jsonb_typeof(v_ret.itens) <> 'array' then\n    raise exception 'Esta retirada é anterior à entrega parcial e não tem itens registrados.'; end if;\n  if exists (select 1 from retiradas_internas where requisicao_id = v_ret.requisicao_id and id > v_ret.id) then\n    raise exception 'Só é possível desfazer a entrega mais recente da requisição.'; end if;\n  select * into v_req from requisicoes where id = v_ret.requisicao_id for update;\n  for v_el in select * from jsonb_array_elements(v_ret.itens) loop\n    update requisicao_itens_status\n      set quantidade_entregue = greatest(coalesce(quantidade_entregue,0) - coalesce(nullif(v_el->>'quantidade','')::numeric,0), 0)\n      where requisicao_id = v_ret.requisicao_id and id::text = (v_el->>'id');\n  end loop;\n  if v_req.status = 'retirado' then\n    update requisicoes set status = coalesce(v_ret.status_anterior,'faturado') where id = v_req.id; end if;\n  delete from retiradas_internas where id::text = p_retirada_id;\n  return jsonb_build_object('ok', true);\nend $$;\n\ngrant execute on function public.registrar_entrega_balcao(bigint,text,text,text,text,jsonb,text) to authenticated;\ngrant execute on function public.estornar_entrega_balcao(text) to authenticated;\n";
+let _entParcialOk=null, _entSalvando=false;
+async function checkEntregaParcial(){ try{ const {error}=await sb.from('requisicao_itens_status').select('quantidade_entregue').limit(1); _entParcialOk=!error; }catch(e){ _entParcialOk=false; } return _entParcialOk; }
+function qEntregue(i){ return Number(i&&i.quantidade_entregue)||0; }
+function pendEntrega(i){ return Math.max((Number(i&&i.quantidade_separada)||0)-qEntregue(i),0); }
+const ENT_STATUS=['em_separacao','aguardando_compra','separado','romaneio_emitido','embalado','faturado'];
+function copiarEntregaSQL(){ navigator.clipboard.writeText(ENTREGA_SQL).then(()=>toast('Script copiado.','ok'),()=>toast('Não foi possível copiar — use o arquivo entrega_parcial.sql.','err')); }
+function entregaHistHTML(){ const {rets}=window._expedCtx; const lst=(rets||[]).filter(x=>Array.isArray(x.itens)&&x.itens.length); if(!lst.length)return '';
+  const ultId=String(rets[0].id);
+  return `<div style="margin-top:12px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#8a8377;font-weight:600;margin-bottom:6px">Entregas já registradas</div>${lst.map(x=>`<div class="panel" style="margin-bottom:8px;padding:10px 14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><b style="font-size:13px">${esc(x.colaborador_nome||'—')}</b><span class="pill ${x.parcial?'high':'good'}">${x.parcial?'Entrega parcial':'Entrega final'}</span></div>
+      <div class="muted" style="font-size:11.5px">${x.data_retirada?fmtDate(new Date(x.data_retirada).getTime()):''}${x.registrado_por_nome?' · registrado por '+esc(x.registrado_por_nome):''}${x.colaborador_documento?' · doc. '+esc(x.colaborador_documento):''}</div>
+      <ul style="margin:6px 0 0;padding-left:18px;font-size:12.5px">${x.itens.map(it=>`<li>${esc(it.descricao||it.code||'')} — ${numf(it.quantidade)} ${esc(it.unidade||'')}</li>`).join('')}</ul>
+      ${x.observacao?`<div class="muted" style="font-size:11.5px;margin-top:4px">Obs.: ${esc(x.observacao)}</div>`:''}
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn ghost sm" onclick="imprimirComprovanteEntrega('${esc(String(x.id))}')">🖨 Comprovante</button>${String(x.id)===ultId&&podeOperarRetiradas()?`<button class="btn danger sm" onclick="estornarEntregaBalcao('${esc(String(x.id))}')">Desfazer entrega</button>`:''}</div></div>`).join('')}</div>`; }
+function entregaBalcaoHTML(){ const {r,itens,parcialOk}=window._expedCtx;
+  if(r.tipo_envio==='despacho')return '';
+  const aberta=ENT_STATUS.includes(r.status);
+  if(!parcialOk){ return (aberta&&isAdmin())?`<div class="panel" style="margin-top:16px;border-left:4px solid #c98a1a;padding:12px 14px"><b style="font-size:13px">🤝 Entrega parcial no balcão — falta atualizar o banco</b>
+      <p class="desc" style="margin:4px 0 8px">Copie o script e rode uma vez no <b>SQL Editor</b> do Supabase (projeto Estoque). Depois reabra esta tela. Enquanto isso vale o fluxo atual (entrega única no final).</p>
+      <button class="btn primary sm" onclick="copiarEntregaSQL()">Copiar script SQL</button></div>`:''; }
+  const hist=entregaHistHTML();
+  if(!aberta) return hist?`<div class="sechead" style="margin-top:16px"><h3 style="font-size:13px">🤝 Entregas no balcão</h3></div>${hist}`:'';
+  const pend=itens.filter(i=>pendEntrega(i)>0.0001);
+  if(!pend.length&&!hist)return '';
+  let h=`<div class="sechead" style="margin-top:16px"><h3 style="font-size:13px">🤝 Entrega no balcão</h3></div>`;
+  if(pend.length&&podeOperarRetiradas()){
+    h+=`<p class="mp" style="font-size:12px;margin-bottom:8px">Informe o que está sendo entregue <b>agora</b>. O que não for entregue continua aguardando retirada; quando tudo o que foi solicitado tiver sido entregue, a requisição é encerrada.</p>
+    <div class="tbl-wrap" style="margin-bottom:8px"><table><thead><tr><th>Item</th><th class="num">Separado</th><th class="num">Já entregue</th><th class="num">Entregar agora</th></tr></thead><tbody>${
+      itens.map(i=>{ const p=pendEntrega(i); const faltaSep=(Number(i.quantidade_solicitada)||0)-(Number(i.quantidade_separada)||0);
+        return `<tr><td>${esc(i.descricao)}${faltaSep>0.0001?`<div class="muted" style="font-size:10.5px">solicitado ${numf(i.quantidade_solicitada)} · falta separar ${numf(faltaSep)}</div>`:''}</td><td class="num">${numf(i.quantidade_separada)}</td><td class="num">${numf(qEntregue(i))}</td>
+          <td class="num">${p>0.0001?`<input id="epQ_${i.id}" class="ep-q" data-max="${p}" type="number" step="any" min="0" max="${p}" value="${p}" style="width:84px;text-align:right;padding:6px 8px">`:(faltaSep>0.0001?'<span class="muted" style="font-size:11px">aguardando</span>':'✓')}</td></tr>`; }).join('')
+    }</tbody></table></div>
+    <div style="display:flex;gap:6px;margin-bottom:12px"><button class="btn ghost sm" onclick="entregaPreencher(true)">Entregar tudo o que está separado</button><button class="btn ghost sm" onclick="entregaPreencher(false)">Zerar</button></div>
+    ${!r.tipo_envio?`<div class="field"><label>Tipo de retirada</label><select id="epTipo"><option value="interna">Tramitação interna (retirada no balcão)</option><option value="aplicacao_direta">Retirada no balcão — compra p/ aplicação direta</option></select></div>`:''}
+    <div class="row c2"><div class="field"><label>Colaborador que retirou</label><input id="epColab"></div><div class="field"><label>Documento (opcional)</label><input id="epDoc"></div></div>
+    <div class="field"><label>Observação</label><input id="epObs"></div>
+    <button class="btn primary sm" id="epOk" onclick="registrarEntregaBalcao(${r.id})">Registrar entrega</button>`;
+  }
+  return h+hist; }
+function entregaPreencher(tudo){ document.querySelectorAll('#modalRoot input.ep-q').forEach(el=>{ el.value=tudo?el.dataset.max:0; }); }
+function entregaRefreshTelas(){ try{ drawExpedicaoList(); refreshExpedBadge(); refreshRetiradasBadge(); drawSeparacaoList(); refreshSeparacaoBadge(); drawRetiradaPendente(); refreshMinhasBadge(); refreshGlobalAlerts(); }catch(e){ console.warn(e); } }
+async function registrarEntregaBalcao(reqId){ if(_entSalvando)return;
+  if(!podeOperarRetiradas()){ toast('Sem permissão para registrar entrega.','err'); return; }
+  const {r,itens}=window._expedCtx; const lista=[]; let erro='';
+  itens.forEach(i=>{ const el=document.getElementById('epQ_'+i.id); if(!el||erro)return; const v=String(el.value).trim()===''?0:parseFloat(el.value);
+    if(isNaN(v)||v<0){ erro='Quantidade inválida em: '+i.descricao; return; }
+    if(v>pendEntrega(i)+0.0001){ erro='Quantidade maior que o separado ainda não entregue em: '+i.descricao; return; }
+    if(v>0)lista.push({id:String(i.id),quantidade:v}); });
+  if(erro){ toast(erro,'err'); return; }
+  if(!lista.length){ toast('Informe a quantidade de pelo menos um item.','err'); return; }
+  const colab=$('#epColab').value.trim(); if(!colab){ toast('Informe o colaborador que retirou.','err'); $('#epColab').focus(); return; }
+  const tipo=r.tipo_envio||($('#epTipo')?$('#epTipo').value:'');
+  if(!ehBalcao(tipo)){ toast('Entrega parcial só vale para retirada no balcão.','err'); return; }
+  _entSalvando=true; const b=$('#epOk'); if(b){ b.disabled=true; b.textContent='Registrando...'; }
+  let fim=false;
+  try{
+    const {data,error}=await sb.rpc('registrar_entrega_balcao',{p_requisicao_id:reqId,p_colaborador:colab,p_documento:$('#epDoc').value.trim()||null,p_observacao:$('#epObs').value.trim()||null,p_registrado_por_nome:profile.nome||profile.email,p_itens:lista,p_tipo_envio:r.tipo_envio?null:tipo});
+    if(error){ toast('Erro ao registrar a entrega: '+error.message,'err'); return; }
+    fim=!!(data&&data.final);
+    try{ await sb.rpc('log_event',{p_acao:fim?'entrega_balcao_final':'entrega_balcao_parcial',p_entidade:'requisicoes',p_entidade_id:String(reqId)}); }catch(e){}
+  } finally { _entSalvando=false; const b2=$('#epOk'); if(b2){ b2.disabled=false; b2.textContent='Registrar entrega'; } }
+  toast(fim?'Entrega registrada — requisição encerrada (tudo retirado).':'Entrega parcial registrada — o restante continua aguardando retirada.','ok');
+  await abrirExpedicao(reqId); entregaRefreshTelas(); }
+function estornarEntregaBalcao(retId){ const {r}=window._expedCtx;
+  requireSupervisor('Desfazer a última entrega no balcão da REQ-'+String(r.id).padStart(5,'0')+' (os itens voltam a aguardar retirada)',async()=>{
+    const {error}=await sb.rpc('estornar_entrega_balcao',{p_retirada_id:String(retId)});
+    if(error){ toast('Erro ao desfazer a entrega: '+error.message,'err'); return; }
+    try{ await sb.rpc('log_event',{p_acao:'entrega_balcao_estornada',p_entidade:'requisicoes',p_entidade_id:String(r.id)}); }catch(e){}
+    toast('Entrega desfeita — os itens voltaram a aguardar retirada.','warn');
+    await abrirExpedicao(r.id); entregaRefreshTelas(); }); }
+function imprimirComprovanteEntrega(retId){ const {r,rets}=window._expedCtx; const x=(rets||[]).find(y=>String(y.id)===String(retId)); if(!x||!Array.isArray(x.itens))return;
+  const reqN='REQ-'+String(r.id).padStart(5,'0');
+  printSignReport({titulo:'Comprovante de Entrega no Balcão',numero:reqN,subtitulo:x.parcial?'Entrega parcial — o restante da requisição continua pendente':'Entrega final da requisição',
+    data:x.data_retirada?fmtDate(new Date(x.data_retirada).getTime()):fmtDate(Date.now()),obra:r.obra_nome||'',aplicacao:r.aplicacao_nome||'',
+    doc:reqN+(r.ordem_servico?' · OS '+r.ordem_servico:'')+(r.tipo_envio?' · '+envioTipoLabel(r.tipo_envio).replace(/^\S+\s/,''):''),responsavel:x.registrado_por_nome||'',obs:x.observacao||'',
+    itens:x.itens.map(it=>{ const p=findProduct(it.code); return {code:it.code,aux:p?p.aux:'',desc:it.descricao||(p?p.desc:''),qty:Number(it.quantidade)||0,unit:it.unidade||(p?p.unit:''),valor:p?(p.custo||0):0}; }),
+    assinaturas:['Almoxarifado','Recebido por: '+(x.colaborador_nome||'')+(x.colaborador_documento?' ('+x.colaborador_documento+')':'')]}); }
+
 /* ===== EXPEDIÇÃO (embalagem, romaneio, NF, etiquetas de volume, envio) ===== */
 const EXPED_STAGES=['Separado','Romaneio','Embalado','Nota Fiscal','Etiquetas','Envio'];
 function caixaStatusLabel(s){ return {em_montagem:'Em montagem',fechada:'Fechada',etiquetada:'Etiquetada',embarcada:'Embarcada',recebida:'Recebida'}[s]||s; }
@@ -2526,13 +2611,16 @@ async function abrirExpedicao(reqId){
   const {data:itensCaixaAll}=caixaIds.length?await sb.from('itens_caixa').select('*').in('caixa_id',caixaIds):{data:[]};
   const {data:nfRows}=await sb.from('notas_fiscais_saida').select('*').eq('requisicao_id',reqId).order('id',{ascending:false}).limit(1);
   const {data:embRows}=await sb.from('embarques').select('*').eq('requisicao_id',reqId).order('id',{ascending:false}).limit(1);
-  const {data:retRows}=await sb.from('retiradas_internas').select('*').eq('requisicao_id',reqId).order('id',{ascending:false}).limit(1);
-  window._expedCtx={r,itens:itens||[],caixas:caixas||[],itensCaixa:itensCaixaAll||[],nf:(nfRows&&nfRows[0])||null,emb:(embRows&&embRows[0])||null,ret:(retRows&&retRows[0])||null};
+  const {data:retRows}=await sb.from('retiradas_internas').select('*').eq('requisicao_id',reqId).order('id',{ascending:false}).limit(100);
+  const parcialOk=(itens&&itens.length)?('quantidade_entregue' in itens[0]):!!_entParcialOk; if(parcialOk)_entParcialOk=true;
+  window._expedCtx={r,itens:itens||[],caixas:caixas||[],itensCaixa:itensCaixaAll||[],nf:(nfRows&&nfRows[0])||null,emb:(embRows&&embRows[0])||null,ret:(retRows&&retRows[0])||null,rets:retRows||[],parcialOk};
   renderExpedModal();
 }
 function renderExpedModal(){
-  const {r,itens,caixas,itensCaixa,nf,emb,ret}=window._expedCtx;
-  const restante=itens.filter(i=>i.quantidade_separada-i.quantidade_embalada>0.0001);
+  const {r,itens,caixas,itensCaixa,nf,emb,ret,parcialOk}=window._expedCtx;
+  /* o que já foi entregue no balcão não precisa mais ser embalado */
+  const faltaEmb=i=>(Number(i.quantidade_separada)||0)-Math.max(Number(i.quantidade_embalada)||0,parcialOk?qEntregue(i):0);
+  const restante=itens.filter(i=>faltaEmb(i)>0.0001);
   let html=`<h3>Expedição — REQ-${String(r.id).padStart(5,'0')}</h3>
     <p class="mp">${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}${r.aplicacao_nome?' · '+esc(r.aplicacao_nome):''}${r.tipo_envio?' · '+envioTipoLabel(r.tipo_envio):''}</p>
     ${expedStepperHTML(r,caixas)}${r.mutuo_empresa_destino?`<div style="text-align:right;margin:6px 0 4px"><button class="btn ghost sm" onclick="imprimirRomaneioMutuo(${r.id})">🖨 Romaneio do mútuo</button></div>`:''}`;
@@ -2544,7 +2632,7 @@ function renderExpedModal(){
     html+=`<div class="sechead" style="margin-top:16px"><h3 style="font-size:13px">📦 Embalagem</h3></div>`;
     if(restante.length){
       html+=`<div class="tbl-wrap" style="margin-bottom:10px"><table><thead><tr><th>Item</th><th class="num">Separado</th><th class="num">Embalado</th><th class="num">Falta embalar</th></tr></thead><tbody>${
-        restante.map(i=>`<tr><td>${esc(i.descricao)}</td><td class="num">${numf(i.quantidade_separada)}</td><td class="num">${numf(i.quantidade_embalada)}</td><td class="num">${numf(i.quantidade_separada-i.quantidade_embalada)}</td></tr>`).join('')
+        restante.map(i=>`<tr><td>${esc(i.descricao)}</td><td class="num">${numf(i.quantidade_separada)}</td><td class="num">${numf(i.quantidade_embalada)}</td><td class="num">${numf(faltaEmb(i))}</td></tr>`).join('')
       }</tbody></table></div>`;
     }
     html+=caixas.map(c=>{ const itsC=itensCaixa.filter(ic=>ic.caixa_id===c.id); const vazia=!itsC.length;
@@ -2552,7 +2640,7 @@ function renderExpedModal(){
         <div style="display:flex;justify-content:space-between;align-items:center"><b>${esc(c.codigo)}</b><span class="pill ${c.status}">${caixaStatusLabel(c.status)}</span></div>
         ${itsC.length?`<ul style="margin:6px 0 0;padding-left:18px;font-size:12.5px">${itsC.map(ic=>`<li>${esc(ic.descricao)} — ${numf(ic.quantidade)}</li>`).join('')}</ul>`:'<p class="muted" style="font-size:12px;margin:6px 0 0">Vazia</p>'}
         ${c.status==='em_montagem'?`<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
-            <select id="ecItem_${c.id}" style="flex:1;min-width:140px">${restante.length?restante.map(i=>`<option value="${i.id}">${esc(i.descricao)} (falta ${numf(i.quantidade_separada-i.quantidade_embalada)})</option>`).join(''):'<option value="">— nada disponível —</option>'}</select>
+            <select id="ecItem_${c.id}" style="flex:1;min-width:140px">${restante.length?restante.map(i=>`<option value="${i.id}">${esc(i.descricao)} (falta ${numf(faltaEmb(i))})</option>`).join(''):'<option value="">— nada disponível —</option>'}</select>
             <input id="ecQtd_${c.id}" type="number" step="any" placeholder="Qtd" style="width:80px">
             <button class="btn ghost sm" onclick="adicionarItemCaixa(${c.id})">+ Add</button>
             <button class="btn primary sm" onclick="fecharCaixa(${c.id})">Fechar caixa</button>
@@ -2583,7 +2671,7 @@ function renderExpedModal(){
   }
 
   const todasEtiquetadas=caixas.length>0 && caixas.every(c=>c.status!=='em_montagem'&&c.status!=='fechada');
-  if(r.status==='faturado' && todasEtiquetadas){
+  if(r.status==='faturado' && todasEtiquetadas && !(parcialOk&&ehBalcao(r.tipo_envio))){ /* no balcão, com a entrega parcial instalada, a entrega é feita pela seção "Entrega no balcão" abaixo */
     html+=`<div class="sechead" style="margin-top:16px"><h3 style="font-size:13px">🚚 Informar envio — ${ehBalcao(r.tipo_envio)?envioTipoLabel(r.tipo_envio).replace(/^\S+\s/,''):'Despacho (transportadora)'}</h3></div>
     <input type="hidden" id="envioTipoFixo" value="${r.tipo_envio||'despacho'}">
     ${ehBalcao(r.tipo_envio)?`<div class="row c2"><div class="field"><label>Colaborador que retirou</label><input id="envColab"></div><div class="field"><label>Documento (opcional)</label><input id="envColabDoc"></div></div>`
@@ -2596,6 +2684,7 @@ function renderExpedModal(){
     html+=`<div class="sechead" style="margin-top:16px"><h3 style="font-size:13px">🚚 Envio — Retirada no balcão</h3></div><p class="mp" style="font-size:12.5px">Retirado por ${esc(ret.colaborador_nome)} em ${fmtDate(new Date(ret.data_retirada).getTime())}</p>`;
   }
 
+  html+=entregaBalcaoHTML();
   html+=`<div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn ghost" onclick="closeModal()">Fechar</button></div>`;
   modal(html);
 }
@@ -2608,7 +2697,13 @@ function voltarEtapa(reqId){
       const {nf}=window._expedCtx; if(nf) await sb.from('notas_fiscais_saida').update({status:'cancelada'}).eq('id',nf.id);
       const etiquetadas=caixas.filter(c=>c.status==='etiquetada'); if(etiquetadas.length) await sb.from('caixas').update({status:'fechada'}).in('id',etiquetadas.map(c=>c.id));
     } else if(r.status==='embarcado'){ const {emb}=window._expedCtx; if(emb) await sb.from('embarques').delete().eq('id',emb.id); }
-    else if(r.status==='retirado'){ const {ret}=window._expedCtx; if(ret) await sb.from('retiradas_internas').delete().eq('id',ret.id); }
+    else if(r.status==='retirado'){ const {ret}=window._expedCtx;
+      if(ret&&Array.isArray(ret.itens)&&ret.itens.length){ /* entrega registrada com itens: desfaz pela função do banco (devolve as quantidades e a etapa anterior) */
+        const {error:eE}=await sb.rpc('estornar_entrega_balcao',{p_retirada_id:String(ret.id)});
+        if(eE){ toast('Erro: '+eE.message,'err'); return; }
+        toast('Última entrega desfeita — os itens voltaram a aguardar retirada.','warn');
+        await abrirExpedicao(reqId); entregaRefreshTelas(); return; }
+      if(ret) await sb.from('retiradas_internas').delete().eq('id',ret.id); }
     else if(r.status==='embalado'){
       const fechadas=caixas.filter(c=>c.status==='fechada'); if(fechadas.length) await sb.from('caixas').update({status:'em_montagem',data_fechamento:null}).in('id',fechadas.map(c=>c.id));
     }
@@ -2739,9 +2834,9 @@ function fetchItensAguardandoRetirada(itemCols,reqCols){
     .order('atualizado_em',{ascending:true}).order('id',{ascending:true})); }
 let _retiradasFiltro='';
 async function refreshRetiradasBadge(){ if(!podeVerRetiradas())return; const b=$('#navBadgeRetiradas'); if(!b)return;
-  const {data,error}=await fetchItensAguardandoRetirada('requisicao_id','status');
+  const {data,error}=await fetchItensAguardandoRetirada(_entParcialOk?'requisicao_id,quantidade_separada,quantidade_entregue':'requisicao_id','status');
   if(error)return;
-  const reqIds=new Set((data||[]).filter(i=>i.requisicoes&&STATUS_AINDA_NAO_SAIU.includes(i.requisicoes.status)).map(i=>i.requisicao_id));
+  const reqIds=new Set((data||[]).filter(i=>i.requisicoes&&STATUS_AINDA_NAO_SAIU.includes(i.requisicoes.status)&&(!_entParcialOk||pendEntrega(i)>0.0001)).map(i=>i.requisicao_id));
   const count=reqIds.size;
   if(count){b.textContent=count;b.style.display='';}else b.style.display='none'; refreshFluxoGroupBadge(); }
 function diasParado(ts){ return Math.max(0,Math.floor((Date.now()-ts)/86400000)); }
@@ -2765,7 +2860,8 @@ async function renderRetiradaPendente(){
 async function drawRetiradaPendente(){ const box=$('#retList'); if(!box)return;
   const {data,error}=await fetchItensAguardandoRetirada('*','id,obra_nome,ordem_servico,status,tipo_envio,criado_em');
   if(error){box.innerHTML='<div class="tbl-wrap"><div class="empty">Erro: '+esc(error.message)+'</div></div>';return;}
-  const itens=(data||[]).filter(i=>i.requisicoes&&STATUS_AINDA_NAO_SAIU.includes(i.requisicoes.status));
+  const itens=(data||[]).filter(i=>i.requisicoes&&STATUS_AINDA_NAO_SAIU.includes(i.requisicoes.status)&&pendEntrega(i)>0.0001); /* só o que ainda não foi entregue */
+  const comEntrega=new Set((data||[]).filter(i=>qEntregue(i)>0).map(i=>String(i.requisicao_id)));
   const grupos={};
   itens.forEach(i=>{ const r=i.requisicoes; if(!grupos[r.id])grupos[r.id]={r,itens:[],maisAntigo:i.atualizado_em}; grupos[r.id].itens.push(i);
     if(new Date(i.atualizado_em).getTime()<new Date(grupos[r.id].maisAntigo).getTime())grupos[r.id].maisAntigo=i.atualizado_em; });
@@ -2781,9 +2877,10 @@ async function drawRetiradaPendente(){ const box=$('#retList'); if(!box)return;
       <div class="sechead" style="margin-bottom:6px;flex-wrap:wrap;gap:8px"><h3 style="font-size:14px">REQ-${String(r.id).padStart(5,'0')} — ${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</h3>
         <span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>
         <span class="pill ${corEnvio}">${envioTipoLabel(r.tipo_envio)}</span>
-        <span class="pill ${corDias}">${dias===0?'separado hoje':dias===1?'separado há 1 dia':'separado há '+dias+' dias'}</span></div>
-      <div class="tbl-wrap"><table><thead><tr><th>Item</th><th class="num">Qtd. separada</th></tr></thead><tbody>${
-        g.itens.map(i=>`<tr><td>${esc(i.descricao)}</td><td class="num">${numf(i.quantidade_separada)} ${esc(i.unidade||'')}</td></tr>`).join('')
+        <span class="pill ${corDias}">${dias===0?'separado hoje':dias===1?'separado há 1 dia':'separado há '+dias+' dias'}</span>
+        ${comEntrega.has(String(r.id))?'<span class="pill high">entrega parcial feita</span>':''}</div>
+      <div class="tbl-wrap"><table><thead><tr><th>Item</th><th class="num">Aguardando retirada</th></tr></thead><tbody>${
+        g.itens.map(i=>`<tr><td>${esc(i.descricao)}${qEntregue(i)>0?`<div class="muted" style="font-size:10.5px">já entregue: ${numf(qEntregue(i))} de ${numf(i.quantidade_separada)} separado(s)</div>`:''}</td><td class="num">${numf(pendEntrega(i))} ${esc(i.unidade||'')}</td></tr>`).join('')
       }</tbody></table></div></div>`; }).join('');
 }
 
@@ -2870,7 +2967,7 @@ async function drawNotifSeparacao(){ const box=$('#notifSep'); if(!box)return;
 async function drawNotifRetirada(){ const box=$('#notifRet'); if(!box)return;
   const {data,error}=await fetchItensAguardandoRetirada('*','id,obra_nome,ordem_servico,status,tipo_envio,criado_em,aplicacao_nome');
   if(error){ box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>'; return; }
-  const itens=(data||[]).filter(i=>i.requisicoes&&STATUS_AINDA_NAO_SAIU.includes(i.requisicoes.status));
+  const itens=(data||[]).filter(i=>i.requisicoes&&STATUS_AINDA_NAO_SAIU.includes(i.requisicoes.status)&&pendEntrega(i)>0.0001); /* só o que ainda não foi entregue */
   const grupos={}; itens.forEach(i=>{ const r=i.requisicoes; if(!grupos[r.id])grupos[r.id]={r,itens:[]}; grupos[r.id].itens.push(i); });
   const lista=Object.values(grupos);
   const novos=lista.filter(g=>!_notifRetKnown.has(g.r.id));
@@ -2880,7 +2977,7 @@ async function drawNotifRetirada(){ const box=$('#notifRet'); if(!box)return;
     return `<div class="panel ${isNew?'notif-new':''}" style="margin-bottom:10px;${podeVerRetiradas()?'cursor:pointer':''}" ${podeVerRetiradas()?`onclick="go('retiradas')"`:''}>
       <div class="sechead" style="margin-bottom:2px;flex-wrap:wrap;gap:6px"><h3 style="font-size:14px">REQ-${String(r.id).padStart(5,'0')} — ${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</h3><span>${envioTipoLabel(r.tipo_envio)}</span></div>
       ${r.aplicacao_nome?`<div class="notif-aplic" style="font-size:12px;font-weight:600;margin:1px 0 3px">🎯 ${esc(r.aplicacao_nome)}</div>`:''}
-      <div class="muted" style="font-size:12px">${g.itens.map(i=>esc(i.descricao)+' ('+numf(i.quantidade_separada)+' '+esc(i.unidade||'')+')').join(', ')}</div>
+      <div class="muted" style="font-size:12px">${g.itens.map(i=>esc(i.descricao)+' ('+numf(pendEntrega(i))+' '+esc(i.unidade||'')+')').join(', ')}</div>
     </div>`; };
   const normais=lista.filter(g=>g.r.tipo_envio!=='aplicacao_direta'), apd=lista.filter(g=>g.r.tipo_envio==='aplicacao_direta');
   box.innerHTML=normais.length?normais.map(cardRet).join(''):'<div class="tbl-wrap"><div class="empty">Nada aguardando retirada.</div></div>';
@@ -3927,7 +4024,7 @@ function onAuthReady(){
   const p=(async()=>{
     profile=await loadProfile();
     if(!profile||!profile.ativo){ showPending(); return; }
-    hideGate(); applyRoleNav(); initNavGrps(); const pDev=refreshDevolucoesBloqueio().catch(()=>{}); await load(); await pDev; loadPhotos().then(()=>refreshTelaAtual()); loadReposAbertas().then(()=>refreshTelaAtual()); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); refreshRetiradasBadge(); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge();
+    hideGate(); applyRoleNav(); initNavGrps(); const pDev=refreshDevolucoesBloqueio().catch(()=>{}); await load(); await pDev; loadPhotos().then(()=>refreshTelaAtual()); loadReposAbertas().then(()=>refreshTelaAtual()); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); checkEntregaParcial().then(()=>refreshRetiradasBadge()); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge();
     _bootedUid=uid; go(abaInicial());
     if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); startVersionWatch(); }
   })();
@@ -4096,7 +4193,7 @@ async function drawRelARetirar(){ if(_relRetModo==='atendidas')return drawRelAte
   const osf=($('#relOSTxt')?$('#relOSTxt').value:'').toLowerCase().trim();
   const lf=$('#relLocal')?$('#relLocal').value:'';
   relIdxOn();
-  let itens=(data||[]).filter(i=>i.requisicoes&&STATUS_AINDA_NAO_SAIU.includes(i.requisicoes.status));
+  let itens=(data||[]).filter(i=>i.requisicoes&&STATUS_AINDA_NAO_SAIU.includes(i.requisicoes.status)&&pendEntrega(i)>0.0001);
   if(!isAll)itens=itens.filter(i=>i.requisicoes.obra_id===fobra||i.requisicoes.mutuo_estoque_obra_id===fobra);
   if(_relARetEnvio==='_indef')itens=itens.filter(i=>!i.requisicoes.tipo_envio); else if(_relARetEnvio)itens=itens.filter(i=>i.requisicoes.tipo_envio===_relARetEnvio);
   if(aef)itens=itens.filter(i=>i.requisicoes.aplicacao_id===aef); else if(aset)itens=itens.filter(i=>aset.has(i.requisicoes.aplicacao_id));
@@ -4106,7 +4203,7 @@ async function drawRelARetirar(){ if(_relRetModo==='atendidas')return drawRelAte
   if(pf)itens=itens.filter(i=>{ const p=relProd(i.code); return String(i.descricao||'').toLowerCase().includes(pf)||String(i.code).toLowerCase().includes(pf)||(p&&p.aux&&String(p.aux).toLowerCase().includes(pf)); });
   if(osf)itens=itens.filter(i=>String(i.requisicoes.ordem_servico||'').toLowerCase().includes(osf));
   const g={};
-  itens.forEach(i=>{ const r=i.requisicoes; const k=r.aplicacao_id||('__'+(r.aplicacao_nome||'sem')); const p=relProd(i.code); const vu=p?(p.custo||0):0; const q=Number(i.quantidade_separada)||0;
+  itens.forEach(i=>{ const r=i.requisicoes; const k=r.aplicacao_id||('__'+(r.aplicacao_nome||'sem')); const p=relProd(i.code); const vu=p?(p.custo||0):0; const q=pendEntrega(i);
     if(!g[k])g[k]={key:k,nome:r.aplicacao_nome||'(sem aplicação)',reqs:new Set(),itens:0,valor:0,det:[]};
     g[k].reqs.add(r.id); g[k].itens++; g[k].valor+=q*vu;
     g[k].det.push({req:'REQ-'+String(r.id).padStart(5,'0'),data:new Date(r.criado_em).getTime(),desc:i.descricao,qty:q,unit:i.unidade||(p?p.unit:''),valor:q*vu,os:r.ordem_servico||'',envio:envioTipoLabel(r.tipo_envio).replace(/^\S+\s/,''),obra:r.obra_nome}); });
@@ -4147,12 +4244,13 @@ async function drawRelAtendidas(){ const box=$('#relView'); if(!box)return;
   if(e1||e2){ box.innerHTML='<div class="empty" style="padding:24px">Erro: '+esc((e1||e2).message)+'</div>'; return; }
   const tsOf=(...v)=>{ for(const x of v){ if(x){ const n=new Date(x).getTime(); if(!isNaN(n))return n; } } return NaN; };
   /* saída mais recente de cada requisição dentro do período */
-  const saida={};
+  const saida={}; const parciais=[]; /* entregas no balcão registradas com itens (parciais ou finais): uma linha por entrega */
   (ret||[]).forEach(x=>{ const ts=tsOf(x.data_retirada,x.criado_em,x.created_at); if(!(ts>=f&&ts<=t))return;
+    if(Array.isArray(x.itens)&&x.itens.length){ parciais.push({reqId:String(x.requisicao_id),itens:x.itens,s:{ts,quem:x.colaborador_nome||'—',doc:x.colaborador_documento||'',registrou:x.registrado_por_nome||'',obs:x.observacao||'',modo:'retirada',parcial:!!x.parcial}}); return; }
     if(!saida[x.requisicao_id]||ts>saida[x.requisicao_id].ts) saida[x.requisicao_id]={ts,quem:x.colaborador_nome||'—',doc:x.colaborador_documento||'',registrou:x.registrado_por_nome||'',obs:x.observacao||'',modo:'retirada'}; });
   (emb||[]).forEach(x=>{ const ts=tsOf(x.data_embarque,x.criado_em,x.created_at); if(!(ts>=f&&ts<=t))return;
     if(!saida[x.requisicao_id]||ts>saida[x.requisicao_id].ts) saida[x.requisicao_id]={ts,quem:'Transportadora: '+(x.transportadora||'—'),doc:'',registrou:'',obs:x.observacoes||'',modo:'despacho'}; });
-  const ids=Object.keys(saida).map(Number).filter(n=>!isNaN(n));
+  const ids=[...new Set(Object.keys(saida).concat(parciais.map(p=>p.reqId)).map(Number))].filter(n=>!isNaN(n));
   let reqs=[], its=[];
   for(let i=0;i<ids.length;i+=150){ const ch=ids.slice(i,i+150);
     const [{data:rq,error:e3},{data:it,error:e4}]=await Promise.all([
@@ -4172,15 +4270,20 @@ async function drawRelAtendidas(){ const box=$('#relView'); if(!box)return;
   const osf=($('#relOSTxt')?$('#relOSTxt').value:'').toLowerCase().trim();
   const itPorReq={}; its.forEach(i=>{ (itPorReq[i.requisicao_id]=itPorReq[i.requisicao_id]||[]).push(i); });
   const itemOk=i=>{ if(gf&&produtoGrupo(i.code)!==gf)return false; if(lf&&produtoLocal(i.code)!==lf)return false; if(pf){ const p=relProd(i.code); if(!(String(i.descricao||'').toLowerCase().includes(pf)||String(i.code).toLowerCase().includes(pf)||(p&&p.aux&&String(p.aux).toLowerCase().includes(pf))))return false; } return true; };
-  let lista=reqs.filter(r=>STATUS_ATENDIDA.includes(r.status));
+  const novoReq=new Set(parciais.map(p=>p.reqId));
+  let lista=reqs.filter(r=>novoReq.has(String(r.id))||(STATUS_ATENDIDA.includes(r.status)&&saida[r.id]));
   if(!isAll)lista=lista.filter(r=>r.obra_id===fobra||r.mutuo_estoque_obra_id===fobra);
   if(_relARetEnvio==='_indef')lista=lista.filter(r=>!r.tipo_envio); else if(_relARetEnvio)lista=lista.filter(r=>r.tipo_envio===_relARetEnvio);
   if(aef)lista=lista.filter(r=>r.aplicacao_id===aef); else if(aset)lista=lista.filter(r=>aset.has(r.aplicacao_id));
   if(taf)lista=lista.filter(r=>{ const a=relAplicById(r.aplicacao_id); return a&&a.tipo===taf; });
   if(osf)lista=lista.filter(r=>String(r.ordem_servico||'').toLowerCase().includes(osf));
-  const arr=lista.map(r=>{ const s=saida[r.id]; const ap=relAplicById(r.aplicacao_id);
-      const itens=(itPorReq[r.id]||[]).filter(itemOk).map(i=>{ const p=relProd(i.code); const q=Number(i.quantidade_separada)||0; const vu=p?(p.custo||0):0; return {code:i.code,desc:i.descricao||(p?p.desc:''),qty:q,unit:i.unidade||(p?p.unit:''),valor:q*vu}; });
-      return {r,s,req:'REQ-'+String(r.id).padStart(5,'0'),aplic:r.aplicacao_nome||(ap?ap.nome:'')||'(sem aplicação)',tag:ap&&ap.tag?ap.tag:'',itens,valor:itens.reduce((t,i)=>t+i.valor,0)}; })
+  const mkSaida=(r,s,raw)=>{ const ap=relAplicById(r.aplicacao_id);
+      const itens=(raw||[]).filter(itemOk).map(i=>{ const p=relProd(i.code); const q=Number(i.quantidade_separada)||0; const vu=p?(p.custo||0):0; return {code:i.code,desc:i.descricao||(p?p.desc:''),qty:q,unit:i.unidade||(p?p.unit:''),valor:q*vu}; });
+      return {r,s,req:'REQ-'+String(r.id).padStart(5,'0')+(s.parcial?' (parcial)':''),aplic:r.aplicacao_nome||(ap?ap.nome:'')||'(sem aplicação)',tag:ap&&ap.tag?ap.tag:'',itens,valor:itens.reduce((t,i)=>t+i.valor,0)}; };
+  const arr0=[]; lista.forEach(r=>{ const k=String(r.id);
+      if(novoReq.has(k)) parciais.filter(p=>p.reqId===k).forEach(p=>arr0.push(mkSaida(r,p.s,p.itens.map(it=>({code:it.code,descricao:it.descricao,unidade:it.unidade,quantidade_separada:it.quantidade})))));
+      else arr0.push(mkSaida(r,saida[r.id],itPorReq[r.id])); });
+  const arr=arr0
     .filter(x=>!(gf||pf||lf)||x.itens.length)
     .sort((a,b)=>b.s.ts-a.s.ts);
   const totValor=arr.reduce((t,a)=>t+a.valor,0), totItens=arr.reduce((t,a)=>t+a.itens.length,0);
@@ -4191,7 +4294,7 @@ async function drawRelAtendidas(){ const box=$('#relView'); if(!box)return;
   _rel={titulo,sub,view:'atendidas',align:'llllllllrr',
     headers:['Data da saída','REQ','Aplicação','Obra','OS','Solicitante','Retirado por','Registrado por','Nº itens','Valor'],
     rows:arr.map(a=>[fmtDate(a.s.ts),a.req,a.aplic+(a.tag?' · '+a.tag:''),a.r.obra_nome||'',a.r.ordem_servico||'—',a.r.solicitante_nome||'—',quemTxt(a),a.s.registrou||'—',String(a.itens.length),money(a.valor)]),
-    foot:['Total',String(arr.length)+' req.','','','','','','',String(totItens),money(totValor)],
+    foot:['Total',String(arr.length)+' saída(s)','','','','','','',String(totItens),money(totValor)],
     detailHeaders:['Código','Item','Qtd','Valor'],detailAlign:'llrr',
     detail:arr.map(a=>a.itens.map(i=>[String(i.code),i.desc,numf(i.qty)+' '+(i.unit||''),money(i.valor)]))};
   const th='style="font-size:10.5px"', td='style="font-size:12.5px"';
@@ -4209,8 +4312,8 @@ async function drawRelAtendidas(){ const box=$('#relView'); if(!box)return;
         <tr id="relApDet${i}" style="display:none"><td></td><td colspan="10" style="padding:0 0 10px 0"><table style="width:100%;background:#faf8f3"><thead><tr><th ${th}>Código</th><th ${th}>Item</th><th ${th} class="num">Qtd</th><th ${th} class="num">Valor</th></tr></thead><tbody>${
           a.itens.map(d=>`<tr><td class="mono" ${td}>${esc(d.code)}</td><td ${td}>${esc(d.desc)}</td><td class="num" ${td}>${numf(d.qty)} ${esc(d.unit||'')}</td><td class="num" ${td}>${money(d.valor)}</td></tr>`).join('')||`<tr><td colspan="4" class="muted" ${td}>Sem itens registrados.</td></tr>`
         }</tbody></table></td></tr>`).join(''):`<tr><td colspan="11" class="empty" style="padding:24px">Nenhuma requisição atendida no período.</td></tr>`
-    }</tbody>${arr.length?`<tfoot><tr><td></td><td><b>Total</b></td><td><b>${arr.length} req.</b></td><td colspan="6"></td><td class="num"><b>${totItens}</b></td><td class="num"><b>${money(totValor)}</b></td></tr></tfoot>`:''}</table></div>
-    <p class="muted" style="font-size:11.5px;margin-top:8px">Considera requisições retiradas no balcão ou despachadas no período (De/Até), pela data da saída. "Retirado por" é o colaborador informado na retirada; em despachos, a transportadora. Valor = quantidade separada × custo cadastrado do produto.</p>`;
+    }</tbody>${arr.length?`<tfoot><tr><td></td><td><b>Total</b></td><td><b>${arr.length} saída(s)</b></td><td colspan="6"></td><td class="num"><b>${totItens}</b></td><td class="num"><b>${money(totValor)}</b></td></tr></tfoot>`:''}</table></div>
+    <p class="muted" style="font-size:11.5px;margin-top:8px">Considera requisições retiradas no balcão ou despachadas no período (De/Até), pela data da saída. Entregas parciais no balcão aparecem uma por linha, marcadas "(parcial)", só com os itens daquela entrega. "Retirado por" é o colaborador informado na retirada; em despachos, a transportadora. Valor = quantidade separada × custo cadastrado do produto.</p>`;
 }
 function drawRelatorio(){ const box=$('#relView'); if(!box)return;
   clearTimeout(_relDrawTimer); _relDrawTimer=null;
