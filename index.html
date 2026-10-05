@@ -417,7 +417,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-05T21:00:00-03:00';
+const APP_VERSION='2026-10-05T23:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -921,7 +921,8 @@ function initNavGrps(){
     if(body)body.style.display=open?'':'none'; if(chev)chev.textContent=open?'▾':'▸';
   });
 }
-function refreshFluxoGroupBadge(){ const ids=['navBadgeAprov','navBadgeSeparacao','navBadgeCompras','navBadgeExped','navBadgeRetiradas','navBadgeComprov']; let total=0;
+/* "Aguardando Retirada" fica fora do total do grupo: são as mesmas requisições já contadas em Expedição (o número dela continua no próprio item do menu). */
+function refreshFluxoGroupBadge(){ const ids=['navBadgeAprov','navBadgeSeparacao','navBadgeCompras','navBadgeExped','navBadgeComprov']; let total=0;
   ids.forEach(id=>{ const el=document.getElementById(id); if(el&&el.style.display!=='none'){ const n=parseInt(el.textContent,10); if(!isNaN(n))total+=n; } });
   const b=document.getElementById('navBadgeFluxo'); if(!b)return; if(total){b.textContent=total;b.style.display='';}else b.style.display='none'; }
 function applyRoleNav(){
@@ -3290,6 +3291,11 @@ function diasParado(ts){ return Math.max(0,Math.floor((Date.now()-ts)/86400000))
    interna e aplicacao_direta seguem o MESMO fluxo (sem romaneio de transporte, sem NF); a diferença é só a classificação. */
 function ehBalcao(t){ return t==='interna'||t==='aplicacao_direta'; }
 function envioTipoLabel(tipo){ return tipo==='despacho'?'🚚 Despacho':tipo==='interna'?'🤝 Retirada no balcão':tipo==='aplicacao_direta'?'🔧 Balcão — compra p/ aplicação direta':'❓ Envio não definido'; }
+/* Equipamento da requisição com o prefixo (placa/tag) em destaque. Usa o cadastro atual de Aplicações;
+   se a aplicação foi removida do cadastro, cai no nome gravado na própria requisição. */
+function reqEquipHTML(r){ const a=r.aplicacao_id?state.aplicacoes.find(x=>x.id===r.aplicacao_id):null;
+  if(a)return a.tag?` · ⚙ <span style="color:#a85f00">${esc(a.tag)}</span> <span class="muted" style="font-weight:500;font-size:12px">${esc(a.nome)}</span>`:` · ⚙ ${esc(a.nome)}`;
+  return r.aplicacao_nome?` · ⚙ ${esc(r.aplicacao_nome)}`:''; }
 async function renderRetiradaPendente(){
   if(!podeVerRetiradas()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito ao almoxarifado, compras e encarregados/administradores.</div></div>'; return; }
   $('#view').innerHTML=`<div class="panel" style="margin-bottom:14px"><div class="field" style="max-width:280px;margin:0"><label>Filtrar por tipo de envio</label>
@@ -3304,7 +3310,7 @@ async function renderRetiradaPendente(){
   await drawRetiradaPendente();
 }
 async function drawRetiradaPendente(){ const box=$('#retList'); if(!box)return;
-  const {data,error}=await fetchItensAguardandoRetirada('*','id,obra_nome,ordem_servico,status,tipo_envio,criado_em');
+  const {data,error}=await fetchItensAguardandoRetirada('*','id,obra_nome,ordem_servico,status,tipo_envio,criado_em,aplicacao_id,aplicacao_nome');
   if(error){box.innerHTML='<div class="tbl-wrap"><div class="empty">Erro: '+esc(error.message)+'</div></div>';return;}
   const itens=(data||[]).filter(i=>i.requisicoes&&STATUS_AINDA_NAO_SAIU.includes(i.requisicoes.status)&&pendEntrega(i)>0.0001); /* só o que ainda não foi entregue */
   const comEntrega=new Set((data||[]).filter(i=>qEntregue(i)>0).map(i=>String(i.requisicao_id)));
@@ -3320,7 +3326,7 @@ async function drawRetiradaPendente(){ const box=$('#retList'); if(!box)return;
     const corDias=dias>=7?'low':dias>=3?'high':'good';
     const corEnvio=r.tipo_envio==='despacho'?'tr':ehBalcao(r.tipo_envio)?'good':'high';
     return `<div class="panel" style="margin-bottom:14px;${podeOperarRetiradas()?'cursor:pointer':''}" ${podeOperarRetiradas()?`onclick="abrirExpedicao(${r.id})"`:'title="Somente visualização"'}>
-      <div class="sechead" style="margin-bottom:6px;flex-wrap:wrap;gap:8px"><h3 style="font-size:14px">REQ-${String(r.id).padStart(5,'0')} — ${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</h3>
+      <div class="sechead" style="margin-bottom:6px;flex-wrap:wrap;gap:8px"><h3 style="font-size:14px">REQ-${String(r.id).padStart(5,'0')} — ${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}${reqEquipHTML(r)}</h3>
         <span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>
         <span class="pill ${corEnvio}">${envioTipoLabel(r.tipo_envio)}</span>
         <span class="pill ${corDias}">${dias===0?'separado hoje':dias===1?'separado há 1 dia':'separado há '+dias+' dias'}</span>
