@@ -310,7 +310,7 @@ const S = {
   continuo: LS.get('contagem_continuo', true),
   folha:null,
   blob:null,
-  fabMap:{}, fabDe:{}, fabOk:null, fotoOk:null, fotosQtd:{},
+  fabMap:{}, fabDe:{}, fabOk:null, fotoOk:null, fotosQtd:{}, fotosExtra:{},
   nova:{ obraId:'', grupo:'', ordem:'antigos', qtd:'20', soSaldo:true, soMinimo:false, ignorarAbertas:true,
          previa:[], nome:'', tol:'0', outro:true, obs:'', busca:'', obras:[], produtos:[], estado:'idle', erro:'',
          modo:'itens', nomeLivre:'' },
@@ -474,6 +474,7 @@ async function carregarItens(){
     try { extras = await buscarTudo(() => sb.from('contagem_extras').select('id,code_lido,descricao,unidade,quantidade,obs,status,criado_em')
                     .eq('ciclo_id', id).eq('contador', S.user.id).order('criado_em').order('id')); } catch { extras = S.extras || []; }
     if (!S.ciclo || S.ciclo.id !== id) return;
+    await carregarFotosExtra();
     S.itens = itens; S.meus = meus; S.extras = extras;
     cacheSet('itens:' + id, itens); cacheSet('meus:' + id, meus); cacheSet('extras:' + id, extras);
   } catch (e) {
@@ -535,7 +536,7 @@ function renderListaCiclo(){
   $('#abas').innerHTML = abas.map(([k, l, n]) => `<button class="aba" role="tab" aria-selected="${S.aba === k}" data-act="aba" data-aba="${k}">${l} (${n})</button>`).join('');
   if (S.aba === 'extras') {
     $('#lista').innerHTML = X.length ? `<div class="rows">${X.map(x => `<div class="row ${x.noFila ? 'tap' : ''}" data-act="extra-editar" data-id="${esc(x.id)}">
-      <div class="rmain"><div class="rdesc"><b>${esc(x.descricao)}</b></div>
+      ${miniFotoExtra(x.id)}<div class="rmain"><div class="rdesc"><b>${esc(x.descricao)}</b></div>
       <div class="sub">${x.code_lido ? 'Código lido: ' + esc(x.code_lido) : 'Sem código'}${x.obs ? ' · ' + esc(x.obs) : ''}</div></div>
       <div class="rside"><span class="qtd">${fmt(x.quantidade)} <small class="mu" style="font:400 12px var(--f-body)">${esc(x.unidade || '')}</small></span>${chipEx(x.status)}</div></div>`).join('')}</div>`
       : `<div class="vazio">Nenhum item fora da lista registrado. Escaneie um código que não está na lista, ou toque em <b>Item fora da lista</b>.</div>`;
@@ -661,8 +662,8 @@ function confirmarFolha(){
    · Foto: reduzida no aparelho para ~520 px em JPEG (20 a 45 KB) antes de sair; o arquivo vai para a pasta
      "produtos" do Supabase e o banco guarda só o endereço. No máximo 4 fotos por produto.
    Sem o script fabricante_e_fotos.sql instalado, os botões simplesmente não aparecem. */
-const MAX_FOTOS = 4, FOTO_LADO = 520, FOTO_ALVO = 45 * 1024;
-const VERSAO_APP = '06/10/2026 · foto do produto';   // aparece no menu do usuário: serve para conferir se o aparelho já pegou a versão nova
+const MAX_FOTOS = 4, MAX_FOTOS_EXTRA = 3, FOTO_LADO = 520, FOTO_ALVO = 45 * 1024;
+const VERSAO_APP = '06/10/2026 b · foto na contagem';   // aparece no menu do usuário: serve para conferir se o aparelho já pegou a versão nova
 const semRecurso = e => !!e && (['PGRST202', 'PGRST205', '42P01', '42883'].includes(e.code) || /schema cache|does not exist/i.test(e.message || ''));
 function montarFab(lista){
   const map = {}, de = {};
@@ -771,10 +772,66 @@ async function enviarDaFila(f){
   return await sb.from(f.tipo === 'extra' ? 'contagem_extras' : 'contagem_registros').insert(f.row);
 }
 
+/* ---------- foto do item fora da lista ----------
+   O item ainda não é um produto do cadastro, então a foto fica ligada ao registro dele ("extra:<id>").
+   Ela aparece nesta folha, na aba Fora da lista e na Revisão do encarregado; quando o item é lançado no
+   estoque, o sistema de estoque passa a foto para o produto. */
+const urlFoto = path => sb.storage.from('produtos').getPublicUrl(path).data.publicUrl;
+async function carregarFotosExtra(){
+  if (!S.fotoOk || !navigator.onLine || !sb) return;
+  try {
+    const rows = await buscarTudo(() => sb.from('produto_fotos').select('code,path').like('code', 'extra:%').order('code').order('id'));
+    const m = {}; for (const r of rows) (m[r.code.slice(6)] ??= []).push(urlFoto(r.path));
+    S.fotosExtra = m;
+  } catch {}
+}
+/* fotos de um item fora da lista: já enviadas (endereço) + na fila do aparelho + tiradas na folha aberta */
+function fotosDoExtra(xid){
+  const k = 'extra:' + xid;
+  const env = (S.fotosExtra[xid] || []).map(u => ({ src: u, onde: 'env' }));
+  const fila = Fila.ler().filter(f => f.tipo === 'foto' && f.row.code === k).map(f => ({ id: f.row.id, src: 'data:image/jpeg;base64,' + f.row.b64, onde: 'fila' }));
+  const novas = (S.folha && S.folha.extra && S.folha.xid === xid ? S.folha.fotos : []).map(f => ({ id: f.id, src: 'data:image/jpeg;base64,' + f.b64, onde: 'nova' }));
+  return env.concat(fila, novas);
+}
+function htmlFotosExtra(){
+  if (!S.folha || !S.folha.extra) return '';
+  if (!S.fotoOk) return S.fotoOk === false ? `<div class="mu sm">Foto do item ainda não ativada: ${S.gestor ? 'falta rodar o script <span class="mono">fabricante_e_fotos.sql</span> no Supabase.' : 'avise o encarregado.'}</div>` : '';
+  const L = fotosDoExtra(S.folha.xid);
+  return `<label class="f">Foto do item</label>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      ${L.map(x => `<span style="position:relative;display:inline-block;line-height:0"><img src="${esc(x.src)}" alt="Foto do item" style="width:68px;height:68px;object-fit:cover;border-radius:10px;border:1px solid var(--line)">${x.onde !== 'env' ? `<button type="button" data-act="fx-foto-del" data-id="${esc(x.id)}" aria-label="Remover esta foto" style="position:absolute;top:-8px;right:-8px;width:26px;height:26px;border-radius:50%;border:1px solid var(--line);background:var(--s2);color:var(--tx);font:700 15px/1 var(--f-body);display:grid;place-items:center">×</button>` : ''}</span>`).join('')}
+      ${L.length < MAX_FOTOS_EXTRA ? `<button type="button" class="btn peq" data-act="fx-foto-prod">${ico('camera')} ${L.length ? 'Outra foto' : 'Fotografar o item'}</button>` : ''}
+    </div>
+    <div class="mu sm" id="fx-fotos-st" role="status" style="margin-top:4px">${L.length ? '' : 'A foto ajuda o encarregado a identificar o item. Ela é reduzida no aparelho antes de enviar.'}</div>`;
+}
+function atualizarFotosExtra(msg){ const b = $('#fx-fotos'); if (!b) return; b.innerHTML = htmlFotosExtra(); if (msg) { const st = $('#fx-fotos-st'); if (st) st.textContent = msg; } }
+async function guardarFotoExtra(file){
+  const fl = S.folha; if (!fl || !fl.extra) return;
+  if (fotosDoExtra(fl.xid).length >= MAX_FOTOS_EXTRA) return toast(`No máximo ${MAX_FOTOS_EXTRA} fotos por item.`, 'bad');
+  atualizarFotosExtra('Preparando a foto…');
+  let f;
+  try { f = await fotoCompacta(file); }
+  catch (e) { atualizarFotosExtra(); return toast(ehErroDeMemoria(e) ? 'Memória insuficiente no aparelho para preparar a foto. Feche outros aplicativos e tente de novo.' : 'Não consegui preparar a foto. Tente de novo.', 'bad'); }
+  if (S.folha !== fl) return;                                   // a folha foi fechada enquanto a foto era preparada
+  fl.fotos.push({ id: uuid(), b64: f.b64, bytes: f.bytes });
+  beep(true); atualizarFotosExtra(`Foto pronta (${Math.max(1, Math.round(f.bytes / 1024))} KB). Ela é enviada quando você tocar em Registrar.`);
+}
+function removerFotoExtra(id){
+  const fl = S.folha; if (!fl || !fl.extra) return;
+  const i = fl.fotos.findIndex(f => f.id === id);
+  if (i >= 0) fl.fotos.splice(i, 1);
+  else Fila.gravar(Fila.ler().filter(f => !(f.tipo === 'foto' && f.row.id === id)));
+  atualizarFotosExtra(); renderTopo();
+}
+function miniFotoExtra(xid){ const L = fotosDoExtra(xid); if (!L.length) return '';
+  return `<span style="position:relative;flex:none;line-height:0;margin-right:10px"><img src="${esc(L[0].src)}" alt="" loading="lazy" style="width:46px;height:46px;object-fit:cover;border-radius:8px;border:1px solid var(--line)">${L.length > 1 ? `<span style="position:absolute;right:-5px;bottom:-5px;background:var(--s2);border:1px solid var(--line);border-radius:9px;padding:1px 5px;font:600 10px/1.3 var(--f-body);color:var(--tx)">+${L.length - 1}</span>` : ''}</span>`; }
+function htmlFotosRev(xid){ const L = (S.fotosExtra[xid] || []); if (!L.length) return '';
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">${L.map(u => `<a href="${esc(u)}" target="_blank" rel="noopener" style="line-height:0" aria-label="Abrir a foto do item"><img src="${esc(u)}" alt="Foto do item" loading="lazy" style="width:92px;height:92px;object-fit:cover;border-radius:10px;border:1px solid var(--line)"></a>`).join('')}</div>`; }
+
 /* ---------- item fora da lista ---------- */
 function abrirFolhaExtra(pref = {}){
   const f = $('#folha');
-  S.folha = { extra:true, id: pref.id || null };
+  S.folha = { extra:true, id: pref.id || null, xid: pref.id || uuid(), fotos: [] };   // xid: identificador do registro já na abertura, para as fotos poderem apontar para ele
   f.innerHTML = `<div class="pn" role="dialog" aria-modal="true" aria-label="Item fora da lista">
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><b class="fd">Item fora da lista</b>${pref.id ? '<span class="chip">Editando</span>' : ''}</div>
     <div class="mu sm" style="margin-bottom:12px">Para material que está no local mas não aparece nesta lista nem no estoque. O encarregado analisa antes de lançar.</div>
@@ -790,6 +847,8 @@ function abrirFolhaExtra(pref = {}){
           <button type="button" class="ib" style="width:44px;height:44px;flex:none" data-act="extra-scan" aria-label="Ler código de barras pela câmera">${ico('camera')}</button></div></div>
         <div><label class="f" for="fx-unid">Unidade</label><input id="fx-unid" class="inp" maxlength="10" value="UN" autocomplete="off"></div>
       </div>
+      <div id="fx-fotos">${htmlFotosExtra()}</div>
+      <input id="fxp-file" type="file" accept="image/*" capture="environment" hidden>
     </div>
     <div id="fx-dica" class="sug" style="margin-top:10px" hidden></div>
     <input id="fq" class="big" type="text" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Quantidade encontrada">
@@ -814,11 +873,13 @@ function confirmarExtra(){
   const fila = Fila.ler();
   const i = S.folha.id ? fila.findIndex(f => f.tipo === 'extra' && f.row.id === S.folha.id) : -1;
   if (S.folha.id && i < 0) { fecharFolha(false); return toast('Esse registro já foi enviado e não pode mais ser editado.', 'bad'); }
-  const row = { id: S.folha.id || uuid(), ciclo_id: S.ciclo.id, code_lido: $('#fx-code').value.trim() || null, descricao: desc,
+  const row = { id: S.folha.id || S.folha.xid || uuid(), ciclo_id: S.ciclo.id, code_lido: $('#fx-code').value.trim() || null, descricao: desc,
     unidade: ($('#fx-unid').value.trim() || 'UN').toUpperCase(), quantidade: q, obs: $('#fobs').value.trim() || null,
     contador: S.user.id, contador_nome: (S.perfil && S.perfil.nome) || S.user.email, device_id: deviceId,
     criado_em: i >= 0 ? fila[i].row.criado_em : new Date().toISOString() };
   if (i >= 0) fila[i].row = row; else fila.push({ tipo:'extra', row });
+  // as fotos tiradas nesta folha entram na fila logo depois do registro do item
+  for (const ft of (S.folha.fotos || [])) fila.push({ tipo:'foto', row:{ id: ft.id, code: 'extra:' + row.id, b64: ft.b64, bytes: ft.bytes, criado_por_nome: row.contador_nome, criado_em: new Date().toISOString() } });
   Fila.gravar(fila);
   beep(true); S.aba = 'extras';
   fecharFolha(true);
@@ -1068,7 +1129,7 @@ async function sync(){
   if (enviados) toast(nFotos || nFab ? `${enviados} registro(s) enviado(s)${nFotos ? ` · ${nFotos} foto(s)` : ''}${nFab ? ` · ${nFab} código(s) de fabricante` : ''}` : `${enviados} contagem(ns) enviada(s)`, 'ok');
   if (novosErros.length) toast(`${novosErros.length} registro(s) não foram aceitos. Toque no aviso no topo.`, 'bad');
   if (nFab || novosErros.some(e => e.tipo === 'fab')) await carregarFab();
-  if (nFotos || novosErros.some(e => e.tipo === 'foto')) await carregarFotosQtd();
+  if (nFotos || novosErros.some(e => e.tipo === 'foto')) { await carregarFotosQtd(); await carregarFotosExtra(); }
   atualizarCadFolha();
   if (enviados && S.ciclo && S.tela === 'ciclo') await carregarItens();
   renderTopo();
@@ -1293,6 +1354,7 @@ async function carregarRevItens(){
     r.itens = await buscarTudo(() => sb.from('contagem_itens').select('*').eq('ciclo_id', r.id).order('code'));
     try { r.extras = await buscarTudo(() => sb.from('contagem_extras').select('*').eq('ciclo_id', r.id).order('criado_em').order('id')); } catch { r.extras = []; }
     try { await carregarBlob(); } catch { S.blob = null; }
+    await carregarFotosExtra();
     const cont = r.itens.reduce((a, i) => (a[i.status] = (a[i.status] || 0) + 1, a), {});
     if (!r._filtroManual) r.filtro = cont.em_analise ? 'em_analise' : 'todos';
   } catch (e) { toast('Erro ao carregar itens: ' + (e.message || e), 'bad'); }
@@ -1364,7 +1426,7 @@ function htmlRevExtra(x){
   const cab = `<div class="rv-h"><span class="rcode">${esc(x.code_lido || 'sem código')}</span>${chipEx(x.status)}<span class="rdesc"><b>${esc(x.descricao)}</b></span></div>
     <div class="nums"><div><small>Quantidade encontrada</small><b>${fmt(x.quantidade)} ${esc(x.unidade || '')}</b></div>
     <div><small>Contador</small><b style="font:500 15px var(--f-body)">${esc(x.contador_nome || '')}</b></div></div>
-    ${x.obs ? `<div class="mu sm" style="margin-top:6px">Obs.: ${esc(x.obs)}</div>` : ''}`;
+    ${x.obs ? `<div class="mu sm" style="margin-top:6px">Obs.: ${esc(x.obs)}</div>` : ''}${htmlFotosRev(x.id)}`;
   if (x.status === 'aprovado' || x.status === 'ajustado')
     return `<div class="rv">${cab}<div class="mu sm" style="margin-top:8px">${x.decisao === 'cadastrar' ? 'Novo produto' : 'Vinculado a'} <b>${esc(x.code_final || 'código gerado no lançamento')}</b> · ${esc(x.desc_final || '')} · ${x.modo === 'somar' ? 'soma ao saldo' : 'define o saldo'}${x.custo != null ? ' · custo ' + fmt(x.custo) : ''}</div></div>`;
   if (x.status === 'rejeitado') return `<div class="rv">${cab}<div class="mu sm" style="margin-top:8px">Rejeitado: ${esc(x.motivo || '')}</div></div>`;
@@ -1521,6 +1583,8 @@ const ACT = {
   'nova-criar-livre'(){ criarListaLivre(); },
   'extra-novo'(){ abrirFolhaExtra(); },
   'foto-prod'(){ const i = $('#fp-file'); if (i) i.click(); },
+  'fx-foto-prod'(){ const i = $('#fxp-file'); if (i) i.click(); },
+  'fx-foto-del'(el){ removerFotoExtra(el.dataset.id); },
   'fab-scan'(){ abrirScanner('fab'); },
   'extra-editar'(el){
     const x = listaExtras().find(e => e.id === el.dataset.id);
@@ -1605,6 +1669,7 @@ document.addEventListener('change', e => {
   if (el.id === 'chkCont') { S.continuo = el.checked; LS.set('contagem_continuo', S.continuo); return; }
   if (el.id === 'fx-foto') { const f = el.files && el.files[0]; el.value = ''; if (f) lerEtiquetaFoto(f); return; }
   if (el.id === 'fp-file') { const f = el.files && el.files[0]; el.value = ''; if (f) guardarFotoProduto(f); return; }
+  if (el.id === 'fxp-file') { const f = el.files && el.files[0]; el.value = ''; if (f) guardarFotoExtra(f); return; }
   if (el.id === 'fx-code') { dica(''); return preencherPorCodigo(el.value); }
   if (el.dataset.bind) { setPath(el.dataset.bind, el.type === 'checkbox' ? el.checked : el.value); if (el.dataset.rerender) ACT[el.dataset.rerender](el); }
 });
