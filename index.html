@@ -476,7 +476,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-06T10:00:00-03:00';
+const APP_VERSION='2026-10-06T14:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -714,8 +714,28 @@ function uid(){ return 'o'+Date.now().toString(36)+Math.random().toString(36).sl
 function seqf(n){ return String(n||0).padStart(4,'0'); }
 function genCode(){ let b='789'+Date.now().toString().slice(-9); while(state.products.some(p=>p.code===b))b=(Number(b)+1).toString(); return b; }
 function findProduct(code){ return state.products.find(p=>String(p.code)===String(code).trim()); }
-function findByCodeOrAux(term){ term=String(term).trim(); if(!term)return null; return state.products.find(p=>String(p.code)===term||(p.aux&&String(p.aux)===term)); }
-function searchProducts(q){ q=String(q).toLowerCase().trim(); if(!q)return []; return state.products.filter(p=>p.desc.toLowerCase().includes(q)||String(p.code).includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.ref&&p.ref.toLowerCase().includes(q))||(p.grupo&&p.grupo.toLowerCase().includes(q))||(p.localizacao&&p.localizacao.toLowerCase().includes(q))||(p.endereco&&p.endereco.toLowerCase().includes(q))); }
+/* Código(s) de barras do fabricante: campo "fab" do produto; mais de um, separados por vírgula. Na leitura valem
+   igual ao código do sistema e ao auxiliar. Um mesmo código não pode estar em dois produtos. */
+function fabList(p){ return p&&p.fab?String(p.fab).split(/[\s,;|]+/).map(x=>x.trim().toUpperCase()).filter(Boolean):[]; }
+function fabNormalizar(txt){ return [...new Set(String(txt||'').split(/[\s,;|]+/).map(x=>x.trim().toUpperCase()).filter(Boolean))]; }
+function fabConflito(lista,proprioCode){ for(const c of lista){
+    if(String(proprioCode||'').toUpperCase()===c)return {c,msg:'O código '+c+' já é o código do próprio produto no sistema.'};
+    const o=state.products.find(p=>String(p.code)!==String(proprioCode)&&(String(p.code).toUpperCase()===c||(p.aux&&String(p.aux).toUpperCase()===c)||fabList(p).includes(c)));
+    if(o)return {c,msg:'O código '+c+' já está no cadastro de outro produto: '+o.desc+' ('+o.code+').'}; }
+  return null; }
+function findByCodeOrAux(term){ term=String(term).trim(); if(!term)return null; const up=term.toUpperCase(); return state.products.find(p=>String(p.code)===term||(p.aux&&String(p.aux)===term))||state.products.find(p=>p.fab&&fabList(p).includes(up))||null; }
+/* botão "Ler" do cadastro: o leitor de câmera ocupa o lugar do formulário, então os campos são guardados e devolvidos */
+function lerFabNoModal(pfx,reabrir,proprioCode){ const snap={}; document.querySelectorAll('#modalRoot input,#modalRoot textarea').forEach(el=>{ if(el.id&&el.id.indexOf(pfx)===0&&el.type!=='file')snap[el.id]=el.value; });
+  const volta=()=>{ reabrir(); Object.keys(snap).forEach(id=>{ const el=document.getElementById(id); if(el)el.value=snap[id]; }); };
+  openCameraScanner(txt=>{ volta(); const inp=document.getElementById(pfx+'Fab'); if(!inp)return; const lido=String(txt||'').trim().toUpperCase();
+    if(/C[ÓO]DIGO\s*:/i.test(lido)){ toast('Essa é a etiqueta do sistema. Leia o código de barras impresso pelo fabricante na embalagem.','err'); return; }
+    if(lido.length<4||lido.length>60||/[\s,;|]/.test(lido)){ toast('Código de barras não reconhecido. Tente de novo.','err'); return; }
+    const lista=fabNormalizar(inp.value); if(lista.includes(lido)){ toast('Esse código já está neste produto.','warn'); return; }
+    const pc=proprioCode!=null?proprioCode:(document.getElementById(pfx+'Code')?document.getElementById(pfx+'Code').value.trim():'');
+    const cf=fabConflito([lido],pc); if(cf){ toast(esc(cf.msg),'err'); return; }
+    inp.value=lista.concat(lido).join(', '); toast('Código lido: '+esc(lido)+'. Salve para gravar.','ok'); },volta); }
+function fabCampoHTML(pfx,valor,onLer){ return `<div class="field"><label>Código de barras do fabricante</label><div style="display:flex;gap:8px"><input id="${pfx}Fab" class="mono" value="${esc(valor||'')}" placeholder="Leia pela câmera ou digite. Mais de um? Separe por vírgula" autocomplete="off"><button type="button" class="btn ghost sm" style="white-space:nowrap" onclick="${onLer}">📷 Ler</button></div></div>`; }
+function searchProducts(q){ q=String(q).toLowerCase().trim(); if(!q)return []; return state.products.filter(p=>p.desc.toLowerCase().includes(q)||String(p.code).includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.fab&&String(p.fab).toLowerCase().includes(q))||(p.ref&&p.ref.toLowerCase().includes(q))||(p.grupo&&p.grupo.toLowerCase().includes(q))||(p.localizacao&&p.localizacao.toLowerCase().includes(q))||(p.endereco&&p.endereco.toLowerCase().includes(q))); }
 function aplicName(id){ if(!id)return''; const a=state.aplicacoes.find(a=>a.id===id); return a?(a.nome+(a.tag?' ('+a.tag+')':'')):''; }
 function aplicOptions(sel){ let h=`<option value="">— sem aplicação —</option>`; state.aplicacoes.forEach(a=>h+=`<option value="${a.id}"${a.id===sel?' selected':''}>${esc(a.nome)}${a.tag?' · '+esc(a.tag):''}</option>`); return h; }
 /* --- busca de aplicação (campo pesquisável no formulário de consumo) --- */
@@ -866,13 +886,27 @@ function resizeImage(file,max,cb){ const r=new FileReader(); r.onload=e=>{ const
   img.onload=()=>{ let w=img.width,h=img.height; if(w>h){if(w>max){h=Math.round(h*max/w);w=max;}}else{if(h>max){w=Math.round(w*max/h);h=max;}}
     const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(img,0,0,w,h);cb(c.toDataURL('image/jpeg',0.72)); };
   img.onerror=()=>toast('Não foi possível ler a imagem.','err'); img.src=e.target.result; }; r.readAsDataURL(file); }
-function photoList(code){ const v=photos[code]; return Array.isArray(v)?v:(v?[v]:[]); }
+/* Fotos do produto = as do documento (base64, adicionadas aqui) + as compactas tiradas na contagem, que ficam como
+   arquivo na pasta "produtos" do Supabase (a tabela produto_fotos guarda só o endereço). */
+let fotosExt={};
+function fotosLocais(code){ const v=photos[code]; return Array.isArray(v)?v:(v?[v]:[]); }
+function photoList(code){ const loc=fotosLocais(code), ex=fotosExt[code]; return ex&&ex.length?loc.concat(ex.map(x=>x.url)):loc; }
+async function loadFotosExt(){ try{ const {data,error}=await fetchAllRows(()=>sb.from('produto_fotos').select('id,code,path').order('criado_em').order('id')); if(error)return false;
+    const m={}; (data||[]).forEach(r=>{ (m[r.code]=m[r.code]||[]).push({id:r.id,path:r.path,url:sb.storage.from('produtos').getPublicUrl(r.path).data.publicUrl}); });
+    const mudou=JSON.stringify(Object.keys(m).map(k=>[k,m[k].length]))!==JSON.stringify(Object.keys(fotosExt).map(k=>[k,fotosExt[k].length])); fotosExt=m; return mudou; }catch(e){ return false; } }
+async function removeFotoExt(code,ex){ const {data,error}=await sb.from('produto_fotos').delete().eq('id',ex.id).select('id');
+  if(error||!data||!data.length){ toast('Não foi possível remover a foto'+(error?': '+esc(error.message):' — seu usuário não tem permissão.'),'err'); return; }
+  try{ await sb.storage.from('produtos').remove([ex.path]); }catch(e){}
+  fotosExt[code]=(fotosExt[code]||[]).filter(x=>x.id!==ex.id); if(!fotosExt[code].length)delete fotosExt[code];
+  renderEpGallery(code); toast('Foto removida.','ok'); }
 function uploadPhoto(code,inp){ if(!fotosProntas()){ inp.value=''; return; } const files=[...inp.files].filter(f=>f.type.startsWith('image/')); if(!files.length){toast('Selecione imagem(ns).','err');return;}
   if(!Array.isArray(photos[code]))photos[code]=photos[code]?[photos[code]]:[];
   let pending=files.length;
   files.forEach(f=>resizeImage(f,680,src=>{ photos[code].push(src); if(--pending===0){ savePhotos(); renderEpGallery(code); toast('Foto(s) salva(s).','ok'); } }));
   inp.value=''; }
-function removePhotoAt(code,idx){ if(!fotosProntas())return; const arr=photoList(code); arr.splice(idx,1); photos[code]=arr; if(!arr.length)delete photos[code]; savePhotos(); renderEpGallery(code); toast('Foto removida.','ok'); }
+function removePhotoAt(code,idx){ const loc=fotosLocais(code);
+  if(idx>=loc.length){ const ex=(fotosExt[code]||[])[idx-loc.length]; if(ex)removeFotoExt(code,ex); return; }
+  if(!fotosProntas())return; const arr=loc.slice(); arr.splice(idx,1); photos[code]=arr; if(!arr.length)delete photos[code]; savePhotos(); renderEpGallery(code); toast('Foto removida.','ok'); }
 function renderEpGallery(code){ const b=document.getElementById('epPhoto'); if(!b)return; const arr=photoList(code);
   b.innerHTML=arr.length?arr.map((s,i)=>`<div style="position:relative;display:inline-block"><img src="${s}" style="width:82px;height:82px;object-fit:cover;border-radius:8px;border:1px solid #e4dfd4;cursor:zoom-in" onclick="openPhoto('${esc(code)}',${i})"><button class="btn danger sm" style="position:absolute;top:-6px;right:-6px;padding:1px 6px;border-radius:50%" onclick="removePhotoAt('${esc(code)}',${i})">✕</button></div>`).join(''):`<div class="editphoto ph">Sem foto</div>`; }
 const LIST_PAGE=120;
@@ -903,19 +937,20 @@ function setorLabel(s){ return s==='almoxarifado'?'Almoxarifado':s==='compras'?'
 
 /* ===== Scanner de câmera (celular / tablet) ===== */
 let camScanner=null;
-async function openCameraScanner(onResult){
+let camOnCancel=null;
+async function openCameraScanner(onResult,onCancel){ camOnCancel=onCancel||null;
   try{ await ensureHtml5Qrcode(); }catch(e){ toast('Leitor de câmera não carregou (verifique a conexão) — use a digitação manual.','err'); return; }
   $('#modalRoot').innerHTML=`<div class="ovl"><div class="modal"><h3>📷 Aponte para o código de barras</h3>
     <div id="camReaderBox"></div>
     <p class="mp" style="text-align:center;margin-top:10px;color:var(--muted);font-size:12.5px">Segure firme e aproxime até focar. Funciona com códigos de barras e QR.</p>
-    <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn ghost" onclick="closeCameraScanner()">Cancelar</button></div></div></div>`;
+    <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn ghost" onclick="closeCameraScanner(true)">Cancelar</button></div></div></div>`;
   camScanner=new Html5Qrcode('camReaderBox');
   camScanner.start({facingMode:'environment'},{fps:10,qrbox:{width:260,height:160}},
-    (decodedText)=>{ const cb=onResult; closeCameraScanner(); cb&&cb(decodedText); },
+    (decodedText)=>{ const cb=onResult; camOnCancel=null; closeCameraScanner(); cb&&cb(decodedText); },
     ()=>{}
   ).catch(err=>{ toast('Não foi possível abrir a câmera: '+(err&&err.message?err.message:err)+'. Verifique a permissão do navegador.','err'); camScanner=null; closeModal(); });
 }
-function closeCameraScanner(){ if(camScanner){ const c=camScanner; camScanner=null; c.stop().then(()=>c.clear()).catch(()=>{}); } closeModal(); }
+function closeCameraScanner(cancelado){ if(camScanner){ const c=camScanner; camScanner=null; c.stop().then(()=>c.clear()).catch(()=>{}); } closeModal(); const f=camOnCancel; camOnCancel=null; if(cancelado&&f)f(); }
 
 /* ===== Roteamento ===== */
 const titles={ painel:['Painel','Visão por obra'],entrada:['Entrada / Nota Fiscal','XML, colado ou manual'],baixa:['Consumo de Estoque','Solicitação com aprovação do encarregado'],
@@ -1100,7 +1135,7 @@ function renderPainel(){
   const draw=()=>{ const q=($('#dashSearch').value||'').toLowerCase(); const fst=$('#dashStatus').value; const qr=$('#dashQty').value; const qmax=qr===''?null:parseFloat(qr); const zero=$('#dashZero').checked; const grouped=$('#dashGroup').checked;
     const list=ps.filter(p=>{ const s=sal(p.code); const st=stOf(p,s);
       if(!zero && !(s>0))return false;
-      if(q && !(p.desc.toLowerCase().includes(q)||String(p.code).includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.ref&&p.ref.toLowerCase().includes(q))||(p.grupo&&p.grupo.toLowerCase().includes(q))||(p.localizacao&&p.localizacao.toLowerCase().includes(q))||(p.endereco&&p.endereco.toLowerCase().includes(q))))return false;
+      if(q && !(p.desc.toLowerCase().includes(q)||String(p.code).includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.fab&&String(p.fab).toLowerCase().includes(q))||(p.ref&&p.ref.toLowerCase().includes(q))||(p.grupo&&p.grupo.toLowerCase().includes(q))||(p.localizacao&&p.localizacao.toLowerCase().includes(q))||(p.endereco&&p.endereco.toLowerCase().includes(q))))return false;
       if(fst && st!==fst)return false; if(qmax!=null && !(s<=qmax))return false; return true; });
     $('#dashCount').textContent=list.length+' item(ns)';
     const sig=[q,fst,qr,zero,grouped,curObra()].join('|'); if(window._dashSig!==sig){ window._dashSig=sig; window._dashLim=LIST_PAGE; }
@@ -1207,7 +1242,7 @@ function drawDashboard(){
 
 function productDetailModal(code){ const p=findProduct(code); if(!p)return; const fotos=photoList(code);
   const saldos=state.obras.filter(o=>saldoOf(o.id,code)>0).map(o=>`<tr><td>${esc(o.nome)}</td><td class="num">${numf(saldoOf(o.id,code))} ${esc(p.unit||'')}</td></tr>`).join('');
-  modal(`<h3>${esc(p.desc)}</h3><p class="mp mono">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''}</p>
+  modal(`<h3>${esc(p.desc)}</h3><p class="mp mono">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''}${p.fab?' · fabricante '+esc(p.fab):''}</p>
     ${fotos.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">${fotos.map((s,i)=>`<img src="${s}" style="width:84px;height:84px;object-fit:cover;border-radius:8px;border:1px solid #e4dfd4;cursor:zoom-in" onclick="openPhoto('${esc(code)}',${i})">`).join('')}</div>`:'<p class="mp">Sem foto cadastrada.</p>'}
     <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:13px;margin-bottom:12px">
       <div><b>Saldo total:</b> ${numf(totalSaldo(code))} ${esc(p.unit||'')}</div>
@@ -1634,7 +1669,7 @@ function renderProdutos(){
   const draw=()=>{ const q=($('#prodSearch').value||'').toLowerCase(); const zero=$('#prodZero').checked;
     let list=state.products.filter(p=>{ const s=sal(p.code);
       if(!zero && !(s>0))return false;
-      if(q && !(p.desc.toLowerCase().includes(q)||String(p.code).includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.ref&&p.ref.toLowerCase().includes(q))||(p.grupo&&p.grupo.toLowerCase().includes(q))||(p.localizacao&&p.localizacao.toLowerCase().includes(q))||(p.endereco&&p.endereco.toLowerCase().includes(q))))return false;
+      if(q && !(p.desc.toLowerCase().includes(q)||String(p.code).includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.fab&&String(p.fab).toLowerCase().includes(q))||(p.ref&&p.ref.toLowerCase().includes(q))||(p.grupo&&p.grupo.toLowerCase().includes(q))||(p.localizacao&&p.localizacao.toLowerCase().includes(q))||(p.endereco&&p.endereco.toLowerCase().includes(q))))return false;
       return true; });
     const sig=[q,zero,curObra()].join('|'); if(window._prodSig!==sig){ window._prodSig=sig; window._prodLim=LIST_PAGE; }
     const full=list; list=full.slice(0,window._prodLim||LIST_PAGE);
@@ -1658,7 +1693,7 @@ function setField(code,f,v){ const p=findProduct(code); if(!p)return; p[f]=parse
   if(f==='min'||f==='max'){ if(p.max>0&&p.min>p.max)toast('Mínimo maior que o máximo.','warn'); } refreshBadge(); }
 function delProduct(code){ const p=findProduct(code); if(!p)return;
   requireSupervisor(`Excluir produto "${p.desc}"`,()=>{ state.products=state.products.filter(x=>String(x.code)!==String(code));
-    state.obras.forEach(o=>{ if(state.estoque[o.id])delete state.estoque[o.id][code]; }); delete photos[code]; savePhotos(); save('Produto excluído: '+p.desc+' ('+code+')'); renderProdutos(); toast('Produto excluído.','ok'); }); }
+    state.obras.forEach(o=>{ if(state.estoque[o.id])delete state.estoque[o.id][code]; }); delete photos[code]; savePhotos(); { const exs=fotosExt[code]||[]; if(exs.length){ delete fotosExt[code]; sb.from('produto_fotos').delete().eq('code',code).then(()=>sb.storage.from('produtos').remove(exs.map(x=>x.path))).catch(()=>{}); } } save('Produto excluído: '+p.desc+' ('+code+')'); renderProdutos(); toast('Produto excluído.','ok'); }); }
 function qrPayloadFor(p){
   const lines=[
     'CÓDIGO: '+p.code,
@@ -1686,6 +1721,7 @@ function editProductModal(code){ const p=findProduct(code); if(!p)return;
       <div style="text-align:center;min-width:150px"><div class="muted" style="font-size:11px;margin-bottom:4px">QR do cadastro (todas as informações)</div><div id="epQR" style="display:flex;justify-content:center"></div></div>
       <div style="flex:1;min-width:200px"><div class="field"><label>Descrição</label><input id="epDesc" value="${esc(p.desc)}"></div><div class="field"><label>Unidade</label><input id="epUnit" value="${esc(p.unit||'UN')}"></div></div></div>
     <div class="field"><label>Código auxiliar (outro sistema)</label><input id="epAux" class="mono" value="${esc(p.aux||'')}" placeholder="Código usado em outro sistema"></div>
+    ${fabCampoHTML('ep',p.fab,`lerFabNoModal('ep',()=>editProductModal('${esc(code)}'),'${esc(code)}')`)}
     <div class="row c2"><div class="field"><label>Custo médio (R$)</label><input id="epCusto" type="number" step="any" value="${p.custo||0}"></div><div class="field"><label>Preço venda (R$)</label><input id="epPreco" type="number" step="any" value="${p.preco||0}"></div></div>
     <div class="row c3">
       <div class="field" style="margin:0"><label>Grupo do insumo</label><input id="epGrupo" list="grupoListE" value="${esc(p.grupo||'')}" placeholder="Ex.: Elétrica, EPI..."></div>
@@ -1697,7 +1733,7 @@ function editProductModal(code){ const p=findProduct(code); if(!p)return;
     <div class="field"><label>Referências / Aplicação</label><textarea id="epRef" rows="3" placeholder="Ex.: usado na escavadeira CAT 320 · filtro hidráulico">${esc(p.ref||'')}</textarea></div>
     <div style="font-size:11.5px;color:#8a8377;margin-bottom:14px">Saldo por obra — ${saldos}</div>
     <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Fechar</button><button class="btn primary" onclick="saveEditProduct('${esc(code)}')">Salvar</button></div>`);
-  renderEpGallery(code);
+  renderEpGallery(code); loadFotosExt().then(mudou=>{ if(mudou&&document.getElementById('epPhoto'))renderEpGallery(code); });
   const qrBox=$('#epQR'); if(qrBox){ qrBox.innerHTML=''; try{
     const qr=qrcode(0,'M'); qr.addData(qrPayloadFor(p)); qr.make();
     qrBox.innerHTML=qr.createSvgTag({cellSize:4,margin:4});
@@ -1705,6 +1741,7 @@ function editProductModal(code){ const p=findProduct(code); if(!p)return;
   }catch(e){ qrBox.innerHTML='<span class="muted" style="font-size:10.5px;color:#b03030">Erro: '+esc(e&&e.message||String(e))+'</span>'; toast('QR: '+(e&&e.message||e),'err'); } }
 }
 function saveEditProduct(code){ const p=findProduct(code); if(!p)return; const d=$('#epDesc').value.trim(); if(!d){toast('Descrição obrigatória.','err');return;}
+  if($('#epFab')){ const fl=fabNormalizar($('#epFab').value); const cf=fabConflito(fl,code); if(cf){ toast(esc(cf.msg),'err'); return; } if(fl.some(c=>c.length<4||c.length>60)){ toast('Código de barras do fabricante inválido (de 4 a 60 caracteres).','err'); return; } p.fab=fl.join(', '); }
   p.desc=d; p.unit=$('#epUnit').value.trim()||'UN'; p.aux=($('#epAux')?$('#epAux').value.trim():(p.aux||'')); if($('#epCusto'))p.custo=parseFloat($('#epCusto').value)||0; if($('#epPreco'))p.preco=parseFloat($('#epPreco').value)||0; p.ref=$('#epRef').value.trim();
   p.grupo=($('#epGrupo')?$('#epGrupo').value.trim():''); p.localizacao=($('#epLocal')?$('#epLocal').value.trim():''); p.endereco=($('#epEndereco')?$('#epEndereco').value.trim():'');
   save(); closeModal(); renderProdutos(); toast('Produto atualizado.','ok'); }
@@ -1713,6 +1750,7 @@ function newProductModal(){ const grupos=[...new Set(state.products.map(p=>p.gru
     <div class="field"><label>Código (opcional)</label><input id="npCode" class="mono" placeholder="auto"></div>
     <div class="field"><label>Descrição</label><input id="npDesc"></div>
     <div class="field"><label>Código auxiliar (outro sistema)</label><input id="npAux" class="mono" placeholder="Código usado em outro sistema"></div>
+    ${fabCampoHTML('np','',`lerFabNoModal('np',newProductModal,null)`)}
     <div class="row c3"><div class="field"><label>Unid.</label><input id="npUnit" value="UN"></div><div class="field"><label>Saldo inicial</label><input id="npQty" type="number" step="any" value="0"></div><div class="field"><label>Custo</label><input id="npCusto" type="number" step="any" value="0"></div></div>
     <div class="row c3"><div class="field"><label>Estoque mín.</label><input id="npMin" type="number" step="any" value="0"></div><div class="field"><label>Estoque máx.</label><input id="npMax" type="number" step="any" value="0"></div><div class="field"><label>Preço venda</label><input id="npPreco" type="number" step="any" value="0"></div></div>
     <div class="row c3">
@@ -1726,9 +1764,11 @@ function newProductModal(){ const grupos=[...new Set(state.products.map(p=>p.gru
     <p class="mp">A foto pode ser adicionada depois, no botão ✎.</p>
     <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="saveNewProduct()">Cadastrar</button></div>`); }
 function saveNewProduct(){ const desc=$('#npDesc').value.trim(); if(!desc){toast('Informe a descrição.','err');return;}
-  let code=$('#npCode').value.trim(); if(code&&findProduct(code)){toast('Código já existe.','err');return;} if(!code)code=genCode();
+  let code=$('#npCode').value.trim(); if(code&&findProduct(code)){toast('Código já existe.','err');return;}
+  const fabL=$('#npFab')?fabNormalizar($('#npFab').value):[]; { const cf=fabConflito(fabL,code||null); if(cf){ toast(esc(cf.msg),'err'); return; } if(fabL.some(c=>c.length<4||c.length>60)){ toast('Código de barras do fabricante inválido (de 4 a 60 caracteres).','err'); return; } }
+  if(!code)code=genCode();
   const qty=parseFloat($('#npQty').value)||0; const obra=curObra()==='__all'?state.obras[0].id:curObra();
-  const p={code,desc,unit:$('#npUnit').value.trim()||'UN',aux:($('#npAux')?$('#npAux').value.trim():''),min:parseFloat($('#npMin').value)||0,max:parseFloat($('#npMax').value)||0,custo:parseFloat($('#npCusto').value)||0,preco:parseFloat($('#npPreco').value)||0,ref:$('#npRef').value.trim(),
+  const p={code,desc,unit:$('#npUnit').value.trim()||'UN',aux:($('#npAux')?$('#npAux').value.trim():''),fab:fabL.join(', '),min:parseFloat($('#npMin').value)||0,max:parseFloat($('#npMax').value)||0,custo:parseFloat($('#npCusto').value)||0,preco:parseFloat($('#npPreco').value)||0,ref:$('#npRef').value.trim(),
     grupo:($('#npGrupo')?$('#npGrupo').value.trim():''),localizacao:($('#npLocal')?$('#npLocal').value.trim():''),endereco:($('#npEndereco')?$('#npEndereco').value.trim():'')};
   state.products.push(p);
   if(qty>0){ addSaldo(obra,code,qty); pushMov({ts:Date.now(),tipo:'entrada',obra,code,desc,qty,valorUnit:p.custo,valorTotal:qty*p.custo,doc:'Saldo inicial',saldo:qty}); }
@@ -1754,7 +1794,7 @@ function labelsModal(){ if(!state.products.length){toast('Nenhum produto cadastr
       <div style="display:flex;gap:10px"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="generateLabels()">🖨 Gerar etiquetas</button></div>
     </div>`);
   const si=$('#labelSearch'); drawLabelRows(''); si.focus(); si.oninput=e=>drawLabelRows(e.target.value); }
-function labelFilteredList(q){ q=String(q||'').toLowerCase().trim(); if(!q)return state.products; return state.products.filter(p=>p.desc.toLowerCase().includes(q)||String(p.code).toLowerCase().includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))); }
+function labelFilteredList(q){ q=String(q||'').toLowerCase().trim(); if(!q)return state.products; return state.products.filter(p=>p.desc.toLowerCase().includes(q)||String(p.code).toLowerCase().includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.fab&&String(p.fab).toLowerCase().includes(q))); }
 function drawLabelRows(q){ const box=$('#labelRows'); if(!box)return; const list=labelFilteredList(q);
   box.innerHTML=list.length?list.map(p=>{ const checked=labelSel.hasOwnProperty(p.code); const qty=checked?labelSel[p.code]:1;
     return `<tr><td><input type="checkbox" ${checked?'checked':''} onchange="toggleLabelSel('${esc(p.code)}',this.checked)"></td>
@@ -4362,7 +4402,7 @@ function renderConsulta(){ $('#topActions').innerHTML=obraSelectorHTML(true);
   const inp=$('#consInput'); inp.focus(); inp.addEventListener('keydown',e=>{if(e.key==='Enter'){const p=findProduct(inp.value.trim());if(p){showConsulta(p);return;}}}); inp.oninput=()=>drawConsList(inp.value); drawConsList(''); }
 let _consAtual=null;
 function drawConsList(q){ _consAtual=null; q=q.toLowerCase().trim(); const box=$('#consResult'); const o=curObra(); const all=o==='__all'||!o; const sal=c=>all?totalSaldo(c):saldoOf(o,c);
-  const list=q?state.products.filter(p=>p.desc.toLowerCase().includes(q)||String(p.code).includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.ref&&p.ref.toLowerCase().includes(q))||(p.grupo&&p.grupo.toLowerCase().includes(q))||(p.localizacao&&p.localizacao.toLowerCase().includes(q))||(p.endereco&&p.endereco.toLowerCase().includes(q))):state.products.slice();
+  const list=q?state.products.filter(p=>p.desc.toLowerCase().includes(q)||String(p.code).includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.fab&&String(p.fab).toLowerCase().includes(q))||(p.ref&&p.ref.toLowerCase().includes(q))||(p.grupo&&p.grupo.toLowerCase().includes(q))||(p.localizacao&&p.localizacao.toLowerCase().includes(q))||(p.endereco&&p.endereco.toLowerCase().includes(q))):state.products.slice();
   if(!state.products.length){ box.innerHTML=`<div class="tbl-wrap"><div class="empty"><div class="ico">⌕</div>Nenhum produto cadastrado.</div></div>`; return; }
   if(!list.length){ box.innerHTML=`<div class="tbl-wrap"><div class="empty">Nada encontrado para "<b>${esc(q)}</b>".</div></div>`; return; }
   if(q&&list.length===1){ showConsulta(list[0]); return; }
@@ -4587,7 +4627,7 @@ function onAuthReady(){
   const p=(async()=>{
     profile=await loadProfile();
     if(!profile||!profile.ativo){ showPending(); return; }
-    hideGate(); applyRoleNav(); initNavGrps(); const pDev=refreshDevolucoesBloqueio().catch(()=>{}); await load(); await pDev; loadPhotos().then(()=>refreshTelaAtual()); loadReposAbertas().then(()=>refreshTelaAtual()); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); checkEntregaParcial().then(()=>refreshRetiradasBadge()); _comprovOk=null; _comprovPend={confirmar:[],receber:[]}; _comprovUsers=null; refreshComprovPend().then(()=>{ refreshComprovBadge(); processarLinkRecebimento(); }); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge();
+    hideGate(); applyRoleNav(); initNavGrps(); const pDev=refreshDevolucoesBloqueio().catch(()=>{}); await load(); await pDev; loadPhotos().then(()=>refreshTelaAtual()); loadFotosExt().then(mudou=>{ if(mudou&&!usuarioInteragindo())refreshTelaAtual(); }); loadReposAbertas().then(()=>refreshTelaAtual()); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); checkEntregaParcial().then(()=>refreshRetiradasBadge()); _comprovOk=null; _comprovPend={confirmar:[],receber:[]}; _comprovUsers=null; refreshComprovPend().then(()=>{ refreshComprovBadge(); processarLinkRecebimento(); }); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge();
     _bootedUid=uid; go(abaInicial());
     if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); startVersionWatch(); }
   })();
@@ -4686,7 +4726,7 @@ function drawRelAjustes(f,t,fobra,isAll,gf,lf,pf){ const box=$('#relView'); if(!
   let base=state.movements.filter(m=>m.tipo==='ajuste'&&m.ts>=f&&m.ts<=t&&(isAll||m.obra===fobra));
   if(gf)base=base.filter(m=>produtoGrupo(m.code)===gf);
   if(lf)base=base.filter(m=>produtoLocal(m.code)===lf);
-  if(pf)base=base.filter(m=>{ const p=relProd(m.code); return String(m.desc||'').toLowerCase().includes(pf)||String(m.code).toLowerCase().includes(pf)||(p&&(String(p.desc||'').toLowerCase().includes(pf)||(p.aux&&String(p.aux).toLowerCase().includes(pf)))); });
+  if(pf)base=base.filter(m=>{ const p=relProd(m.code); return String(m.desc||'').toLowerCase().includes(pf)||String(m.code).toLowerCase().includes(pf)||(p&&(String(p.desc||'').toLowerCase().includes(pf)||(p.aux&&String(p.aux).toLowerCase().includes(pf))||(p.fab&&String(p.fab).toLowerCase().includes(pf)))); });
   let lista=base.map(m=>{ const p=relProd(m.code); const q=Number(m.qty)||0; const vu=Number(m.valorUnit)||0; const v=m.valorTotal||(q*vu);
     const dep=(m.saldo!=null&&!isNaN(m.saldo))?Number(m.saldo):null;
     return {ts:m.ts,obra:obraName(m.obra),code:String(m.code||''),aux:p&&p.aux?String(p.aux):'',desc:(p&&p.desc)||m.desc||'',unit:p?(p.unit||''):'',grupo:produtoGrupo(m.code),local:produtoLocal(m.code),
@@ -4730,7 +4770,7 @@ function drawRelAjustes(f,t,fobra,isAll,gf,lf,pf){ const box=$('#relView'); if(!
 function relPeriod(){ const f=$('#relFrom')&&$('#relFrom').value?new Date($('#relFrom').value+'T00:00:00').getTime():0; const t=$('#relTo')&&$('#relTo').value?new Date($('#relTo').value+'T23:59:59').getTime():Date.now(); return [f,t]; }
 function produtoGrupo(code){ const p=relProd(code); const g=p&&p.grupo&&p.grupo.trim()?p.grupo.trim():'(sem grupo)'; return g; }
 function movOS(m){ if(m.os)return m.os; const src=((m.doc||'')+' '+(m.obs||'')); const mt=src.match(/OS[\s:]*([^\s·]+)/i); return mt?mt[1]:''; }
-function produtoPassaFiltros(p,gf,lf,pf){ if(gf&&produtoGrupo(p.code)!==gf)return false; if(lf&&produtoLocal(p.code)!==lf)return false; if(pf&&!(p.desc.toLowerCase().includes(pf)||String(p.code).toLowerCase().includes(pf)||(p.aux&&String(p.aux).toLowerCase().includes(pf))))return false; return true; }
+function produtoPassaFiltros(p,gf,lf,pf){ if(gf&&produtoGrupo(p.code)!==gf)return false; if(lf&&produtoLocal(p.code)!==lf)return false; if(pf&&!(p.desc.toLowerCase().includes(pf)||String(p.code).toLowerCase().includes(pf)||(p.aux&&String(p.aux).toLowerCase().includes(pf))||(p.fab&&String(p.fab).toLowerCase().includes(pf))))return false; return true; }
 function produtoLocal(code){ const p=relProd(code); const l=p&&p.localizacao&&p.localizacao.trim()?p.localizacao.trim():'(sem localização)'; return l; }
 /* ===== Relatório: material separado aguardando retirada, por aplicação (posição atual, não usa o período) ===== */
 let _relARetEnvio='', _relARetTk=0, _relRetModo='atendidas';
@@ -4904,7 +4944,7 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
   if(lf)inP=inP.filter(m=>produtoLocal(m.code)===lf);
   if(taf)inP=inP.filter(m=>{ const a=relAplicById(m.aplic); return a&&a.tipo===taf; });
   if(aef)inP=inP.filter(m=>m.aplic===aef); else if(aset)inP=inP.filter(m=>m.aplic&&aset.has(m.aplic));
-  if(pf)inP=inP.filter(m=>{ const p=relProd(m.code); return p&&(p.desc.toLowerCase().includes(pf)||String(p.code).toLowerCase().includes(pf)||(p.aux&&String(p.aux).toLowerCase().includes(pf))); });
+  if(pf)inP=inP.filter(m=>{ const p=relProd(m.code); return p&&(p.desc.toLowerCase().includes(pf)||String(p.code).toLowerCase().includes(pf)||(p.aux&&String(p.aux).toLowerCase().includes(pf))||(p.fab&&String(p.fab).toLowerCase().includes(pf))); });
   if(osf)inP=inP.filter(m=>movOS(m).toLowerCase().includes(osf));
   if($('#relABC')&&$('#relABC').checked&&relTipo!=='grupo'&&relTipo!=='os'&&relTipo!=='consorcio'&&relTipo!=='ajustes'){ drawABC(inP,isAll,fobra,periodoLbl); return; }
   let titulo,headers,rows,foot;
@@ -4979,7 +5019,7 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
       let rowsRaw=state.movements.filter(m=>m.tipo==='transferencia'&&destIds.includes(m.obraDest)).filter(m=>{const d=mdate(m,emi); return d>=f&&d<=t;});
       if(gf)rowsRaw=rowsRaw.filter(m=>produtoGrupo(m.code)===gf);
       if(lf)rowsRaw=rowsRaw.filter(m=>produtoLocal(m.code)===lf);
-      if(pf)rowsRaw=rowsRaw.filter(m=>{const p=relProd(m.code); return p&&(p.desc.toLowerCase().includes(pf)||String(p.code).toLowerCase().includes(pf)||(p.aux&&String(p.aux).toLowerCase().includes(pf)));});
+      if(pf)rowsRaw=rowsRaw.filter(m=>{const p=relProd(m.code); return p&&(p.desc.toLowerCase().includes(pf)||String(p.code).toLowerCase().includes(pf)||(p.aux&&String(p.aux).toLowerCase().includes(pf))||(p.fab&&String(p.fab).toLowerCase().includes(pf)));});
       rowsRaw.sort((a,b)=>(a.seq||0)-(b.seq||0)||a.ts-b.ts);
       headers=['Nº Romaneio','Data','Obra de origem','Obra Consórcio','Insumo','Qtd','Valor Unitário','Valor Total'];
       rows=rowsRaw.map(m=>{const p=relProd(m.code); return [m.seq?seqf(m.seq):'—',fmtDate(m.ts),obraName(m.obra),obraName(m.obraDest),m.desc+' ('+m.code+')'+(p&&p.unit?' - '+esc(p.unit):''),numf(m.qty),money(m.valorUnit),money(m.valorTotal)];});
