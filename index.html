@@ -322,6 +322,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       <button data-tab="compras" data-role="separacao_acesso"><span class="ic">🛒</span><span>Compras</span><span class="badge" id="navBadgeCompras" style="display:none"></span></button>
       <button data-tab="expedicao" data-role="almoxarife"><span class="ic">🚚</span><span>Expedição</span><span class="badge" id="navBadgeExped" style="display:none"></span></button>
       <button data-tab="retiradas" data-role="retiradas_acesso"><span class="ic">🕓</span><span>Aguardando Retirada</span><span class="badge" id="navBadgeRetiradas" style="display:none"></span></button>
+      <button data-tab="comprovantes" data-role="retiradas_acesso"><span class="ic">🧾</span><span>Comprovantes de Entrega</span><span class="badge" id="navBadgeComprov" style="display:none"></span></button>
     </div>
 
     <div class="navgrp-hd" data-grp-toggle="consulta"><span class="navgrp-hd-l">Consulta e Relatórios</span><span class="navgrp-chev">▸</span></div>
@@ -416,7 +417,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-05T14:00:00-03:00';
+const APP_VERSION='2026-10-05T21:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -602,6 +603,7 @@ function subscribeRealtime(){
   sb.channel('requisicoes_sync').on('postgres_changes',{event:'*',schema:'public',table:'requisicoes'},()=>{
     const t=activeTab;
     queueRefresh(refreshAprovBadge,refreshSeparacaoBadge,refreshExpedBadge,refreshRetiradasBadge,refreshComprasBadge,refreshMinhasBadge,refreshGlobalAlerts);
+    if(_comprovOk){ queueRefresh(refreshComprovPend,refreshComprovBadge); if(t==='comprovantes')queueRefresh(drawComprovantes); }
     if(t==='baixa')queueRefresh(drawMinhasFrotasPendentes,drawMinhasEmAndamento);
     if(t==='aprovacoes')queueRefresh(drawAprovPend,drawAprovHist);
     if(t==='separacao'&&typeof drawSeparacaoList==='function')queueRefresh(drawSeparacaoList);
@@ -616,6 +618,7 @@ function subscribeRealtime(){
   sb.channel('itens_status_sync').on('postgres_changes',{event:'*',schema:'public',table:'requisicao_itens_status'},()=>{
     const t=activeTab;
     queueRefresh(refreshRetiradasBadge,refreshSeparacaoBadge);
+    if(_comprovOk)queueRefresh(refreshComprovPend);
     if(t==='retiradas'&&typeof drawRetiradaPendente==='function')queueRefresh(drawRetiradaPendente);
     if(t==='separacao'&&typeof drawSeparacaoList==='function')queueRefresh(drawSeparacaoList);
     if(t==='notificacoes'&&typeof drawNotificacoes==='function')queueRefresh(drawNotificacoes);
@@ -673,15 +676,15 @@ function pickAplic(id){ const hid=$('#saidaAplic'); if(!hid)return; hid.value=id
 function printSignReport(opt){ const w=opt.win||window.open('','_blank'); if(!w){toast('Permita pop-ups para gerar o relatório.','err');return;} if(opt.win){ try{ w.document.open(); }catch(e){} }
   let total=0; const conf=!!opt.conferencia;
   const linhas=opt.itens.map((it,i)=>{const vu=it.valor||0;const vt=it.qty*vu;total+=vt;return `<tr><td>${i+1}</td><td class="mono">${esc(it.code||'')}</td><td class="mono">${esc(it.aux||'—')}</td><td>${esc(it.desc)}</td><td style="text-align:right">${numf(it.qty)} ${esc(it.unit||'')}</td><td style="text-align:right">${money(vu)}</td><td style="text-align:right">${money(vt)}</td>${conf?'<td class="chk"></td>':''}</tr>`;}).join('');
-  const asn=(opt.assinaturas||[]).map(a=>`<div class="sig"><div class="line"></div><div>${esc(a)}</div></div>`).join('');
-  w.document.write(`<html><head><title>${esc(opt.titulo)}${opt.numero?' Nº '+esc(opt.numero):''}</title><style>body{font-family:Arial,Helvetica,sans-serif;margin:36px;color:#111;font-size:13px}.hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:6px}h1{font-size:18px;margin:0 0 2px}.sub{color:#555;font-size:12px}.numbox{text-align:right;border:2px solid #111;border-radius:6px;padding:6px 14px;min-width:120px}.numbox .l{font-size:9px;letter-spacing:1px;color:#555;text-transform:uppercase}.numbox .n{font-size:26px;font-weight:bold;font-family:'Courier New',monospace;line-height:1.1}.meta{margin:12px 0;font-size:13px;line-height:1.7}.meta b{display:inline-block;min-width:120px}table{width:100%;border-collapse:collapse;margin-top:8px}th,td{border:1px solid #999;padding:6px 8px;font-size:11.5px}th{background:#eee;text-align:left}.mono{font-family:'Courier New',monospace}td.chk{width:70px;height:26px}tfoot td{font-weight:bold;background:#f6f6f6}.sigs{display:flex;gap:40px;margin-top:60px;flex-wrap:wrap}.sig{flex:1;min-width:180px;text-align:center}.sig .line{border-top:1px solid #333;margin-bottom:6px;height:1px}.sig div:last-child{font-size:12px;color:#333}.obs{margin-top:16px;font-size:12px;color:#444}.confnote{margin-top:8px;font-size:11px;color:#666;font-style:italic}</style></head><body>
+  const asn=(opt.assinaturas||[]).map(a=>typeof a==='string'?`<div class="sig"><div class="line"></div><div>${esc(a)}</div></div>`:`<div class="sig"><div class="dig">${a.html||''}</div><div class="line"></div><div>${esc(a.label||'')}</div></div>`).join('');
+  w.document.write(`<html><head><title>${esc(opt.titulo)}${opt.numero?' Nº '+esc(opt.numero):''}</title><style>body{font-family:Arial,Helvetica,sans-serif;margin:36px;color:#111;font-size:13px}.hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:6px}h1{font-size:18px;margin:0 0 2px}.sub{color:#555;font-size:12px}.numbox{text-align:right;border:2px solid #111;border-radius:6px;padding:6px 14px;min-width:120px}.numbox .l{font-size:9px;letter-spacing:1px;color:#555;text-transform:uppercase}.numbox .n{font-size:26px;font-weight:bold;font-family:'Courier New',monospace;line-height:1.1}.meta{margin:12px 0;font-size:13px;line-height:1.7}.meta b{display:inline-block;min-width:120px}table{width:100%;border-collapse:collapse;margin-top:8px}th,td{border:1px solid #999;padding:6px 8px;font-size:11.5px}th{background:#eee;text-align:left}.mono{font-family:'Courier New',monospace}td.chk{width:70px;height:26px}tfoot td{font-weight:bold;background:#f6f6f6}.sigs{display:flex;gap:40px;margin-top:60px;flex-wrap:wrap}.sig{flex:1;min-width:180px;text-align:center}.sig .line{border-top:1px solid #333;margin-bottom:6px;height:1px}.sig div:last-child{font-size:12px;color:#333}.sig .dig{min-height:78px;display:flex;align-items:flex-end;justify-content:center;margin-bottom:4px}.obs{margin-top:16px;font-size:12px;color:#444}.confnote{margin-top:8px;font-size:11px;color:#666;font-style:italic}</style></head><body>
   <div class="hd"><div><h1>${esc(opt.titulo)}</h1><div class="sub">${esc(opt.subtitulo||'')}</div></div>${opt.numero?`<div class="numbox"><div class="l">Documento Nº</div><div class="n">${esc(opt.numero)}</div></div>`:''}</div>
   <div class="meta"><div><b>Data:</b> ${esc(opt.data)}</div>${opt.obra?`<div><b>Obra:</b> ${esc(opt.obra)}</div>`:''}${opt.obraDest?`<div><b>Obra destino:</b> ${esc(opt.obraDest)}</div>`:''}${opt.aplicacao?`<div><b>Aplicação:</b> ${esc(opt.aplicacao)}</div>`:''}${opt.doc?`<div><b>Documento:</b> ${esc(opt.doc)}</div>`:''}${opt.responsavel?`<div><b>Responsável:</b> ${esc(opt.responsavel)}</div>`:''}</div>
   <table><thead><tr><th style="width:28px">#</th><th>Cód. barras</th><th>Cód. auxiliar</th><th>Descrição</th><th style="text-align:right">Qtd</th><th style="text-align:right">Valor un.</th><th style="text-align:right">Valor total</th>${conf?'<th style="text-align:center;width:70px">Conferido (X)</th>':''}</tr></thead><tbody>${linhas}</tbody><tfoot><tr><td colspan="6" style="text-align:right">Total</td><td style="text-align:right">${money(total)}</td>${conf?'<td></td>':''}</tr></tfoot></table>
   ${conf?'<div class="confnote">Marque com "X" na coluna "Conferido" cada item recebido/conferido na obra de destino.</div>':''}
   ${opt.obs?`<div class="obs"><b>Observação:</b><br>${esc(opt.obs).replace(/\n/g,'<br>')}</div>`:''}
   ${opt.recebimento?`<div style="margin-top:22px;border:1px solid #999;border-radius:6px;padding:12px 14px"><b style="font-size:13px">Declaração de recebimento</b><div style="margin-top:8px;font-size:12.5px">Declaro o recebimento dos itens relacionados acima na forma assinalada:</div><div style="margin-top:10px;display:flex;gap:34px;font-size:14px"><div>☐&nbsp; <b>TOTAL</b></div><div>☐&nbsp; <b>PARCIAL</b></div></div><div style="margin-top:6px;font-size:11px;color:#666">(Em caso de recebimento parcial, indicar na coluna "Conferido" os itens efetivamente recebidos.)</div><div style="margin-top:34px;display:flex;gap:40px"><div style="flex:1;text-align:center"><div style="border-top:1px solid #333;padding-top:5px;font-size:12px">Recebedor (nome e assinatura)</div></div><div style="width:200px;text-align:center"><div style="border-top:1px solid #333;padding-top:5px;font-size:12px">Data&nbsp;&nbsp;/&nbsp;&nbsp;/</div></div></div></div>`:''}
-  <div class="sigs">${asn}</div>
+  <div class="sigs">${asn}</div>${opt.rodapeHTML||''}
   <script>setTimeout(()=>window.print(),350);<\/script></body></html>`); w.document.close(); }
 function obraName(id){ const o=state.obras.find(o=>o.id===id); return o?o.nome:'(obra removida)'; }
 function curObra(){ return state.currentObra; }
@@ -864,6 +867,7 @@ const titles={ painel:['Painel','Visão por obra'],entrada:['Entrada / Nota Fisc
   separacao:['Separação','Separação física dos itens disponíveis'],
   expedicao:['Expedição','Embalagem, romaneio, nota fiscal, etiquetas de volume e envio'],
   retiradas:['Aguardando Retirada','Material já separado do estoque que ainda não saiu — despacho ou retirada no balcão'],
+  comprovantes:['Comprovantes de Entrega','Arquivo digital — assinaturas, confirmações por login, canhotos e recebimentos na obra'],
   mutuo:['Mútuo entre Empresas','Controle de valores entre empresas e fechamento por período'],
   devolucao:['Devolução de Materiais','Ao fornecedor (nota de devolução) e de requisição (retorno ao estoque)'],
   compras:['Compras','Faltantes de requisições e reposição de estoque'],
@@ -884,7 +888,7 @@ function go(tab){
 const ABA_KEY='estoque_aba_ativa_v1';
 /* Desenha a tela sem mexer na navegação (usado pelo go() e pela atualização ao vivo) */
 function renderAba(tab){ $('#topActions').innerHTML='';
-  ({painel:renderPainel,entrada:renderEntrada,baixa:renderBaixa,notificacoes:renderNotificacoes,ajuste:renderAjuste,inventario:renderInventario,aprovacoes:renderAprovacoes,separacao:renderSeparacao,expedicao:renderExpedicao,retiradas:renderRetiradaPendente,compras:renderCompras,transfer:renderTransfer,mutuo:renderMutuo,devolucao:renderDevolucao,consulta:renderConsulta,obras:renderObras,aplic:renderAplic,tiposetor:renderTipoSetor,produtos:renderProdutos,importar:renderImportar,empresas:renderEmpresas,admin:renderAdmin,relatorios:renderRelatorios,auditoria:renderAuditoria}[tab])();
+  ({painel:renderPainel,entrada:renderEntrada,baixa:renderBaixa,notificacoes:renderNotificacoes,ajuste:renderAjuste,inventario:renderInventario,aprovacoes:renderAprovacoes,separacao:renderSeparacao,expedicao:renderExpedicao,retiradas:renderRetiradaPendente,comprovantes:renderComprovantes,compras:renderCompras,transfer:renderTransfer,mutuo:renderMutuo,devolucao:renderDevolucao,consulta:renderConsulta,obras:renderObras,aplic:renderAplic,tiposetor:renderTipoSetor,produtos:renderProdutos,importar:renderImportar,empresas:renderEmpresas,admin:renderAdmin,relatorios:renderRelatorios,auditoria:renderAuditoria}[tab])();
 }
 function abaPermitida(t){ if(!t||!titles[t])return false;
   if(isEncAlmox()&&ABAS_BLOQUEADAS_ENCALMOX.includes(t))return false;
@@ -917,7 +921,7 @@ function initNavGrps(){
     if(body)body.style.display=open?'':'none'; if(chev)chev.textContent=open?'▾':'▸';
   });
 }
-function refreshFluxoGroupBadge(){ const ids=['navBadgeAprov','navBadgeSeparacao','navBadgeCompras','navBadgeExped','navBadgeRetiradas']; let total=0;
+function refreshFluxoGroupBadge(){ const ids=['navBadgeAprov','navBadgeSeparacao','navBadgeCompras','navBadgeExped','navBadgeRetiradas','navBadgeComprov']; let total=0;
   ids.forEach(id=>{ const el=document.getElementById(id); if(el&&el.style.display!=='none'){ const n=parseInt(el.textContent,10); if(!isNaN(n))total+=n; } });
   const b=document.getElementById('navBadgeFluxo'); if(!b)return; if(total){b.textContent=total;b.style.display='';}else b.style.display='none'; }
 function applyRoleNav(){
@@ -977,7 +981,8 @@ async function refreshGlobalAlerts(){
     const {count:c4}=await sb.from('requisicoes').select('id',{count:'exact',head:true}).eq('solicitante_id',session.user.id).eq('status','aguardando_compra');
     if(c4)alerts.push({tab:'baixa',tone:'err',text:c4===1?'Seu pedido está aguardando compra de material faltante.':'Você tem '+c4+' pedidos aguardando compra de material faltante.'});
   }
-  box.innerHTML=alerts.map(a=>`<div class="galert ${a.tone}" onclick="go('${a.tab}')"><span>${esc(a.text)}</span><span class="ga-cta">Ver →</span></div>`).join('');
+  _gaBaseHTML=alerts.map(a=>`<div class="galert ${a.tone}" onclick="go('${a.tab}')"><span>${esc(a.text)}</span><span class="ga-cta">Ver →</span></div>`).join('');
+  renderGlobalAlerts();
 }
 function needObra(){ if(!state.obras.length){ $('#view').innerHTML=`<div class="tbl-wrap"><div class="empty"><div class="ico">⌂</div>Nenhuma obra cadastrada ainda.<br>Cadastre uma obra para começar.<br><button class="btn primary" onclick="go('obras')">+ Cadastrar obra</button></div></div>`; return true; } return false; }
 
@@ -1822,7 +1827,7 @@ async function drawMinhasEmAndamento(){ const box=$('#minhasAndamento'); if(!box
   }
   const podeEditar=r=>REQ_EDITAVEL.includes(r.status)&&!bloqueadas.has(r.id);
   box.innerHTML=`<table><thead><tr><th>Nº</th><th>Data</th><th>Obra / OS</th><th>Itens</th><th>Situação</th><th></th></tr></thead><tbody>${
-    (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(r.criado_em).getTime())}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${r.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${r.status==='aguardando_compra'?'<br><span class="muted" style="font-size:11px">Falta material — aguardando compra</span>':''}</td><td class="num" style="white-space:nowrap">${podeEditar(r)?`<button class="btn ghost sm" onclick="abrirRequisicao(${r.id})">✎ Editar</button>`:`<button class="btn ghost sm" onclick="verRequisicaoModal(${r.id})">👁 Ver</button>`}</td></tr>`).join('')||`<tr><td colspan="6" class="empty" style="padding:20px">Nada em andamento.</td></tr>`}</tbody></table>`; }
+    (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(r.criado_em).getTime())}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${r.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${r.status==='aguardando_compra'?'<br><span class="muted" style="font-size:11px">Falta material — aguardando compra</span>':''}</td><td class="num" style="white-space:nowrap">${r.status==='embarcado'&&_comprovOk?`<button class="btn primary sm" onclick="abrirRecebimentoObra(${r.id})">📦 Receber</button> `:''}${podeEditar(r)?`<button class="btn ghost sm" onclick="abrirRequisicao(${r.id})">✎ Editar</button>`:`<button class="btn ghost sm" onclick="verRequisicaoModal(${r.id})">👁 Ver</button>`}</td></tr>`).join('')||`<tr><td colspan="6" class="empty" style="padding:20px">Nada em andamento.</td></tr>`}</tbody></table>`; }
 function aplicRequerOS(id){ const a=state.aplicacoes.find(x=>x.id===id); return !!(a&&(a.tipo==='equipamento'||a.tipo==='veiculo')); }
 function updateOsReq(){ const sel=$('#saidaAplic'); const wrap=$('#osFieldWrap'); const inp=$('#saidaOS'); if(!sel||!wrap)return;
   const need=aplicRequerOS(sel.value);
@@ -2552,11 +2557,12 @@ function copiarEntregaSQL(){ navigator.clipboard.writeText(ENTREGA_SQL).then(()=
 function entregaHistHTML(){ const {rets}=window._expedCtx; const lst=(rets||[]).filter(x=>Array.isArray(x.itens)&&x.itens.length); if(!lst.length)return '';
   const ultId=String(rets[0].id);
   return `<div style="margin-top:12px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#8a8377;font-weight:600;margin-bottom:6px">Entregas já registradas</div>${lst.map(x=>`<div class="panel" style="margin-bottom:8px;padding:10px 14px">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><b style="font-size:13px">${esc(x.colaborador_nome||'—')}</b><span class="pill ${x.parcial?'high':'good'}">${x.parcial?'Entrega parcial':'Entrega final'}</span></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><b style="font-size:13px">${esc(x.colaborador_nome||'—')}</b><span><span class="pill ${x.parcial?'high':'good'}">${x.parcial?'Entrega parcial':'Entrega final'}</span> ${comprovPill(x)}</span></div>
       <div class="muted" style="font-size:11.5px">${x.data_retirada?fmtDate(new Date(x.data_retirada).getTime()):''}${x.registrado_por_nome?' · registrado por '+esc(x.registrado_por_nome):''}${x.colaborador_documento?' · doc. '+esc(x.colaborador_documento):''}</div>
+      ${_comprovOk?`<div class="muted" style="font-size:11.5px">${esc(comprovDetalhe(x))}</div>${x.comprov_em&&x.comprov_tipo==='assinatura'?`<div style="margin-top:4px">${sigSvg(x.comprov_assinatura,44)}</div>`:''}`:''}
       <ul style="margin:6px 0 0;padding-left:18px;font-size:12.5px">${x.itens.map(it=>`<li>${esc(it.descricao||it.code||'')} — ${numf(it.quantidade)} ${esc(it.unidade||'')}</li>`).join('')}</ul>
       ${x.observacao?`<div class="muted" style="font-size:11.5px;margin-top:4px">Obs.: ${esc(x.observacao)}</div>`:''}
-      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn ghost sm" onclick="imprimirComprovanteEntrega('${esc(String(x.id))}')">🖨 Comprovante</button>${String(x.id)===ultId&&podeOperarRetiradas()?`<button class="btn danger sm" onclick="estornarEntregaBalcao('${esc(String(x.id))}')">Desfazer entrega</button>`:''}</div></div>`).join('')}</div>`; }
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn ghost sm" onclick="imprimirComprovanteEntrega('${esc(String(x.id))}')">🖨 Comprovante</button>${comprovPendente(x)&&podeOperarRetiradas()?`<button class="btn primary sm" onclick="comprovarEntregaModal('${esc(String(x.id))}','exped')">${x.comprov_tipo==='login'?'✍ Trocar por assinatura':'✍ Colher comprovação'}</button>`:''}${String(x.id)===ultId&&podeOperarRetiradas()?`<button class="btn danger sm" onclick="estornarEntregaBalcao('${esc(String(x.id))}')">Desfazer entrega</button>`:''}</div></div>`).join('')}</div>`; }
 function entregaBalcaoHTML(){ const {r,itens,parcialOk}=window._expedCtx;
   if(r.tipo_envio==='despacho')return '';
   const aberta=ENT_STATUS.includes(r.status);
@@ -2577,13 +2583,14 @@ function entregaBalcaoHTML(){ const {r,itens,parcialOk}=window._expedCtx;
     }</tbody></table></div>
     <div style="display:flex;gap:6px;margin-bottom:12px"><button class="btn ghost sm" onclick="entregaPreencher(true)">Entregar tudo o que está separado</button><button class="btn ghost sm" onclick="entregaPreencher(false)">Zerar</button></div>
     ${!r.tipo_envio?`<div class="field"><label>Tipo de retirada</label><select id="epTipo"><option value="interna">Tramitação interna (retirada no balcão)</option><option value="aplicacao_direta">Retirada no balcão — compra p/ aplicação direta</option></select></div>`:''}
-    <div class="row c2"><div class="field"><label>Colaborador que retirou</label><input id="epColab"></div><div class="field"><label>Documento (opcional)</label><input id="epDoc"></div></div>
+    <div class="row c2"><div class="field"><label>Colaborador que retirou</label><input id="epColab" ${_comprovOk?'list="epUsersList" oninput="epRetiranteChange()" autocomplete="off" placeholder="Digite o nome"':''}>${_comprovOk?`<datalist id="epUsersList">${(_comprovUsers||[]).filter(u=>u.id!==session.user.id).map(u=>`<option value="${esc(u.nome)}">`).join('')}</datalist>`:''}</div><div class="field"><label>Documento (opcional)</label><input id="epDoc"></div></div>
     <div class="field"><label>Observação</label><input id="epObs"></div>
+    ${_comprovOk?comprovFormHTML('ep'):''}
     <button class="btn primary sm" id="epOk" onclick="registrarEntregaBalcao(${r.id})">Registrar entrega</button>`;
   }
   return h+hist; }
 function entregaPreencher(tudo){ document.querySelectorAll('#modalRoot input.ep-q').forEach(el=>{ el.value=tudo?el.dataset.max:0; }); }
-function entregaRefreshTelas(){ try{ drawExpedicaoList(); refreshExpedBadge(); refreshRetiradasBadge(); drawSeparacaoList(); refreshSeparacaoBadge(); drawRetiradaPendente(); refreshMinhasBadge(); refreshGlobalAlerts(); }catch(e){ console.warn(e); } }
+function entregaRefreshTelas(){ try{ if(_comprovOk){ refreshComprovBadge(); if(activeTab==='comprovantes')drawComprovantes(); } drawExpedicaoList(); refreshExpedBadge(); refreshRetiradasBadge(); drawSeparacaoList(); refreshSeparacaoBadge(); drawRetiradaPendente(); refreshMinhasBadge(); refreshGlobalAlerts(); }catch(e){ console.warn(e); } }
 async function registrarEntregaBalcao(reqId){ if(_entSalvando)return;
   if(!podeOperarRetiradas()){ toast('Sem permissão para registrar entrega.','err'); return; }
   const {r,itens}=window._expedCtx; const lista=[]; let erro='';
@@ -2596,6 +2603,8 @@ async function registrarEntregaBalcao(reqId){ if(_entSalvando)return;
   const colab=$('#epColab').value.trim(); if(!colab){ toast('Informe o colaborador que retirou.','err'); $('#epColab').focus(); return; }
   const tipo=r.tipo_envio||($('#epTipo')?$('#epTipo').value:'');
   if(!ehBalcao(tipo)){ toast('Entrega parcial só vale para retirada no balcão.','err'); return; }
+  let comp=null, avisoComp='';
+  if(_comprovOk){ comp=comprovFormRead('ep'); if(!comp)return; }
   _entSalvando=true; const b=$('#epOk'); if(b){ b.disabled=true; b.textContent='Registrando...'; }
   let fim=false;
   try{
@@ -2603,8 +2612,14 @@ async function registrarEntregaBalcao(reqId){ if(_entSalvando)return;
     if(error){ toast('Erro ao registrar a entrega: '+error.message,'err'); return; }
     fim=!!(data&&data.final);
     try{ await sb.rpc('log_event',{p_acao:fim?'entrega_balcao_final':'entrega_balcao_parcial',p_entidade:'requisicoes',p_entidade_id:String(reqId)}); }catch(e){}
+    if(comp){ /* a comprovação é gravada logo depois da entrega; se falhar, a entrega fica marcada como "sem comprovação" e dá para colher de novo */
+      const {data:ult}=await sb.from('retiradas_internas').select('id').eq('requisicao_id',reqId).order('id',{ascending:false}).limit(1);
+      const eC=(ult&&ult[0])?await gravarComprovacao(ult[0].id,comp):{message:'entrega não localizada para vincular'};
+      if(eC)avisoComp=eC.message||'falha ao gravar'; }
   } finally { _entSalvando=false; const b2=$('#epOk'); if(b2){ b2.disabled=false; b2.textContent='Registrar entrega'; } }
   toast(fim?'Entrega registrada — requisição encerrada (tudo retirado).':'Entrega parcial registrada — o restante continua aguardando retirada.','ok');
+  if(avisoComp)toast('A entrega foi registrada, mas a comprovação NÃO foi gravada: '+esc(avisoComp)+' — colha de novo no histórico da entrega.','err');
+  else if(comp&&comp.tipo==='login')toast('Aviso enviado: o retirante confirma o recebimento no usuário dele.','ok');
   await abrirExpedicao(reqId); entregaRefreshTelas(); }
 function estornarEntregaBalcao(retId){ const {r}=window._expedCtx;
   requireSupervisor('Desfazer a última entrega no balcão da REQ-'+String(r.id).padStart(5,'0')+' (os itens voltam a aguardar retirada)',async()=>{
@@ -2613,13 +2628,376 @@ function estornarEntregaBalcao(retId){ const {r}=window._expedCtx;
     try{ await sb.rpc('log_event',{p_acao:'entrega_balcao_estornada',p_entidade:'requisicoes',p_entidade_id:String(r.id)}); }catch(e){}
     toast('Entrega desfeita — os itens voltaram a aguardar retirada.','warn');
     await abrirExpedicao(r.id); entregaRefreshTelas(); }); }
-function imprimirComprovanteEntrega(retId){ const {r,rets}=window._expedCtx; const x=(rets||[]).find(y=>String(y.id)===String(retId)); if(!x||!Array.isArray(x.itens))return;
-  const reqN='REQ-'+String(r.id).padStart(5,'0');
-  printSignReport({titulo:'Comprovante de Entrega no Balcão',numero:reqN,subtitulo:x.parcial?'Entrega parcial — o restante da requisição continua pendente':'Entrega final da requisição',
-    data:x.data_retirada?fmtDate(new Date(x.data_retirada).getTime()):fmtDate(Date.now()),obra:r.obra_nome||'',aplicacao:r.aplicacao_nome||'',
+function imprimirComprovanteEntrega(retId){ const {r,rets}=window._expedCtx; const x=(rets||[]).find(y=>String(y.id)===String(retId)); if(!x)return; _printComprovEntrega(r,x); }
+
+/* ===== COMPROVAÇÃO DIGITAL DE ENTREGA =====
+   Substitui o comprovante impresso e o arquivo físico:
+   · Balcão   — assinatura na tela (quem retira não tem usuário) ou confirmação pelo login de quem retirou.
+   · Despacho — foto do canhoto no embarque + recebimento na obra (QR da etiqueta do volume ou pela lista).
+   · Mútuo    — comprovante do período reunindo os lançamentos e a comprovação de cada entrega.
+   Tudo é gravado por funções do banco (script COMPROV_SQL — rodar uma vez no Supabase), que conferem quem pode
+   fazer o quê e não deixam alterar uma entrega depois de comprovada. Sem o script instalado, nada muda nas telas. */
+const COMPROV_SQL="-- Comprovação digital de entrega\n--   Balcão: assinatura na tela ou confirmação pelo login de quem retirou\n--   Despacho: foto do canhoto no embarque e recebimento na obra (QR do volume)\n-- Rodar uma vez no Supabase (SQL Editor) do projeto Estoque. Pode rodar de novo sem problema.\n--\n-- O script é gravado em etapas (os \"commit\" abaixo): cada tabela é alterada sozinha, para não travar com quem está\n-- usando o sistema. Se parar com \"lock timeout\" ou \"deadlock\", é só rodar de novo: ele continua de onde parou.\n\n-- 0) Trava de segurança: o status \"recebido\" precisa ser aceito pela tabela de requisições\ndo $$ declare c record; begin\n  for c in select conname, pg_get_constraintdef(oid) as def from pg_constraint\n           where conrelid = 'public.requisicoes'::regclass and contype = 'c' loop\n    if c.def ilike '%embarcado%' and c.def not ilike '%recebido%' then\n      raise exception 'A restrição \"%\" da tabela requisicoes não aceita o status \"recebido\". Nada foi alterado. Definição atual: %', c.conname, c.def;\n    end if;\n  end loop;\nend $$;\ncommit;\n\n-- 1) Colunas — uma tabela por vez. Na primeira instalação, o que já existia fica marcado como\n--    \"comprovante em papel\", para não aparecer como pendência de comprovação digital.\n\n-- 1a) Entregas no balcão\nset local lock_timeout = '10s';\ndo $$ begin\n  if not exists (select 1 from information_schema.columns where table_schema = 'public'\n                 and table_name = 'retiradas_internas' and column_name = 'comprov_tipo') then\n    alter table public.retiradas_internas add column comprov_tipo text;\n    update public.retiradas_internas set comprov_tipo = 'papel';\n  end if;\nend $$;\nalter table public.retiradas_internas\n  add column if not exists itens jsonb,\n  add column if not exists parcial boolean not null default false,\n  add column if not exists comprov_assinatura text,\n  add column if not exists retirante_id uuid,\n  add column if not exists retirante_nome text,\n  add column if not exists comprov_em timestamptz,\n  add column if not exists comprov_por uuid,\n  add column if not exists comprov_por_nome text;\ncommit;\n\n-- 1b) Despachos\nset local lock_timeout = '10s';\ndo $$ begin\n  if not exists (select 1 from information_schema.columns where table_schema = 'public'\n                 and table_name = 'embarques' and column_name = 'comprov_legado') then\n    alter table public.embarques add column comprov_legado boolean not null default false;\n    update public.embarques set comprov_legado = true;\n  end if;\nend $$;\nalter table public.embarques\n  add column if not exists canhoto_path text,\n  add column if not exists canhoto_em timestamptz,\n  add column if not exists canhoto_por_nome text,\n  add column if not exists recebido_em timestamptz,\n  add column if not exists recebido_por uuid,\n  add column if not exists recebido_por_nome text,\n  add column if not exists recebimento_obs text;\ncommit;\n\n-- 1c) Volumes\nset local lock_timeout = '10s';\nalter table public.caixas\n  add column if not exists recebida_em timestamptz,\n  add column if not exists recebida_por_nome text;\ncommit;\n\n-- 2) Arquivo das fotos (canhotos): pasta privada, só JPEG até 2 MB.\n--    Não há regra de alteração nem de exclusão: depois de enviada, a foto não pode ser trocada nem apagada pelo sistema.\nset local lock_timeout = '10s';\ninsert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)\nvalues ('comprovantes', 'comprovantes', false, 2097152, array['image/jpeg'])\non conflict (id) do nothing;\n\ndrop policy if exists \"comprovantes: leitura\" on storage.objects;\ncreate policy \"comprovantes: leitura\" on storage.objects\n  for select to authenticated\n  using (bucket_id = 'comprovantes'\n         and exists (select 1 from public.profiles p where p.id = auth.uid() and p.ativo));\n\ndrop policy if exists \"comprovantes: envio\" on storage.objects;\ncreate policy \"comprovantes: envio\" on storage.objects\n  for insert to authenticated\n  with check (bucket_id = 'comprovantes'\n              and exists (select 1 from public.profiles p where p.id = auth.uid() and p.ativo\n                          and (p.papel in ('admin','encarregado') or p.setor = 'almoxarifado')));\ncommit;\n\n-- 3) Quem pode confirmar o recebimento na obra: o solicitante, o encarregado vinculado à obra,\n--    o encarregado do almoxarifado e o administrador.\ncreate or replace function public.comprov_pode_receber(p_requisicao_id bigint)\nreturns boolean language sql stable security definer set search_path = public as $$\n  select exists (\n    select 1 from requisicoes r, profiles p\n    where r.id = p_requisicao_id and p.id = auth.uid() and p.ativo\n      and (p.papel = 'admin' or r.solicitante_id = auth.uid()\n           or (p.papel = 'encarregado'\n               and (p.setor = 'almoxarifado'\n                    or coalesce(to_jsonb(p.obras_vinculadas), '[]'::jsonb) ? (r.obra_id)::text))));\n$$;\n\n-- 4) Usuários ativos (para escolher quem está retirando no balcão)\ncreate or replace function public.comprov_usuarios()\nreturns jsonb language sql stable security definer set search_path = public as $$\n  select coalesce(jsonb_agg(jsonb_build_object('id', p.id, 'nome', coalesce(nullif(btrim(p.nome), ''), p.email))\n                            order by coalesce(nullif(btrim(p.nome), ''), p.email)), '[]'::jsonb)\n  from profiles p\n  where p.ativo and exists (select 1 from profiles me where me.id = auth.uid() and me.ativo);\n$$;\n\n-- 5) Balcão: grava a comprovação de uma entrega (assinatura na tela, ou indica o usuário que vai confirmar pelo login).\n--    Depois de comprovada, a entrega não pode mais ser alterada.\ncreate or replace function public.comprovar_entrega_balcao(\n  p_retirada_id text, p_tipo text, p_assinatura text default null, p_retirante_id uuid default null)\nreturns jsonb language plpgsql security definer set search_path = public as $$\ndeclare v_ret record; v_eu text; v_nome text;\nbegin\n  select coalesce(nullif(btrim(nome), ''), email) into v_eu from profiles\n    where id = auth.uid() and ativo and (papel in ('admin','encarregado') or setor = 'almoxarifado');\n  if not found then raise exception 'Seu usuário não tem permissão para registrar a comprovação de entrega.'; end if;\n  select * into v_ret from retiradas_internas where id::text = p_retirada_id for update;\n  if not found then raise exception 'Entrega não encontrada.'; end if;\n  if v_ret.comprov_em is not null then raise exception 'Esta entrega já está comprovada e não pode ser alterada.'; end if;\n\n  if p_tipo = 'assinatura' then\n    if coalesce(length(p_assinatura), 0) < 30 then raise exception 'Assinatura em branco.'; end if;\n    if length(p_assinatura) > 60000 then raise exception 'Assinatura grande demais — limpe e assine de novo.'; end if;\n    update retiradas_internas\n      set comprov_tipo = 'assinatura', comprov_assinatura = p_assinatura, retirante_id = null, retirante_nome = null,\n          comprov_em = now(), comprov_por = auth.uid(), comprov_por_nome = v_eu\n      where id::text = p_retirada_id;\n  elsif p_tipo = 'login' then\n    if p_retirante_id is null then raise exception 'Informe o usuário que vai confirmar o recebimento.'; end if;\n    if p_retirante_id = auth.uid() or p_retirante_id = v_ret.registrado_por then\n      raise exception 'Quem registra a entrega não pode ser o mesmo usuário que confirma o recebimento. Use a assinatura na tela.'; end if;\n    select coalesce(nullif(btrim(nome), ''), email) into v_nome from profiles where id = p_retirante_id and ativo;\n    if not found then raise exception 'Usuário do retirante não encontrado ou inativo.'; end if;\n    update retiradas_internas\n      set comprov_tipo = 'login', comprov_assinatura = null, retirante_id = p_retirante_id, retirante_nome = v_nome,\n          comprov_em = null, comprov_por = null, comprov_por_nome = null\n      where id::text = p_retirada_id;\n  else\n    raise exception 'Tipo de comprovação inválido.';\n  end if;\n  return jsonb_build_object('ok', true);\nend $$;\n\n-- 6) Balcão: o próprio retirante confirma, com o login dele, que recebeu o material\ncreate or replace function public.confirmar_entrega_login(p_retirada_id text)\nreturns jsonb language plpgsql security definer set search_path = public as $$\ndeclare v_ret record; v_eu text;\nbegin\n  select coalesce(nullif(btrim(nome), ''), email) into v_eu from profiles where id = auth.uid() and ativo;\n  if not found then raise exception 'Usuário inativo.'; end if;\n  select * into v_ret from retiradas_internas where id::text = p_retirada_id for update;\n  if not found then raise exception 'Entrega não encontrada — pode ter sido desfeita pelo almoxarifado.'; end if;\n  if v_ret.comprov_tipo is distinct from 'login' or v_ret.retirante_id is distinct from auth.uid() then\n    raise exception 'Esta entrega não está aguardando a sua confirmação.'; end if;\n  if v_ret.comprov_em is not null then return jsonb_build_object('ok', true, 'ja', true); end if;\n  update retiradas_internas set comprov_em = now(), comprov_por = auth.uid(), comprov_por_nome = v_eu\n    where id::text = p_retirada_id;\n  return jsonb_build_object('ok', true);\nend $$;\n\n-- 7) O que está esperando por mim: entregas no balcão para eu confirmar e despachos para eu receber na obra\ncreate or replace function public.comprov_minhas_pendencias()\nreturns jsonb language sql stable security definer set search_path = public as $$\n  select jsonb_build_object(\n    'confirmar', coalesce((\n      select jsonb_agg(jsonb_build_object('id', t.id::text, 'requisicao_id', t.requisicao_id, 'obra_nome', r.obra_nome,\n               'ordem_servico', r.ordem_servico, 'data_retirada', t.data_retirada, 'registrado_por_nome', t.registrado_por_nome,\n               'itens', t.itens, 'parcial', t.parcial, 'observacao', t.observacao) order by t.data_retirada)\n      from retiradas_internas t join requisicoes r on r.id = t.requisicao_id\n      where t.comprov_tipo = 'login' and t.retirante_id = auth.uid() and t.comprov_em is null), '[]'::jsonb),\n    'receber', coalesce((\n      select jsonb_agg(jsonb_build_object('requisicao_id', r.id, 'obra_nome', r.obra_nome, 'ordem_servico', r.ordem_servico,\n               'transportadora', e.transportadora, 'data_embarque', e.data_embarque,\n               'data_prevista_entrega', e.data_prevista_entrega) order by e.data_embarque)\n      from requisicoes r join embarques e on e.requisicao_id = r.id\n        join profiles p on p.id = auth.uid() and p.ativo\n      where r.status = 'embarcado' and not e.comprov_legado and e.recebido_em is null\n        and (r.solicitante_id = auth.uid()\n             or (p.papel = 'encarregado' and coalesce(to_jsonb(p.obras_vinculadas), '[]'::jsonb) ? (r.obra_id)::text))), '[]'::jsonb));\n$$;\n\n-- 8) Despacho: registra a foto do canhoto (o arquivo já foi enviado para a pasta \"comprovantes\")\ncreate or replace function public.registrar_canhoto(p_embarque_id text, p_path text)\nreturns jsonb language plpgsql security definer set search_path = public as $$\ndeclare v_emb record; v_eu text; v_papel text;\nbegin\n  select coalesce(nullif(btrim(nome), ''), email), papel into v_eu, v_papel from profiles\n    where id = auth.uid() and ativo and (papel in ('admin','encarregado') or setor = 'almoxarifado');\n  if not found then raise exception 'Seu usuário não tem permissão para anexar o canhoto.'; end if;\n  if coalesce(btrim(p_path), '') = '' then raise exception 'Arquivo não informado.'; end if;\n  select * into v_emb from embarques where id::text = p_embarque_id for update;\n  if not found then raise exception 'Despacho não encontrado.'; end if;\n  if v_emb.canhoto_path is not null and v_papel <> 'admin' then\n    raise exception 'Este despacho já tem canhoto anexado. Só o administrador pode substituir.'; end if;\n  update embarques set canhoto_path = p_path, canhoto_em = now(), canhoto_por_nome = v_eu where id::text = p_embarque_id;\n  return jsonb_build_object('ok', true);\nend $$;\n\n-- 9) Recebimento na obra: dados do despacho para a tela de recebimento\ncreate or replace function public.dados_recebimento_obra(p_requisicao_id bigint)\nreturns jsonb language plpgsql stable security definer set search_path = public as $$\ndeclare v_req record; v_pode boolean; v_opera boolean;\nbegin\n  select * into v_req from requisicoes where id = p_requisicao_id;\n  if not found then raise exception 'Requisição não encontrada.'; end if;\n  v_pode := comprov_pode_receber(p_requisicao_id);\n  select exists (select 1 from profiles p where p.id = auth.uid() and p.ativo\n                 and (p.papel in ('admin','encarregado') or p.setor in ('almoxarifado','compras'))) into v_opera;\n  if not v_pode and not v_opera then\n    raise exception 'Seu usuário não tem acesso a esta requisição (só o solicitante, o encarregado da obra ou o administrador confirmam o recebimento).'; end if;\n  return jsonb_build_object(\n    'pode', v_pode,\n    'req', jsonb_build_object('id', v_req.id, 'obra_nome', v_req.obra_nome, 'ordem_servico', v_req.ordem_servico, 'status', v_req.status),\n    'embarque', (select to_jsonb(e) || jsonb_build_object('id', e.id::text) from embarques e\n                 where e.requisicao_id = p_requisicao_id order by e.data_embarque desc nulls last limit 1),\n    'caixas', coalesce((\n      select jsonb_agg(jsonb_build_object('codigo', c.codigo, 'recebida_em', c.recebida_em, 'recebida_por_nome', c.recebida_por_nome,\n               'itens', coalesce((select jsonb_agg(jsonb_build_object('descricao', ic.descricao, 'quantidade', ic.quantidade))\n                                  from itens_caixa ic where ic.caixa_id = c.id), '[]'::jsonb)) order by c.codigo)\n      from caixas c where c.requisicao_id = p_requisicao_id), '[]'::jsonb));\nend $$;\n\n-- 10) Recebimento na obra: confirma os volumes recebidos. Quando todos chegaram, a requisição vira \"recebido\".\ncreate or replace function public.confirmar_recebimento_obra(p_requisicao_id bigint, p_codigos jsonb default null, p_obs text default null)\nreturns jsonb language plpgsql security definer set search_path = public as $$\ndeclare v_req record; v_eu text; v_n integer; v_falta integer; v_obs text;\nbegin\n  if not comprov_pode_receber(p_requisicao_id) then\n    raise exception 'Seu usuário não pode confirmar o recebimento desta requisição (só o solicitante, o encarregado da obra ou o administrador).'; end if;\n  select coalesce(nullif(btrim(nome), ''), email) into v_eu from profiles where id = auth.uid();\n  select * into v_req from requisicoes where id = p_requisicao_id for update;\n  if not found then raise exception 'Requisição não encontrada.'; end if;\n  if v_req.status = 'recebido' then return jsonb_build_object('final', true, 'ja', true); end if;\n  if v_req.status <> 'embarcado' then\n    raise exception 'A requisição está em \"%\" — só dá para confirmar o recebimento de material já embarcado.', v_req.status; end if;\n  if p_codigos is not null and jsonb_typeof(p_codigos) <> 'array' then raise exception 'Lista de volumes inválida.'; end if;\n\n  update caixas set recebida_em = now(), recebida_por_nome = v_eu\n    where requisicao_id = p_requisicao_id and recebida_em is null\n      and (p_codigos is null or codigo in (select jsonb_array_elements_text(p_codigos)));\n  get diagnostics v_n = row_count;\n  select count(*) into v_falta from caixas where requisicao_id = p_requisicao_id and recebida_em is null;\n  if v_n = 0 and v_falta > 0 then raise exception 'Nenhum volume marcado para receber.'; end if;\n\n  v_obs := nullif(btrim(coalesce(p_obs, '')), '');\n  if v_obs is not null then\n    update embarques set recebimento_obs = concat_ws(' | ', nullif(recebimento_obs, ''), v_obs || ' (' || v_eu || ')')\n      where requisicao_id = p_requisicao_id;\n  end if;\n  if v_falta = 0 then\n    update embarques set recebido_em = now(), recebido_por = auth.uid(), recebido_por_nome = v_eu\n      where requisicao_id = p_requisicao_id and recebido_em is null;\n    update requisicoes set status = 'recebido' where id = p_requisicao_id;\n  end if;\n  return jsonb_build_object('final', v_falta = 0, 'recebidos_agora', v_n, 'faltam', v_falta);\nend $$;\n\n-- 11) Desfaz o recebimento na obra (administrador ou encarregado do almoxarifado): volta para \"embarcado\"\ncreate or replace function public.desfazer_recebimento_obra(p_requisicao_id bigint)\nreturns jsonb language plpgsql security definer set search_path = public as $$\nbegin\n  if not exists (select 1 from profiles p where p.id = auth.uid() and p.ativo\n                 and (p.papel = 'admin' or (p.papel = 'encarregado' and p.setor = 'almoxarifado'))) then\n    raise exception 'Só o administrador ou o encarregado do almoxarifado desfaz o recebimento na obra.'; end if;\n  update caixas set recebida_em = null, recebida_por_nome = null where requisicao_id = p_requisicao_id;\n  update embarques set recebido_em = null, recebido_por = null, recebido_por_nome = null, recebimento_obs = null\n    where requisicao_id = p_requisicao_id;\n  update requisicoes set status = 'embarcado' where id = p_requisicao_id and status = 'recebido';\n  return jsonb_build_object('ok', true);\nend $$;\n\n-- 12) Arquivo de comprovantes: entregas do período + tudo o que ainda está pendente de comprovação\ncreate or replace function public.comprov_arquivo(p_de timestamptz, p_ate timestamptz)\nreturns jsonb language plpgsql stable security definer set search_path = public as $$\nbegin\n  if not exists (select 1 from profiles p where p.id = auth.uid() and p.ativo\n                 and (p.papel in ('admin','encarregado') or p.setor in ('almoxarifado','compras'))) then\n    raise exception 'Acesso restrito ao almoxarifado, compras e encarregados/administradores.'; end if;\n  return jsonb_build_object(\n    'balcao', coalesce((\n      select jsonb_agg((to_jsonb(t) - 'comprov_assinatura' - 'itens') || jsonb_build_object('id', t.id::text,\n               'obra_nome', r.obra_nome, 'ordem_servico', r.ordem_servico, 'req_status', r.status,\n               'mutuo', r.mutuo_empresa_destino is not null) order by t.data_retirada desc)\n      from retiradas_internas t join requisicoes r on r.id = t.requisicao_id\n      where (t.data_retirada >= p_de and t.data_retirada <= p_ate)\n         or (t.comprov_em is null and t.comprov_tipo is distinct from 'papel')), '[]'::jsonb),\n    'despachos', coalesce((\n      select jsonb_agg(to_jsonb(e) || jsonb_build_object('id', e.id::text,\n               'obra_nome', r.obra_nome, 'ordem_servico', r.ordem_servico, 'req_status', r.status,\n               'mutuo', r.mutuo_empresa_destino is not null,\n               'volumes', (select count(*) from caixas c where c.requisicao_id = e.requisicao_id),\n               'volumes_recebidos', (select count(*) from caixas c where c.requisicao_id = e.requisicao_id and c.recebida_em is not null))\n             order by e.data_embarque desc)\n      from embarques e join requisicoes r on r.id = e.requisicao_id\n      where (e.data_embarque >= p_de and e.data_embarque <= p_ate)\n         or (not e.comprov_legado and (e.canhoto_path is null or e.recebido_em is null))), '[]'::jsonb));\nend $$;\n\n-- 13) Dados completos de comprovação de uma ou mais requisições (comprovante individual e comprovante do mútuo)\ncreate or replace function public.comprov_dados(p_requisicoes jsonb)\nreturns jsonb language plpgsql stable security definer set search_path = public as $$\ndeclare v_ids bigint[];\nbegin\n  if not exists (select 1 from profiles p where p.id = auth.uid() and p.ativo\n                 and (p.papel in ('admin','encarregado') or p.setor in ('almoxarifado','compras'))) then\n    raise exception 'Acesso restrito ao almoxarifado, compras e encarregados/administradores.'; end if;\n  select coalesce(array_agg(x::bigint), '{}') into v_ids from jsonb_array_elements_text(coalesce(p_requisicoes, '[]'::jsonb)) x;\n  return jsonb_build_object(\n    'reqs', coalesce((select jsonb_agg(to_jsonb(r)) from requisicoes r where r.id = any(v_ids)), '[]'::jsonb),\n    'balcao', coalesce((select jsonb_agg(to_jsonb(t) || jsonb_build_object('id', t.id::text) order by t.data_retirada)\n                        from retiradas_internas t where t.requisicao_id = any(v_ids)), '[]'::jsonb),\n    'despachos', coalesce((select jsonb_agg(to_jsonb(e) || jsonb_build_object('id', e.id::text) order by e.data_embarque)\n                           from embarques e where e.requisicao_id = any(v_ids)), '[]'::jsonb),\n    'caixas', coalesce((select jsonb_agg(jsonb_build_object('requisicao_id', c.requisicao_id, 'codigo', c.codigo,\n                          'recebida_em', c.recebida_em, 'recebida_por_nome', c.recebida_por_nome) order by c.requisicao_id, c.codigo)\n                        from caixas c where c.requisicao_id = any(v_ids)), '[]'::jsonb));\nend $$;\n\ngrant execute on function public.comprov_pode_receber(bigint) to authenticated;\ngrant execute on function public.comprov_usuarios() to authenticated;\ngrant execute on function public.comprovar_entrega_balcao(text, text, text, uuid) to authenticated;\ngrant execute on function public.confirmar_entrega_login(text) to authenticated;\ngrant execute on function public.comprov_minhas_pendencias() to authenticated;\ngrant execute on function public.registrar_canhoto(text, text) to authenticated;\ngrant execute on function public.dados_recebimento_obra(bigint) to authenticated;\ngrant execute on function public.confirmar_recebimento_obra(bigint, jsonb, text) to authenticated;\ngrant execute on function public.desfazer_recebimento_obra(bigint) to authenticated;\ngrant execute on function public.comprov_arquivo(timestamptz, timestamptz) to authenticated;\ngrant execute on function public.comprov_dados(jsonb) to authenticated;\n";
+let _comprovOk=null, _comprovPend={confirmar:[],receber:[]}, _comprovUsers=null, _gaBaseHTML='', _comprovArq=null;
+const reqNum=id=>'REQ-'+String(id).padStart(5,'0');
+const fmtTs=v=>v?fmtDate(new Date(v).getTime()):'';
+function copiarComprovSQL(){ navigator.clipboard.writeText(COMPROV_SQL).then(()=>toast('Script copiado.','ok'),()=>toast('Não foi possível copiar — use o arquivo comprovacao_digital.sql.','err')); }
+function comprovInstallHTML(){
+  return isAdmin()?`<div class="panel" style="border-left:4px solid #c98a1a"><h3>🧾 Comprovação digital de entrega — falta atualizar o banco</h3>
+      <p class="desc">Copie o script e rode uma vez no <b>SQL Editor</b> do Supabase (projeto Estoque). Depois recarregue esta página. Enquanto isso o sistema segue como antes, com o comprovante impresso.</p>
+      <button class="btn primary sm" onclick="copiarComprovSQL()">Copiar script SQL</button></div>`
+    :`<div class="tbl-wrap"><div class="empty">A comprovação digital de entrega ainda não foi ativada pelo administrador.</div></div>`; }
+
+/* --- O que está esperando por mim (entregas para confirmar com o meu login · despachos para receber na obra) --- */
+async function refreshComprovPend(){
+  if(!session||!profile||!isOnline)return;
+  try{ const {data,error}=await sb.rpc('comprov_minhas_pendencias');
+    if(error){ if(_comprovOk===null&&(error.code==='PGRST202'||error.code==='42883'||/schema cache|does not exist/i.test(error.message||'')))_comprovOk=false; return; }
+    _comprovOk=true; _comprovPend={confirmar:(data&&data.confirmar)||[],receber:(data&&data.receber)||[]};
+  }catch(e){ return; }
+  renderGlobalAlerts(); }
+function comprovAlertsHTML(){ if(!_comprovOk)return ''; const c=_comprovPend.confirmar.length, r=_comprovPend.receber.length; let h='';
+  if(c)h+=`<div class="galert err" onclick="abrirMinhasPendencias()"><span>${c===1?'Você tem 1 entrega':'Você tem '+c+' entregas'} do almoxarifado para confirmar o recebimento.</span><span class="ga-cta">Confirmar →</span></div>`;
+  if(r)h+=`<div class="galert warn" onclick="abrirMinhasPendencias()"><span>${r===1?'1 despacho a caminho':r+' despachos a caminho'} para você — confirme o recebimento quando chegar.</span><span class="ga-cta">Receber →</span></div>`;
+  return h; }
+function renderGlobalAlerts(){ const box=$('#globalAlerts'); if(box)box.innerHTML=comprovAlertsHTML()+_gaBaseHTML; }
+setInterval(()=>{ if(_comprovOk&&session&&profile&&document.visibilityState==='visible')refreshComprovPend(); },90000);
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'&&_comprovOk&&session&&profile)refreshComprovPend(); });
+async function loadComprovUsuarios(force){ if(_comprovUsers&&!force)return _comprovUsers;
+  const {data,error}=await sb.rpc('comprov_usuarios'); if(!error&&Array.isArray(data))_comprovUsers=data; return _comprovUsers||[]; }
+function abrirMinhasPendencias(){
+  const c=_comprovPend.confirmar, r=_comprovPend.receber;
+  let h=`<h3>Pendências de recebimento</h3>`;
+  if(c.length){ h+=`<div class="sechead" style="margin-top:10px"><h3 style="font-size:13px">🤝 Retiradas no balcão para você confirmar</h3></div>
+    <p class="mp" style="font-size:12px">Confira os itens e confirme. A confirmação fica registrada com o seu usuário, data e hora. <b>Não recebeu?</b> Não confirme e procure o almoxarifado.</p>`+
+    c.map(x=>`<div class="panel" style="margin-bottom:8px;padding:10px 14px"><b style="font-size:13px">${reqNum(x.requisicao_id)} — ${esc(x.obra_nome||'')}</b>${x.ordem_servico?' · OS '+esc(x.ordem_servico):''}
+      <div class="muted" style="font-size:11.5px">${fmtTs(x.data_retirada)}${x.registrado_por_nome?' · entregue por '+esc(x.registrado_por_nome):''}${x.parcial?' · entrega parcial':''}</div>
+      ${Array.isArray(x.itens)&&x.itens.length?`<ul style="margin:6px 0 0;padding-left:18px;font-size:12.5px">${x.itens.map(it=>`<li>${esc(it.descricao||it.code||'')} — ${numf(it.quantidade)} ${esc(it.unidade||'')}</li>`).join('')}</ul>`:''}
+      ${x.observacao?`<div class="muted" style="font-size:11.5px;margin-top:4px">Obs.: ${esc(x.observacao)}</div>`:''}
+      <div style="margin-top:8px"><button class="btn primary sm" onclick="confirmarEntregaLogin('${esc(String(x.id))}',this)">✔ Confirmo que recebi estes itens</button></div></div>`).join(''); }
+  if(r.length){ h+=`<div class="sechead" style="margin-top:14px"><h3 style="font-size:13px">🚚 Despachos a caminho</h3></div>`+
+    r.map(x=>`<div class="panel" style="margin-bottom:8px;padding:10px 14px"><b style="font-size:13px">${reqNum(x.requisicao_id)} — ${esc(x.obra_nome||'')}</b>${x.ordem_servico?' · OS '+esc(x.ordem_servico):''}
+      <div class="muted" style="font-size:11.5px">Transportadora: ${esc(x.transportadora||'—')} · embarcado em ${fmtTs(x.data_embarque)}${x.data_prevista_entrega?' · previsão '+new Date(x.data_prevista_entrega+'T00:00:00').toLocaleDateString('pt-BR'):''}</div>
+      <div style="margin-top:8px"><button class="btn primary sm" onclick="abrirRecebimentoObra(${Number(x.requisicao_id)})">📦 Chegou — conferir e receber</button></div></div>`).join(''); }
+  if(!c.length&&!r.length)h+=`<p class="mp">Nada pendente para você no momento.</p>`;
+  h+=`<div style="display:flex;justify-content:space-between;gap:10px;margin-top:14px;flex-wrap:wrap"><button class="btn ghost" onclick="lerQrRecebimento()">📷 Ler QR do volume</button><button class="btn ghost" onclick="closeModal()">Fechar</button></div>`;
+  modal(h); }
+async function confirmarEntregaLogin(retId,btn){ if(btn){ btn.disabled=true; btn.textContent='Confirmando...'; }
+  const {error}=await sb.rpc('confirmar_entrega_login',{p_retirada_id:String(retId)});
+  if(error){ toast('Não foi possível confirmar: '+esc(error.message),'err'); if(btn){ btn.disabled=false; btn.textContent='✔ Confirmo que recebi estes itens'; } return; }
+  try{ await sb.rpc('log_event',{p_acao:'entrega_confirmada_login',p_entidade:'retiradas_internas',p_entidade_id:String(retId)}); }catch(e){}
+  toast('Recebimento confirmado.','ok'); await refreshComprovPend();
+  if(_comprovPend.confirmar.length||_comprovPend.receber.length)abrirMinhasPendencias(); else closeModal();
+  refreshComprovBadge(); if(activeTab==='comprovantes')drawComprovantes(); }
+
+/* --- Quadro de assinatura: guarda o traço como vetor (leve, nítido na impressão) --- */
+const SIG_W=600, SIG_H=260, _sigPads={};
+function sigPadHTML(id){ return `<canvas id="${id}" style="width:100%;aspect-ratio:${SIG_W}/${SIG_H};border:1.5px dashed #b9b2a3;border-radius:8px;background:#fff;touch-action:none;display:block;cursor:crosshair"></canvas>
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:4px"><span class="muted" style="font-size:11px">Quem está retirando assina com o dedo (ou o mouse) dentro do quadro.</span><button type="button" class="btn ghost sm" onclick="sigPadClear('${id}')">Limpar</button></div>`; }
+function sigPadRedraw(id){ const cv=document.getElementById(id), pad=_sigPads[id]; if(!cv||!pad)return; const ctx=cv.getContext('2d'); const k=cv.width/SIG_W;
+  ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,cv.width,cv.height); ctx.setTransform(k,0,0,cv.height/SIG_H,0,0);
+  ctx.lineWidth=3; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.strokeStyle='#111';
+  pad.strokes.forEach(s=>{ ctx.beginPath(); ctx.moveTo(s[0][0],s[0][1]); if(s.length===1)ctx.lineTo(s[0][0]+1,s[0][1]); for(let i=1;i<s.length;i++)ctx.lineTo(s[i][0],s[i][1]); ctx.stroke(); }); }
+function sigPadFit(id){ const cv=document.getElementById(id); if(!cv)return; const r=cv.getBoundingClientRect(); if(!r.width)return; const dpr=window.devicePixelRatio||1;
+  cv.width=Math.max(1,Math.round(r.width*dpr)); cv.height=Math.max(1,Math.round(r.height*dpr)); sigPadRedraw(id); }
+function sigPadInit(id){ const cv=document.getElementById(id); if(!cv)return; const pad={strokes:[],cur:null}; _sigPads[id]=pad;
+  const pos=e=>{ const r=cv.getBoundingClientRect(); return [Math.max(0,Math.min(SIG_W,Math.round((e.clientX-r.left)/r.width*SIG_W))),Math.max(0,Math.min(SIG_H,Math.round((e.clientY-r.top)/r.height*SIG_H)))]; };
+  cv.addEventListener('pointerdown',e=>{ e.preventDefault(); try{ cv.setPointerCapture(e.pointerId); }catch(_){} pad.cur=[pos(e)]; pad.strokes.push(pad.cur); sigPadRedraw(id); });
+  cv.addEventListener('pointermove',e=>{ if(!pad.cur)return; e.preventDefault(); const p=pos(e), l=pad.cur[pad.cur.length-1]; if(Math.abs(p[0]-l[0])+Math.abs(p[1]-l[1])<3)return; pad.cur.push(p); sigPadRedraw(id); });
+  const fim=()=>{ pad.cur=null; }; cv.addEventListener('pointerup',fim); cv.addEventListener('pointercancel',fim);
+  sigPadFit(id); }
+function sigPadClear(id){ const pad=_sigPads[id]; if(pad){ pad.strokes=[]; pad.cur=null; sigPadRedraw(id); } }
+/* devolve o traço pronto para gravar, ou '' se o quadro está vazio / só com um risquinho */
+function sigPadData(id){ const pad=_sigPads[id]; if(!pad||!pad.strokes.length)return '';
+  let strokes=pad.strokes, n=0, x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
+  strokes.forEach(s=>s.forEach(p=>{ n++; if(p[0]<x0)x0=p[0]; if(p[0]>x1)x1=p[0]; if(p[1]<y0)y0=p[1]; if(p[1]>y1)y1=p[1]; }));
+  if(n<8||((x1-x0)<40&&(y1-y0)<25))return '';
+  const mk=ss=>ss.map(s=>'M'+s[0][0]+' '+s[0][1]+(s.length===1?'L'+(s[0][0]+1)+' '+s[0][1]:s.slice(1).map(p=>'L'+p[0]+' '+p[1]).join(''))).join('');
+  let d=mk(strokes);
+  while(d.length>45000){ strokes=strokes.map(s=>s.filter((p,i)=>i%2===0||i===s.length-1)); d=mk(strokes); }
+  return 'v1|'+SIG_W+'|'+SIG_H+'|'+d; }
+function sigSvg(val,h){ const m=/^v1\|(\d+)\|(\d+)\|([\s\S]*)$/.exec(val||''); if(!m)return '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${m[1]} ${m[2]}" style="height:${h||70}px;width:auto;max-width:100%"><path d="${m[3].replace(/[^ML0-9 ]/g,'')}" fill="none" stroke="#111" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`; }
+
+/* --- Formulário de comprovação (usado na entrega no balcão e ao colher a comprovação depois) --- */
+function comprovFormHTML(pfx){ const us=(_comprovUsers||[]).filter(u=>u.id!==session.user.id);
+  const rad='display:flex;align-items:center;gap:6px;text-transform:none;font-weight:500;margin:0';
+  return `<div class="field" style="margin-bottom:8px"><label>Comprovação do recebimento</label>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:2px">
+        <label style="${rad}"><input type="radio" name="${pfx}Modo" value="assinatura" checked onchange="comprovModoChange('${pfx}')" style="width:auto"> ✍ Assinatura na tela</label>
+        <label style="${rad}"><input type="radio" name="${pfx}Modo" value="login" onchange="comprovModoChange('${pfx}')" style="width:auto"> 🔑 Login de quem retirou</label></div></div>
+    <div id="${pfx}SigWrap" style="margin-bottom:12px">${sigPadHTML(pfx+'Sig')}</div>
+    <div id="${pfx}LoginWrap" style="display:none"><div class="field"><label>Usuário que vai confirmar</label><select id="${pfx}User"><option value="">— escolha —</option>${us.map(u=>`<option value="${esc(u.id)}">${esc(u.nome)}</option>`).join('')}</select></div>
+      <p class="mp" style="font-size:12px;margin-bottom:12px">Ele recebe um aviso no sistema e confirma com o próprio login. Até lá a entrega fica como <b>aguardando confirmação</b>.</p></div>`; }
+function comprovModoSet(pfx,modo){ const el=document.querySelector('input[name='+pfx+'Modo][value='+modo+']'); if(el){ el.checked=true; comprovModoChange(pfx); } }
+function comprovModoChange(pfx){ const m=document.querySelector('input[name='+pfx+'Modo]:checked'); const login=!!m&&m.value==='login';
+  const s=$('#'+pfx+'SigWrap'), l=$('#'+pfx+'LoginWrap'); if(s)s.style.display=login?'none':''; if(l)l.style.display=login?'':'none'; if(!login)sigPadFit(pfx+'Sig'); }
+function comprovUserPorNome(nome){ const n=String(nome||'').trim().toLowerCase(); if(!n)return null; return (_comprovUsers||[]).find(u=>u.id!==session.user.id&&String(u.nome||'').trim().toLowerCase()===n)||null; }
+/* nome digitado bate com um usuário do sistema → já propõe a confirmação pelo login dele */
+let _epAutoLogin=false;
+function epRetiranteChange(){ const inp=$('#epColab'), sel=$('#epUser'); if(!inp||!sel)return; const u=comprovUserPorNome(inp.value);
+  if(u){ sel.value=u.id; comprovModoSet('ep','login'); _epAutoLogin=true; }
+  else if(_epAutoLogin){ sel.value=''; comprovModoSet('ep','assinatura'); _epAutoLogin=false; } }
+function comprovFormRead(pfx){ const m=document.querySelector('input[name='+pfx+'Modo]:checked'); const tipo=m?m.value:'assinatura';
+  if(tipo==='login'){ const u=$('#'+pfx+'User').value; if(!u){ toast('Escolha o usuário que vai confirmar o recebimento.','err'); return null; } return {tipo,retiranteId:u}; }
+  const a=sigPadData(pfx+'Sig'); if(!a){ toast('Falta a assinatura de quem está retirando (assine dentro do quadro).','err'); return null; } return {tipo,assinatura:a}; }
+async function gravarComprovacao(retId,c){
+  const {error}=await sb.rpc('comprovar_entrega_balcao',{p_retirada_id:String(retId),p_tipo:c.tipo,p_assinatura:c.assinatura||null,p_retirante_id:c.retiranteId||null});
+  if(!error){ try{ await sb.rpc('log_event',{p_acao:c.tipo==='login'?'entrega_aguardando_login':'entrega_assinada_tela',p_entidade:'retiradas_internas',p_entidade_id:String(retId)}); }catch(e){} }
+  return error; }
+function comprovPill(x){ if(!_comprovOk)return '';
+  if(x.comprov_tipo==='papel')return '<span class="pill">📄 Comprovante em papel</span>';
+  if(x.comprov_em&&x.comprov_tipo==='assinatura')return '<span class="pill good">✍ Assinado na tela</span>';
+  if(x.comprov_em&&x.comprov_tipo==='login')return '<span class="pill good">🔑 Confirmado por login</span>';
+  if(x.comprov_tipo==='login')return '<span class="pill high">⏳ Aguardando confirmação</span>';
+  return '<span class="pill low">⚠ Sem comprovação</span>'; }
+function comprovDetalhe(x){ if(!_comprovOk)return '';
+  if(x.comprov_tipo==='papel')return 'Entrega anterior à comprovação digital';
+  if(x.comprov_em&&x.comprov_tipo==='assinatura')return 'Assinatura colhida em '+fmtTs(x.comprov_em)+(x.comprov_por_nome?' por '+x.comprov_por_nome:'');
+  if(x.comprov_em&&x.comprov_tipo==='login')return 'Confirmado com login próprio por '+(x.retirante_nome||x.comprov_por_nome||'')+' em '+fmtTs(x.comprov_em);
+  if(x.comprov_tipo==='login')return 'Aguardando '+(x.retirante_nome||'o retirante')+' confirmar no sistema';
+  return 'Falta colher a assinatura ou a confirmação por login'; }
+function comprovPendente(x){ return !!_comprovOk&&!x.comprov_em&&x.comprov_tipo!=='papel'; }
+/* colher a comprovação depois (entrega que ficou sem, ou trocar "aguardando login" por assinatura na tela) */
+async function comprovarEntregaModal(retId,origem){
+  const lista=origem==='arq'?((_comprovArq&&_comprovArq.balcao)||[]):((window._expedCtx&&window._expedCtx.rets)||[]);
+  const x=lista.find(y=>String(y.id)===String(retId)); if(!x){ toast('Entrega não encontrada — atualize a tela.','err'); return; }
+  await loadComprovUsuarios();
+  window._comprovCtx={retId:String(retId),reqId:x.requisicao_id,origem};
+  modal(`<h3>Comprovação da entrega</h3><p class="mp">${reqNum(x.requisicao_id)} · retirado por <b>${esc(x.colaborador_nome||'—')}</b> em ${fmtTs(x.data_retirada)}</p>
+    ${comprovFormHTML('cp')}
+    <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="comprovModalVoltar()">Cancelar</button><button class="btn primary" id="cpOk" onclick="salvarComprovacaoModal()">Gravar comprovação</button></div>`);
+  sigPadInit('cpSig');
+  const u=x.retirante_id?{id:x.retirante_id}:comprovUserPorNome(x.colaborador_nome); if(u&&$('#cpUser')){ $('#cpUser').value=u.id; if(x.comprov_tipo!=='login'&&$('#cpUser').value)comprovModoSet('cp','login'); } }
+function comprovModalVoltar(){ const c=window._comprovCtx||{}; if(c.origem==='exped'&&c.reqId!=null)abrirExpedicao(c.reqId); else closeModal(); }
+async function salvarComprovacaoModal(){ const c=window._comprovCtx; if(!c)return; const comp=comprovFormRead('cp'); if(!comp)return;
+  const b=$('#cpOk'); if(b){ b.disabled=true; b.textContent='Gravando...'; }
+  const error=await gravarComprovacao(c.retId,comp);
+  if(error){ toast('Não foi possível gravar a comprovação: '+esc(error.message),'err'); if(b){ b.disabled=false; b.textContent='Gravar comprovação'; } return; }
+  toast(comp.tipo==='login'?'Pedido de confirmação enviado ao usuário.':'Assinatura gravada.','ok');
+  refreshComprovBadge(); if(activeTab==='comprovantes')drawComprovantes();
+  comprovModalVoltar(); }
+
+/* --- Comprovante de entrega no balcão: no lugar das linhas em branco entra a comprovação digital --- */
+function comprovAssinaturasPrint(x){ const quem=(x.colaborador_nome||'')+(x.colaborador_documento?' ('+x.colaborador_documento+')':'');
+  if(!_comprovOk||!x.comprov_tipo||x.comprov_tipo==='papel')return ['Almoxarifado','Recebido por: '+quem];
+  const car=t=>`<div style="border:1px solid #999;border-radius:5px;padding:5px 9px;font-size:10.5px;line-height:1.45;text-align:left">${t}</div>`;
+  const almox={label:'Almoxarifado — '+(x.registrado_por_nome||''),html:car('<b>Entrega registrada no sistema</b><br>'+esc(x.registrado_por_nome||'')+'<br>'+esc(fmtTs(x.data_retirada)))};
+  if(x.comprov_em&&x.comprov_tipo==='assinatura')return [almox,{label:'Recebido por: '+quem,html:sigSvg(x.comprov_assinatura,74)}];
+  if(x.comprov_em&&x.comprov_tipo==='login')return [almox,{label:'Recebido por: '+(x.retirante_nome||quem),html:car('<b>✔ Recebimento confirmado com login próprio</b><br>'+esc(x.retirante_nome||x.comprov_por_nome||'')+'<br>'+esc(fmtTs(x.comprov_em)))}];
+  return [almox,{label:'Recebido por: '+quem+(x.comprov_tipo==='login'?' — aguardando confirmação no sistema':''),html:''}]; }
+function comprovRodapePrint(x){ if(!_comprovOk||!x.comprov_tipo||x.comprov_tipo==='papel')return '';
+  return `<div style="margin-top:18px;font-size:10.5px;color:#555;border-top:1px solid #ccc;padding-top:6px">Comprovação digital — ${esc(comprovDetalhe(x))}. Registro eletrônico da entrega nº ${esc(String(x.id))}, guardado no sistema de estoque; este documento pode ser reemitido a qualquer momento e dispensa via assinada em papel.</div>`; }
+function _printComprovEntrega(r,x,win){ const reqN=reqNum(r.id);
+  const lista=(Array.isArray(x.itens)&&x.itens.length)?x.itens.map(it=>({code:it.code,descricao:it.descricao,quantidade:it.quantidade,unidade:it.unidade})):(r.itens||[]).map(i=>({code:i.code,descricao:i.desc,quantidade:i.qty,unidade:i.unit}));
+  printSignReport({win,titulo:'Comprovante de Entrega no Balcão',numero:reqN,subtitulo:x.parcial?'Entrega parcial — o restante da requisição continua pendente':'Entrega final da requisição',
+    data:x.data_retirada?fmtTs(x.data_retirada):fmtDate(Date.now()),obra:r.obra_nome||'',aplicacao:r.aplicacao_nome||'',
     doc:reqN+(r.ordem_servico?' · OS '+r.ordem_servico:'')+(r.tipo_envio?' · '+envioTipoLabel(r.tipo_envio).replace(/^\S+\s/,''):''),responsavel:x.registrado_por_nome||'',obs:x.observacao||'',
-    itens:x.itens.map(it=>{ const p=findProduct(it.code); return {code:it.code,aux:p?p.aux:'',desc:it.descricao||(p?p.desc:''),qty:Number(it.quantidade)||0,unit:it.unidade||(p?p.unit:''),valor:p?(p.custo||0):0}; }),
-    assinaturas:['Almoxarifado','Recebido por: '+(x.colaborador_nome||'')+(x.colaborador_documento?' ('+x.colaborador_documento+')':'')]}); }
+    itens:lista.map(it=>{ const p=findProduct(it.code); return {code:it.code,aux:p?p.aux:'',desc:it.descricao||(p?p.desc:''),qty:Number(it.quantidade)||0,unit:it.unidade||(p?p.unit:''),valor:p?(p.custo||0):0}; }),
+    assinaturas:comprovAssinaturasPrint(x),rodapeHTML:comprovRodapePrint(x)}); }
+
+/* --- Despacho: foto do canhoto --- */
+function comprimirFoto(file,max,q){ return new Promise((res,rej)=>{ const fr=new FileReader();
+  fr.onerror=()=>rej(new Error('não foi possível ler o arquivo'));
+  fr.onload=e=>{ const img=new Image(); img.onerror=()=>rej(new Error('o arquivo escolhido não é uma imagem'));
+    img.onload=()=>{ const k=Math.min(1,max/Math.max(img.width,img.height)); const w=Math.max(1,Math.round(img.width*k)), h=Math.max(1,Math.round(img.height*k));
+      const c=document.createElement('canvas'); c.width=w; c.height=h; const ctx=c.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h); ctx.drawImage(img,0,0,w,h);
+      c.toBlob(b=>b?res(b):rej(new Error('falha ao preparar a imagem')),'image/jpeg',q); };
+    img.src=e.target.result; };
+  fr.readAsDataURL(file); }); }
+/* devolve '' se deu certo, ou o motivo da falha */
+async function enviarCanhoto(reqId,file){
+  let blob; try{ blob=await comprimirFoto(file,1400,0.62); }catch(e){ return e.message; }
+  const path='embarques/'+reqNum(reqId)+'/'+Date.now()+'-'+Math.random().toString(36).slice(2,8)+'.jpg';
+  let up; try{ up=await sb.storage.from('comprovantes').upload(path,blob,{contentType:'image/jpeg',upsert:false}); }catch(e){ return 'envio da foto: '+((e&&e.message)||e); }
+  if(up.error)return 'envio da foto: '+up.error.message;
+  const {data:embs,error:eE}=await sb.from('embarques').select('id').eq('requisicao_id',reqId).order('id',{ascending:false}).limit(1);
+  if(eE||!embs||!embs.length)return 'despacho não localizado para vincular a foto';
+  const {error}=await sb.rpc('registrar_canhoto',{p_embarque_id:String(embs[0].id),p_path:path}); if(error)return error.message;
+  try{ await sb.rpc('log_event',{p_acao:'canhoto_anexado',p_entidade:'requisicoes',p_entidade_id:String(reqId)}); }catch(e){}
+  return ''; }
+function canhotoCampoHTML(){ return '<div class="field"><label>Foto do canhoto assinado pela transportadora</label><input id="envCanhoto" type="file" accept="image/*" capture="environment"><div class="muted" style="font-size:11px;margin-top:3px">Comprovante de coleta assinado. Se não tiver agora, anexe depois pela tela Comprovantes de Entrega.</div></div>'; }
+async function anexarCanhotoExped(reqId){ const inp=$('#cnFile'); const f=inp&&inp.files&&inp.files[0]; if(!f){ toast('Tire ou escolha a foto do canhoto.','err'); return; }
+  const b=$('#cnOk'); if(b){ b.disabled=true; b.textContent='Enviando...'; }
+  const err=await enviarCanhoto(reqId,f);
+  if(err){ toast('Canhoto não anexado: '+esc(err),'err'); if(b){ b.disabled=false; b.textContent='Anexar canhoto'; } return; }
+  toast('Canhoto anexado.','ok'); refreshComprovBadge(); if(activeTab==='comprovantes')drawComprovantes(); await abrirExpedicao(reqId); }
+async function verCanhoto(path){ const w=window.open('','_blank');
+  const {data,error}=await sb.storage.from('comprovantes').createSignedUrl(path,900);
+  if(error||!data||!data.signedUrl){ if(w)w.close(); toast('Não foi possível abrir a foto: '+esc(error?error.message:'sem endereço'),'err'); return; }
+  if(w)w.location.href=data.signedUrl; else toast('Permita pop-ups para ver a foto.','err'); }
+function despachoComprovHTML(r,emb,caixas){ if(!_comprovOk||!emb)return '';
+  const rec=caixas.filter(c=>c.recebida_em).length; let h=`<div class="panel" style="margin-top:8px;padding:10px 14px;font-size:12.5px">`;
+  if(emb.canhoto_path)h+=`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><span>📎 <b>Canhoto anexado</b>${emb.canhoto_em?' em '+fmtTs(emb.canhoto_em):''}${emb.canhoto_por_nome?' por '+esc(emb.canhoto_por_nome):''}</span><button class="btn ghost sm" onclick="verCanhoto('${esc(emb.canhoto_path)}')">👁 Ver foto</button></div>`;
+  else if(emb.comprov_legado)h+=`<div class="muted">Despacho anterior à comprovação digital (canhoto em papel).</div>`;
+  else h+=`<div><b>⚠ Sem foto do canhoto</b> <span class="muted">— comprovante de coleta assinado pela transportadora.</span></div>`+(podeOperarRetiradas()?`<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center"><input id="cnFile" type="file" accept="image/*" capture="environment" style="flex:1;min-width:160px"><button class="btn primary sm" id="cnOk" onclick="anexarCanhotoExped(${r.id})">Anexar canhoto</button></div>`:'');
+  h+=`<div style="margin-top:8px;padding-top:8px;border-top:1px solid #eee">`;
+  if(emb.recebido_em)h+=`✔ <b>Recebido na obra</b> por ${esc(emb.recebido_por_nome||'—')} em ${fmtTs(emb.recebido_em)}`;
+  else if(emb.comprov_legado&&r.status==='embarcado')h+=`<span class="muted">Sem registro digital de recebimento na obra.</span>`;
+  else h+=`⏳ <b>Aguardando recebimento na obra</b> · ${rec} de ${caixas.length} volume(s) recebido(s)`;
+  if(emb.recebimento_obs)h+=`<div class="muted" style="font-size:11.5px;margin-top:3px">Obs. do recebimento: ${esc(emb.recebimento_obs)}</div>`;
+  h+=`</div><div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">${r.status==='embarcado'?`<button class="btn ghost sm" onclick="abrirRecebimentoObra(${r.id})">📦 Recebimento na obra</button>`:''}<button class="btn ghost sm" onclick="imprimirComprovDespacho(${r.id})">🖨 Comprovante do despacho</button></div></div>`;
+  return h; }
+
+/* --- Recebimento na obra (QR da etiqueta do volume, aviso no topo ou "Minhas requisições") --- */
+function parseRecCodigo(t){ t=String(t||'').trim(); let m=/[?&]rec=([^&#\s]+)/.exec(t); let v=t; if(m){ try{ v=decodeURIComponent(m[1]); }catch(e){ v=m[1]; } }
+  m=/^(\d{1,9})(?:\.(.+))?$/.exec(v); return m?{reqId:parseInt(m[1],10),codigo:m[2]||null}:null; }
+function recLinkVolume(reqId,codigo){ return location.origin+location.pathname+'?rec='+reqId+'.'+encodeURIComponent(codigo); }
+function processarLinkRecebimento(){ let p=null; try{ p=new URLSearchParams(location.search).get('rec'); }catch(e){} if(!p)return;
+  try{ history.replaceState(null,'',location.pathname+location.hash); }catch(e){}
+  const r=parseRecCodigo(p); if(!r){ toast('O código lido não é de um volume de despacho.','err'); return; }
+  abrirRecebimentoObra(r.reqId,r.codigo); }
+function lerQrRecebimento(){ openCameraScanner(t=>{ const r=parseRecCodigo(t); if(!r){ toast('Este código não é de um volume de despacho.','err'); return; } abrirRecebimentoObra(r.reqId,r.codigo); }); }
+async function abrirRecebimentoObra(reqId,codigo){
+  if(!_comprovOk){ toast('A comprovação digital de entrega ainda não foi ativada neste sistema.','err'); return; }
+  const {data:d,error}=await sb.rpc('dados_recebimento_obra',{p_requisicao_id:reqId});
+  if(error||!d){ toast('Recebimento: '+esc(error?error.message:'sem dados'),'err'); return; }
+  const emb=d.embarque||{}, cx=d.caixas||[], st=d.req.status; const aberto=st==='embarcado'&&d.pode; const pend=cx.filter(c=>!c.recebida_em);
+  window._recCtx={reqId};
+  let h=`<h3>📦 Recebimento na obra — ${reqNum(d.req.id)}</h3>
+    <p class="mp">${esc(d.req.obra_nome||'')}${d.req.ordem_servico?' · OS '+esc(d.req.ordem_servico):''}${emb.transportadora?'<br>Transportadora: '+esc(emb.transportadora):''}${emb.data_embarque?' · embarcado em '+fmtTs(emb.data_embarque):''}</p>`;
+  if(st==='recebido')h+=`<p class="mp"><span class="pill good">✔ Recebido</span> ${emb.recebido_por_nome?'por '+esc(emb.recebido_por_nome):''}${emb.recebido_em?' em '+fmtTs(emb.recebido_em):''}</p>`;
+  else if(st!=='embarcado')h+=`<p class="mp"><span class="pill high">${esc(reqStatusLabel(st))}</span> Este material ainda não foi embarcado — não há o que receber.</p>`;
+  else if(!d.pode)h+=`<p class="mp"><span class="pill high">Somente consulta</span> O recebimento é confirmado pelo solicitante, pelo encarregado da obra ou pelo administrador.</p>`;
+  else h+=`<p class="mp" style="font-size:12.5px">Confira os volumes que chegaram e <b>desmarque os que NÃO chegaram</b>. A confirmação fica registrada com o seu usuário, data e hora.</p>`;
+  h+=cx.map((c,i)=>`<div class="panel" style="margin-bottom:8px;padding:10px 14px${codigo&&c.codigo===codigo?';border-left:4px solid #1c7a52':''}">
+      <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-weight:600;margin:0;font-size:13px">${aberto&&!c.recebida_em?`<input type="checkbox" class="rc-vol" data-cod="${esc(c.codigo)}" checked style="width:auto">`:''}${esc(c.codigo)}${c.recebida_em?` <span class="pill good" style="font-weight:500">✓ recebido${c.recebida_por_nome?' por '+esc(c.recebida_por_nome):''} em ${fmtTs(c.recebida_em)}</span>`:(codigo&&c.codigo===codigo?' <span class="muted" style="font-weight:500;font-size:11px">volume lido</span>':'')}</label>
+      ${(c.itens||[]).length?`<ul style="margin:6px 0 0;padding-left:18px;font-size:12.5px">${c.itens.map(it=>`<li>${esc(it.descricao||'')} — ${numf(it.quantidade)}</li>`).join('')}</ul>`:''}</div>`).join('')||'<p class="mp muted">Nenhum volume cadastrado nesta requisição.</p>';
+  if(emb.recebimento_obs)h+=`<div class="muted" style="font-size:11.5px;margin-bottom:8px">Obs. já registradas: ${esc(emb.recebimento_obs)}</div>`;
+  if(aberto&&(pend.length||!cx.length))h+=`<div class="field"><label>Observação (falta, avaria, divergência)</label><input id="rcObs" placeholder="Opcional"></div>`;
+  h+=`<div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap"><button class="btn ghost" onclick="closeModal()">Fechar</button>${aberto&&(pend.length||!cx.length)?`<button class="btn primary" id="rcOk" onclick="confirmarRecebimentoObra()">✔ Confirmar recebimento</button>`:''}</div>`;
+  modal(h); }
+async function confirmarRecebimentoObra(){ const c=window._recCtx; if(!c)return;
+  const todos=[...document.querySelectorAll('#modalRoot input.rc-vol')]; const cods=todos.filter(el=>el.checked).map(el=>el.dataset.cod);
+  if(todos.length&&!cods.length){ toast('Marque ao menos um volume recebido.','err'); return; }
+  const b=$('#rcOk'); if(b){ b.disabled=true; b.textContent='Confirmando...'; }
+  const {data,error}=await sb.rpc('confirmar_recebimento_obra',{p_requisicao_id:c.reqId,p_codigos:todos.length?cods:null,p_obs:($('#rcObs')&&$('#rcObs').value.trim())||null});
+  if(error){ toast('Não foi possível confirmar: '+esc(error.message),'err'); if(b){ b.disabled=false; b.textContent='✔ Confirmar recebimento'; } return; }
+  try{ await sb.rpc('log_event',{p_acao:data&&data.final?'recebimento_obra_final':'recebimento_obra_parcial',p_entidade:'requisicoes',p_entidade_id:String(c.reqId)}); }catch(e){}
+  toast(data&&data.final?'Recebimento confirmado — requisição encerrada como recebida.':'Recebimento parcial registrado — faltam '+(data?data.faltam:'')+' volume(s).','ok');
+  closeModal(); refreshComprovPend(); refreshComprovBadge(); refreshMinhasBadge();
+  if(activeTab==='comprovantes')drawComprovantes(); if(activeTab==='baixa'&&typeof drawMinhasEmAndamento==='function')drawMinhasEmAndamento(); }
+
+/* --- Tela "Comprovantes de Entrega": o arquivo digital (pendências sempre aparecem, o resto por período) --- */
+async function refreshComprovBadge(){ const b=$('#navBadgeComprov'); if(!b||!_comprovOk||!podeVerRetiradas())return;
+  const agora=new Date().toISOString(); const {data,error}=await sb.rpc('comprov_arquivo',{p_de:agora,p_ate:agora}); if(error||!data)return;
+  const n=(data.balcao||[]).filter(comprovPendente).length+(data.despachos||[]).filter(e=>!e.comprov_legado&&!e.canhoto_path).length;
+  if(n){ b.textContent=n; b.style.display=''; }else b.style.display='none'; refreshFluxoGroupBadge(); }
+async function renderComprovantes(){
+  if(!podeVerRetiradas()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito ao almoxarifado, compras e encarregados/administradores.</div></div>'; return; }
+  if(!_comprovOk){ _comprovOk=null; await refreshComprovPend(); }
+  if(!_comprovOk){ $('#view').innerHTML=comprovInstallHTML(); return; }
+  const d2=new Date(), d1=new Date(); d1.setDate(d1.getDate()-30); const iso=d=>new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
+  $('#view').innerHTML=`<div class="panel" style="margin-bottom:14px"><div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+      <div class="field" style="margin:0"><label>De</label><input id="cvDe" type="date" value="${iso(d1)}" onchange="drawComprovantes()"></div>
+      <div class="field" style="margin:0"><label>Até</label><input id="cvAte" type="date" value="${iso(d2)}" onchange="drawComprovantes()"></div>
+      <div class="field" style="margin:0"><label>Tipo</label><select id="cvTipo" onchange="drawComprovLista()"><option value="">Todos</option><option value="b">🤝 Balcão</option><option value="d">🚚 Despacho</option></select></div>
+      <div class="field" style="margin:0"><label>Situação</label><select id="cvSit" onchange="drawComprovLista()"><option value="">Todas</option><option value="pend">Pendentes</option><option value="ok">Comprovadas</option></select></div>
+      <div class="field" style="margin:0;flex:1;min-width:180px"><label>Buscar</label><input id="cvQ" placeholder="REQ, obra, pessoa ou transportadora" oninput="drawComprovLista()"></div></div>
+      <p class="desc" style="margin:10px 0 0">Entregas do período escolhido. O que ainda está <b>pendente de comprovação</b> aparece sempre, de qualquer data.</p></div>
+    <div id="cvResumo" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"></div>
+    <div class="tbl-wrap" id="cvList"><div class="empty">Carregando...</div></div>`;
+  await drawComprovantes(); }
+async function drawComprovantes(){ const box=$('#cvList'); if(!box||!$('#cvDe'))return;
+  const de=new Date(($('#cvDe').value||'2000-01-01')+'T00:00:00'), ate=new Date(($('#cvAte').value||'2100-01-01')+'T23:59:59');
+  const {data,error}=await sb.rpc('comprov_arquivo',{p_de:de.toISOString(),p_ate:ate.toISOString()});
+  if(error){ box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>'; return; }
+  _comprovArq={balcao:(data&&data.balcao)||[],despachos:(data&&data.despachos)||[]};
+  drawComprovLista(); }
+function comprovLinhas(){ const a=_comprovArq||{balcao:[],despachos:[]}; const L=[];
+  a.balcao.forEach(x=>L.push({k:'b',id:String(x.id),reqId:x.requisicao_id,ts:x.data_retirada,obra:x.obra_nome,os:x.ordem_servico,mutuo:x.mutuo,quem:x.colaborador_nome||'—',
+    pend:comprovPendente(x),pills:comprovPill(x)+(x.parcial?' <span class="pill high">parcial</span>':''),det:comprovDetalhe(x),x}));
+  a.despachos.forEach(e=>{ const leg=!!e.comprov_legado; const semCanhoto=!leg&&!e.canhoto_path, semRec=!leg&&!e.recebido_em;
+    const pills=leg?'<span class="pill">📄 Anterior à comprovação digital</span>':
+      (e.canhoto_path?'<span class="pill good">📎 Canhoto</span>':'<span class="pill low">⚠ Sem canhoto</span>')+' '+
+      (e.recebido_em?'<span class="pill good">✔ Recebido na obra</span>':'<span class="pill high">⏳ Em trânsito'+(Number(e.volumes_recebidos)>0?' · '+e.volumes_recebidos+'/'+e.volumes+' vol.':'')+'</span>');
+    L.push({k:'d',id:String(e.id),reqId:e.requisicao_id,ts:e.data_embarque,obra:e.obra_nome,os:e.ordem_servico,mutuo:e.mutuo,quem:e.transportadora||'—',
+      pend:semCanhoto||semRec,pills,det:e.recebido_em?('Recebido por '+(e.recebido_por_nome||'—')+' em '+fmtTs(e.recebido_em)):(leg?'':'Aguardando confirmação de recebimento na obra'),x:e}); });
+  L.sort((p,q)=>new Date(q.ts||0).getTime()-new Date(p.ts||0).getTime()); return L; }
+function drawComprovLista(){ const box=$('#cvList'); if(!box)return; const a=_comprovArq||{balcao:[],despachos:[]};
+  const semComp=a.balcao.filter(x=>comprovPendente(x)&&x.comprov_tipo!=='login').length, agLogin=a.balcao.filter(x=>comprovPendente(x)&&x.comprov_tipo==='login').length;
+  const semCanh=a.despachos.filter(e=>!e.comprov_legado&&!e.canhoto_path).length, transito=a.despachos.filter(e=>!e.comprov_legado&&!e.recebido_em).length;
+  const res=$('#cvResumo'); if(res)res.innerHTML=[[semComp,'low','entrega(s) no balcão sem comprovação'],[agLogin,'high','aguardando confirmação por login'],[semCanh,'low','despacho(s) sem foto do canhoto'],[transito,'high','despacho(s) aguardando recebimento na obra']]
+    .map(([n,c,t])=>`<span class="pill ${n?c:'good'}" style="font-size:12px;padding:5px 10px">${n} ${t}</span>`).join('');
+  const tipo=$('#cvTipo')?$('#cvTipo').value:'', sit=$('#cvSit')?$('#cvSit').value:'', q=($('#cvQ')?$('#cvQ').value:'').trim().toLowerCase();
+  let L=comprovLinhas(); if(tipo)L=L.filter(l=>l.k===tipo); if(sit)L=L.filter(l=>sit==='pend'?l.pend:!l.pend);
+  if(q)L=L.filter(l=>(reqNum(l.reqId)+' '+l.reqId+' '+(l.obra||'')+' '+(l.os||'')+' '+(l.quem||'')+' '+(l.x.retirante_nome||'')+' '+(l.x.registrado_por_nome||'')).toLowerCase().includes(q));
+  const opera=podeOperarRetiradas();
+  box.innerHTML=`<table><thead><tr><th>Data</th><th>Requisição</th><th>Tipo</th><th>Recebedor / Transportadora</th><th>Comprovação</th><th></th></tr></thead><tbody>${
+    L.map(l=>`<tr><td class="muted" style="font-size:12px;white-space:nowrap">${fmtTs(l.ts)}</td>
+      <td><span class="mono">${reqNum(l.reqId)}</span>${l.mutuo?' <span class="pill tr" style="font-size:10px">mútuo</span>':''}<div class="muted" style="font-size:11.5px">${esc(l.obra||'')}${l.os?' · OS '+esc(l.os):''}</div></td>
+      <td style="white-space:nowrap">${l.k==='b'?'🤝 Balcão':'🚚 Despacho'}</td>
+      <td>${esc(l.quem)}${l.k==='b'&&l.x.registrado_por_nome?`<div class="muted" style="font-size:11px">entregue por ${esc(l.x.registrado_por_nome)}</div>`:''}</td>
+      <td>${l.pills}${l.det?`<div class="muted" style="font-size:11px;margin-top:2px">${esc(l.det)}</div>`:''}</td>
+      <td class="num" style="white-space:nowrap">${l.k==='b'&&l.pend&&opera?`<button class="btn primary sm" onclick="comprovarEntregaModal('${esc(l.id)}','arq')">✍ Colher</button> `:''}${l.k==='d'&&l.x.canhoto_path?`<button class="btn ghost sm" title="Ver foto do canhoto" onclick="verCanhoto('${esc(l.x.canhoto_path)}')">👁</button> `:''}<button class="btn ghost sm" title="Comprovante" onclick="imprimirComprovArquivo('${l.k}',${Number(l.reqId)},'${esc(l.id)}')">🖨</button>${opera?` <button class="btn ghost sm" title="Abrir a expedição desta requisição" onclick="abrirExpedicao(${Number(l.reqId)})">Abrir</button>`:''}</td></tr>`).join('')
+    ||`<tr><td colspan="6" class="empty" style="padding:24px">Nenhuma entrega encontrada com estes filtros.</td></tr>`}</tbody></table>`; }
+async function comprovDadosReq(ids){ const {data,error}=await sb.rpc('comprov_dados',{p_requisicoes:ids}); if(error){ toast('Erro ao carregar a comprovação: '+esc(error.message),'err'); return null; } return data||{reqs:[],balcao:[],despachos:[],caixas:[]}; }
+async function comprovUrlsCanhoto(paths){ const urls={}; paths=[...new Set((paths||[]).filter(Boolean))]; if(!paths.length)return urls;
+  try{ const {data}=await sb.storage.from('comprovantes').createSignedUrls(paths,3600); (data||[]).forEach(s=>{ if(s&&s.signedUrl&&s.path)urls[s.path]=s.signedUrl; }); }catch(e){}
+  return urls; }
+async function imprimirComprovArquivo(k,reqId,id){ const w=window.open('','_blank'); if(!w){ toast('Permita pop-ups para gerar o comprovante.','err'); return; }
+  w.document.write('<p style="font-family:Arial;padding:30px">Gerando comprovante...</p>');
+  const d=await comprovDadosReq([reqId]); if(!d){ w.close(); return; }
+  const r=d.reqs[0]; if(!r){ w.close(); toast('Requisição não encontrada.','err'); return; }
+  if(k==='b'){ const x=d.balcao.find(y=>String(y.id)===String(id)); if(!x){ w.close(); toast('Entrega não encontrada.','err'); return; } _printComprovEntrega(r,x,w); }
+  else await _printComprovDespacho(r,d,w); }
+async function imprimirComprovDespacho(reqId){ const w=window.open('','_blank'); if(!w){ toast('Permita pop-ups para gerar o comprovante.','err'); return; }
+  w.document.write('<p style="font-family:Arial;padding:30px">Gerando comprovante...</p>');
+  const d=await comprovDadosReq([reqId]); if(!d||!d.reqs[0]){ w.close(); return; } await _printComprovDespacho(d.reqs[0],d,w); }
+const COMPROV_PRINT_CSS=`body{font-family:Arial,Helvetica,sans-serif;margin:34px;color:#111;font-size:12.5px}.hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:8px}h1{font-size:18px;margin:0 0 2px}h2{font-size:14px;margin:20px 0 6px;border-bottom:1px solid #999;padding-bottom:3px}.sub{color:#555;font-size:12px}.numbox{text-align:right;border:2px solid #111;border-radius:6px;padding:6px 14px}.numbox .l{font-size:9px;letter-spacing:1px;color:#555;text-transform:uppercase}.numbox .n{font-size:22px;font-weight:bold;font-family:'Courier New',monospace}.meta{margin:10px 0;line-height:1.7}.meta b{display:inline-block;min-width:130px}table{width:100%;border-collapse:collapse;margin-top:6px}th,td{border:1px solid #999;padding:5px 7px;font-size:11px;vertical-align:top}th{background:#eee;text-align:left}tfoot td{font-weight:bold;background:#f6f6f6}.mono{font-family:'Courier New',monospace}.box{border:1px solid #999;border-radius:6px;padding:9px 12px;margin-top:8px;page-break-inside:avoid}.ok{color:#12583c;font-weight:bold}.pend{color:#8a1f1f;font-weight:bold}.foto{max-width:100%;max-height:330px;border:1px solid #999;margin-top:6px;display:block}.sigs{display:flex;gap:36px;margin-top:64px;flex-wrap:wrap;page-break-inside:avoid}.sig{flex:1;min-width:170px;text-align:center;border-top:1px solid #333;padding-top:5px;font-size:11.5px}.nota{margin-top:18px;font-size:10.5px;color:#555;border-top:1px solid #ccc;padding-top:6px}`;
+function comprovPrintFim(w,html,titulo){ try{ w.document.open(); }catch(e){}
+  w.document.write(`<html><head><meta charset="utf-8"><title>${esc(titulo)}</title><style>${COMPROV_PRINT_CSS}</style></head><body>${html}<script>window.onload=function(){setTimeout(function(){window.print();},500);};<\/script></body></html>`); w.document.close(); }
+/* bloco HTML com a comprovação de UMA requisição (usado no comprovante do despacho e no do mútuo) */
+function comprovBlocoReq(r,d,urls){ const bal=d.balcao.filter(x=>x.requisicao_id===r.id), des=d.despachos.filter(e=>e.requisicao_id===r.id), cx=d.caixas.filter(c=>c.requisicao_id===r.id); let h='', completo=true, tem=false;
+  bal.forEach(x=>{ tem=true; const ok=!!x.comprov_em||x.comprov_tipo==='papel'; if(!ok)completo=false;
+    h+=`<div class="box"><b>Retirada no balcão</b> · ${esc(fmtTs(x.data_retirada))}${x.parcial?' · entrega parcial':''}<br>Retirado por: <b>${esc(x.colaborador_nome||'—')}</b>${x.colaborador_documento?' ('+esc(x.colaborador_documento)+')':''} · entregue por ${esc(x.registrado_por_nome||'—')}
+      ${Array.isArray(x.itens)&&x.itens.length?`<br>Itens: ${x.itens.map(it=>esc(it.descricao||it.code||'')+' — '+numf(it.quantidade)+' '+esc(it.unidade||'')).join('; ')}`:''}
+      <br><span class="${ok?'ok':'pend'}">${ok?'✔':'⚠'} ${esc(comprovDetalhe(x))}</span>${x.comprov_em&&x.comprov_tipo==='assinatura'?'<div style="margin-top:4px">'+sigSvg(x.comprov_assinatura,64)+'</div>':''}</div>`; });
+  des.forEach(e=>{ tem=true; const leg=!!e.comprov_legado; const ok=leg||(!!e.canhoto_path&&!!e.recebido_em); if(!ok)completo=false; const rec=cx.filter(c=>c.recebida_em).length;
+    h+=`<div class="box"><b>Despacho</b> · embarcado em ${esc(fmtTs(e.data_embarque))} · transportadora: <b>${esc(e.transportadora||'—')}</b> · ${cx.length} volume(s)
+      <br>${leg?'Despacho anterior à comprovação digital (canhoto em papel).':(e.canhoto_path?`<span class="ok">✔ Canhoto anexado</span> em ${esc(fmtTs(e.canhoto_em))}${e.canhoto_por_nome?' por '+esc(e.canhoto_por_nome):''}`:'<span class="pend">⚠ Sem foto do canhoto</span>')}
+      ${leg?'':'<br>'+(e.recebido_em?`<span class="ok">✔ Recebido na obra</span> por <b>${esc(e.recebido_por_nome||'—')}</b>, com login próprio, em ${esc(fmtTs(e.recebido_em))}`:`<span class="pend">⚠ Recebimento na obra ainda não confirmado</span> (${rec} de ${cx.length} volume(s))`)}
+      ${e.recebimento_obs?'<br>Obs. do recebimento: '+esc(e.recebimento_obs):''}
+      ${e.canhoto_path&&urls[e.canhoto_path]?`<img class="foto" src="${esc(urls[e.canhoto_path])}" alt="Canhoto">`:''}</div>`; });
+  if(!tem){ completo=false; h+=`<div class="box"><span class="pend">⚠ Nenhuma entrega registrada no sistema para esta requisição até o momento.</span></div>`; }
+  return {html:h,completo}; }
+async function _printComprovDespacho(r,d,w){ const urls=await comprovUrlsCanhoto(d.despachos.map(e=>e.canhoto_path)); const b=comprovBlocoReq(r,d,urls); const reqN=reqNum(r.id);
+  const itens=(r.itens||[]).map((i,n)=>`<tr><td>${n+1}</td><td class="mono">${esc(i.code||'')}</td><td>${esc(i.desc||'')}</td><td style="text-align:right">${numf(i.qty)} ${esc(i.unit||'')}</td></tr>`).join('');
+  comprovPrintFim(w,`<div class="hd"><div><h1>Comprovante de Entrega — Despacho</h1><div class="sub">${b.completo?'Entrega comprovada digitalmente':'Comprovação ainda incompleta'}</div></div><div class="numbox"><div class="l">Documento Nº</div><div class="n">${reqN}</div></div></div>
+    <div class="meta"><div><b>Obra:</b> ${esc(r.obra_nome||'')}</div>${r.aplicacao_nome?`<div><b>Aplicação:</b> ${esc(r.aplicacao_nome)}</div>`:''}${r.ordem_servico?`<div><b>Ordem de serviço:</b> ${esc(r.ordem_servico)}</div>`:''}${r.mutuo_empresa_destino?`<div><b>Mútuo:</b> ${esc(r.mutuo_empresa_origem||'')} → ${esc(r.mutuo_empresa_destino)}</div>`:''}<div><b>Emitido em:</b> ${esc(fmtDate(Date.now()))} por ${esc(profile.nome||profile.email)}</div></div>
+    <h2>Itens da requisição</h2><table><thead><tr><th style="width:28px">#</th><th>Código</th><th>Descrição</th><th style="text-align:right">Solicitado</th></tr></thead><tbody>${itens}</tbody></table>
+    <h2>Comprovação da entrega</h2>${b.html}
+    <div class="nota">Documento gerado a partir dos registros eletrônicos do sistema de estoque (entrega, foto do canhoto e confirmação de recebimento com login individual). Pode ser reemitido a qualquer momento e dispensa arquivo em papel.</div>`,'Comprovante de Despacho '+reqN); }
+
+/* --- Mútuo entre empresas: comprovante do período (lançamentos + comprovação de cada entrega) --- */
+async function imprimirComprovMutuo(tipo,key){ const w=window.open('','_blank'); if(!w){ toast('Permita pop-ups para gerar o comprovante.','err'); return; }
+  w.document.write('<p style="font-family:Arial;padding:30px">Gerando comprovante do período...</p>');
+  let itens=[], cab=null;
+  if(tipo==='aberto'){ const g=_mutuoGrupos[key]; if(!g){ w.close(); toast('Grupo não encontrado — atualize a tela.','err'); return; }
+    itens=g.itens.slice(); cab={periodo:g.periodo,origem:g.origem,destino:g.destino,sit:'Período em aberto — sujeito a novos lançamentos'}; }
+  else{ const f=_mutuoFechados[key]; if(!f){ w.close(); toast('Fechamento não encontrado — atualize a tela.','err'); return; }
+    const {data,error}=await sb.from('mutuos_intercompany').select('*').eq('fechamento_id',key).order('criado_em',{ascending:true});
+    if(error){ w.close(); toast('Erro ao carregar os lançamentos: '+esc(error.message),'err'); return; }
+    itens=data||[]; cab={periodo:f.periodo,origem:f.empresa_origem,destino:f.empresa_destino,sit:'Período fechado em '+fmtTs(f.criado_em)+(f.fechado_por_nome?' por '+f.fechado_por_nome:'')}; }
+  const reqIds=[...new Set(itens.map(m=>m.requisicao_id).filter(v=>v!=null))];
+  let d={reqs:[],balcao:[],despachos:[],caixas:[]}, aviso='';
+  if(!_comprovOk)aviso='A comprovação digital de entrega ainda não está ativada — este documento lista apenas os lançamentos.';
+  else if(reqIds.length){ const r=await comprovDadosReq(reqIds); if(r)d=r; else aviso='Não foi possível carregar a comprovação das entregas.'; }
+  const urls=await comprovUrlsCanhoto(d.despachos.map(e=>e.canhoto_path));
+  const blocos={}; reqIds.forEach(id=>{ const r=d.reqs.find(x=>x.id===id); if(r)blocos[id]=comprovBlocoReq(r,d,urls); });
+  let total=0, comOk=0;
+  const linhas=itens.map((m,i)=>{ total+=Number(m.valor)||0; const b=m.requisicao_id!=null?blocos[m.requisicao_id]:null; if(b&&b.completo)comOk++;
+    const st=m.requisicao_id==null?'Lançamento manual (sem requisição)':!_comprovOk?'—':(b&&b.completo)?'<span class="ok">✔ Comprovada</span>':'<span class="pend">⚠ Pendente</span>';
+    return `<tr><td>${i+1}</td><td style="white-space:nowrap">${esc(fmtTs(m.criado_em))}</td><td class="mono" style="white-space:nowrap">${m.requisicao_id!=null?reqNum(m.requisicao_id):'—'}</td><td>${esc(m.descricao||'—')}</td><td>${(m.obra_origem_nome||m.obra_destino_nome)?esc(m.obra_origem_nome||'—')+' → '+esc(m.obra_destino_nome||'—'):'—'}</td><td style="text-align:right;white-space:nowrap">${money(m.valor)}</td><td>${st}</td></tr>`; }).join('');
+  const comReq=itens.filter(m=>m.requisicao_id!=null).length;
+  const secoes=reqIds.map(id=>{ const r=d.reqs.find(x=>x.id===id); const b=blocos[id]; if(!r||!b)return ''; return `<h2>${reqNum(id)} — ${esc(r.obra_nome||'')}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</h2>${b.html}`; }).join('');
+  comprovPrintFim(w,`<div class="hd"><div><h1>Comprovante de Entregas — Mútuo entre Empresas</h1><div class="sub">${esc(cab.origem)} → ${esc(cab.destino)}</div></div><div class="numbox"><div class="l">Período</div><div class="n">${esc(periodoLabel(cab.periodo))}</div></div></div>
+    <div class="meta"><div><b>Empresa fornecedora:</b> ${esc(cab.origem)}</div><div><b>Empresa recebedora:</b> ${esc(cab.destino)}</div><div><b>Situação:</b> ${esc(cab.sit)}</div><div><b>Emitido em:</b> ${esc(fmtDate(Date.now()))} por ${esc(profile.nome||profile.email)}</div>${_comprovOk?`<div><b>Comprovação digital:</b> ${comOk} de ${comReq} lançamento(s) com requisição estão com a entrega comprovada${itens.length-comReq?' · '+(itens.length-comReq)+' lançamento(s) manual(is)':''}</div>`:''}</div>
+    ${aviso?`<div class="box"><span class="pend">${esc(aviso)}</span></div>`:''}
+    <h2>Lançamentos do período</h2><table><thead><tr><th style="width:26px">#</th><th>Data</th><th>Requisição</th><th>Descrição</th><th>Obras</th><th style="text-align:right">Valor</th><th>Entrega</th></tr></thead><tbody>${linhas||'<tr><td colspan="7">Nenhum lançamento.</td></tr>'}</tbody><tfoot><tr><td colspan="5" style="text-align:right">Total devido por ${esc(cab.destino)} a ${esc(cab.origem)}</td><td style="text-align:right;white-space:nowrap">${money(total)}</td><td></td></tr></tfoot></table>
+    ${secoes?`<h2 style="margin-top:26px;border-bottom:2px solid #111">Comprovação das entregas</h2>${secoes}`:''}
+    <div class="sigs"><div class="sig">${esc(cab.origem)}<br>Responsável (empresa fornecedora)</div><div class="sig">${esc(cab.destino)}<br>Responsável (empresa recebedora)</div><div class="sig">Contabilidade</div></div>
+    <div class="nota">As comprovações acima foram colhidas eletronicamente no sistema de estoque (assinatura na tela, confirmação com login individual, foto do canhoto e recebimento na obra), com data, hora e usuário gravados pelo banco de dados. Este documento pode ser reemitido a qualquer momento.</div>`,'Comprovante de Mútuo '+periodoLabel(cab.periodo)); }
 
 /* ===== EXPEDIÇÃO (embalagem, romaneio, NF, etiquetas de volume, envio) ===== */
 const EXPED_STAGES=['Separado','Romaneio','Embalado','Nota Fiscal','Etiquetas','Envio'];
@@ -2668,6 +3046,7 @@ async function abrirExpedicao(reqId){
   const {data:retRows}=await sb.from('retiradas_internas').select('*').eq('requisicao_id',reqId).order('id',{ascending:false}).limit(100);
   const parcialOk=(itens&&itens.length)?('quantidade_entregue' in itens[0]):!!_entParcialOk; if(parcialOk)_entParcialOk=true;
   window._expedCtx={r,itens:itens||[],caixas:caixas||[],itensCaixa:itensCaixaAll||[],nf:(nfRows&&nfRows[0])||null,emb:(embRows&&embRows[0])||null,ret:(retRows&&retRows[0])||null,rets:retRows||[],parcialOk};
+  if(_comprovOk)await loadComprovUsuarios();
   renderExpedModal();
 }
 function renderExpedModal(){
@@ -2679,7 +3058,7 @@ function renderExpedModal(){
     <p class="mp">${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}${r.aplicacao_nome?' · '+esc(r.aplicacao_nome):''}${r.tipo_envio?' · '+envioTipoLabel(r.tipo_envio):''}</p>
     ${expedStepperHTML(r,caixas)}${r.mutuo_empresa_destino?`<div style="text-align:right;margin:6px 0 4px"><button class="btn ghost sm" onclick="imprimirRomaneioMutuo(${r.id})">🖨 Romaneio do mútuo</button></div>`:''}`;
 
-  const backMap={romaneio_emitido:'separado',embalado:'romaneio_emitido',faturado:'embalado',embarcado:'faturado',retirado:'faturado'};
+  const backMap={romaneio_emitido:'separado',embalado:'romaneio_emitido',faturado:'embalado',embarcado:'faturado',retirado:'faturado',recebido:'embarcado'};
   if(backMap[r.status]) html+=`<div style="margin-top:8px"><button class="btn ghost sm" onclick="voltarEtapa(${r.id})">◀ Voltar etapa</button></div>`;
 
   if(['romaneio_emitido','embalado'].includes(r.status)){
@@ -2729,11 +3108,11 @@ function renderExpedModal(){
     html+=`<div class="sechead" style="margin-top:16px"><h3 style="font-size:13px">🚚 Informar envio — ${ehBalcao(r.tipo_envio)?envioTipoLabel(r.tipo_envio).replace(/^\S+\s/,''):'Despacho (transportadora)'}</h3></div>
     <input type="hidden" id="envioTipoFixo" value="${r.tipo_envio||'despacho'}">
     ${ehBalcao(r.tipo_envio)?`<div class="row c2"><div class="field"><label>Colaborador que retirou</label><input id="envColab"></div><div class="field"><label>Documento (opcional)</label><input id="envColabDoc"></div></div>`
-      :`<div class="row c2"><div class="field"><label>Transportadora</label><input id="envTransp"></div><div class="field"><label>Data prevista de entrega</label><input id="envPrevisao" type="date"></div></div>`}
+      :`<div class="row c2"><div class="field"><label>Transportadora</label><input id="envTransp"></div><div class="field"><label>Data prevista de entrega</label><input id="envPrevisao" type="date"></div></div>${_comprovOk?canhotoCampoHTML():''}`}
     <div class="field"><label>Observação</label><input id="envObs"></div>
     <button class="btn primary sm" onclick="registrarEnvio(${r.id})">Confirmar</button>`;
-  } else if(r.status==='embarcado' && emb){
-    html+=`<div class="sechead" style="margin-top:16px"><h3 style="font-size:13px">🚚 Envio — Despacho</h3></div><p class="mp" style="font-size:12.5px">Transportadora: ${esc(emb.transportadora||'—')}${emb.data_prevista_entrega?' · previsão '+fmtDate(new Date(emb.data_prevista_entrega).getTime()):''}</p>`;
+  } else if((r.status==='embarcado'||r.status==='recebido') && emb){
+    html+=`<div class="sechead" style="margin-top:16px"><h3 style="font-size:13px">🚚 Envio — Despacho</h3></div><p class="mp" style="font-size:12.5px">Transportadora: ${esc(emb.transportadora||'—')}${emb.data_prevista_entrega?' · previsão '+fmtDate(new Date(emb.data_prevista_entrega).getTime()):''}</p>`+despachoComprovHTML(r,emb,caixas);
   } else if(r.status==='retirado' && ret){
     html+=`<div class="sechead" style="margin-top:16px"><h3 style="font-size:13px">🚚 Envio — Retirada no balcão</h3></div><p class="mp" style="font-size:12.5px">Retirado por ${esc(ret.colaborador_nome)} em ${fmtDate(new Date(ret.data_retirada).getTime())}</p>`;
   }
@@ -2741,12 +3120,19 @@ function renderExpedModal(){
   html+=entregaBalcaoHTML();
   html+=`<div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn ghost" onclick="closeModal()">Fechar</button></div>`;
   modal(html);
+  _epAutoLogin=false; if($('#epSig'))sigPadInit('epSig');
 }
 function voltarEtapa(reqId){
   const {r,caixas}=window._expedCtx;
-  const map={romaneio_emitido:'separado',embalado:'romaneio_emitido',faturado:'embalado',embarcado:'faturado',retirado:'faturado'};
+  const map={romaneio_emitido:'separado',embalado:'romaneio_emitido',faturado:'embalado',embarcado:'faturado',retirado:'faturado',recebido:'embarcado'};
   const prev=map[r.status]; if(!prev)return;
   requireSupervisor('Voltar REQ-'+String(reqId).padStart(5,'0')+' para a etapa anterior ('+reqStatusLabel(prev)+')',async()=>{
+    if(r.status==='recebido'){ /* desfaz o recebimento na obra pela função do banco (só administrador ou encarregado do almoxarifado) */
+      const {error:eR}=await sb.rpc('desfazer_recebimento_obra',{p_requisicao_id:reqId});
+      if(eR){ toast('Erro: '+esc(eR.message),'err'); return; }
+      try{ await sb.rpc('log_event',{p_acao:'recebimento_obra_desfeito',p_entidade:'requisicoes',p_entidade_id:String(reqId)}); }catch(e){}
+      toast('Recebimento na obra desfeito — voltou para Embarcado.','warn');
+      await abrirExpedicao(reqId); refreshComprovPend(); refreshComprovBadge(); if(activeTab==='comprovantes')drawComprovantes(); return; }
     if(r.status==='faturado'){
       const {nf}=window._expedCtx; if(nf) await sb.from('notas_fiscais_saida').update({status:'cancelada'}).eq('id',nf.id);
       const etiquetadas=caixas.filter(c=>c.status==='etiquetada'); if(etiquetadas.length) await sb.from('caixas').update({status:'fechada'}).in('id',etiquetadas.map(c=>c.id));
@@ -2842,11 +3228,14 @@ async function gerarEtiquetaCaixa(caixaId){ const {r,itensCaixa,caixas}=window._
     ${empObj&&empObj.cnpj?`<div class="pd">CNPJ: ${esc(empObj.cnpj)}</div>`:''}
     ${empObj&&empObj.endereco?`<div class="pd">${esc(empObj.endereco)}</div>`:''}
     <div class="pd">Obra: ${obraObj?esc(obraObj.nome):'—'}${obraObj&&obraObj.local?' · '+esc(obraObj.local):''}</div></div>`;
+  let qrRec=''; if(_comprovOk){ try{ const q=qrcode(0,'M'); q.addData(recLinkVolume(r.id,c.codigo)); q.make();
+    qrRec=`<div class="party" style="display:flex;gap:10px;align-items:center"><div style="flex:none;line-height:0">${q.createSvgTag({cellSize:4,margin:4})}</div><div class="pd"><b>Recebimento na obra</b><br>Ao receber este volume, aponte a câmera do celular para o código e confirme o recebimento no sistema.</div></div>`; }catch(e){ console.warn('QR do volume',e); } }
   w.document.write(`<html><head><meta charset="utf-8"><title>Etiqueta ${esc(c.codigo)}</title><style>@page{size:auto;margin:8mm}body{font-family:sans-serif;margin:0}.lab{width:380px;padding:16px;border:2px solid #333}.lab h2{margin:0 0 4px;font-size:20px}.lab .sub{font-size:12px;color:#555;margin-bottom:10px}.lab ul{font-size:12px;margin:8px 0;padding-left:16px}.party{border-top:1px solid #ccc;padding-top:8px;margin-top:8px}.pt{font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:#888;font-weight:bold}.pn{font-size:13px;font-weight:bold;margin:2px 0}.pd{font-size:11px;color:#444}</style></head><body>
     <div class="lab"><h2>${esc(c.codigo)}</h2><div class="sub">REQ-${String(r.id).padStart(5,'0')}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</div>
     <ul>${itsC.map(i=>`<li>${esc(i.descricao)} — ${numf(i.quantidade)}</li>`).join('')}</ul>
     ${partyBlock('Emitente',obraOrigObj,empOrig)}
     ${partyBlock('Destinatário',obraDestObj,empDest)}
+    ${qrRec}
     </div>
     <script>setTimeout(()=>window.print(),300);<\/script></body></html>`);
   w.document.close();
@@ -2863,6 +3252,9 @@ async function registrarEnvio(reqId){ const tipo=$('#envioTipoFixo')?$('#envioTi
     const {error:e2}=await updReq(reqId,{status:'embarcado'});
     if(e2){toast('Embarque salvo, mas houve erro ao atualizar a requisição: '+e2.message,'err');return;}
     toast('Envio (despacho) registrado.','ok');
+    const fC=$('#envCanhoto')&&$('#envCanhoto').files&&$('#envCanhoto').files[0];
+    if(_comprovOk&&fC){ const errC=await enviarCanhoto(reqId,fC); if(errC)toast('O envio foi registrado, mas o canhoto NÃO foi anexado: '+esc(errC)+' — anexe de novo nesta tela.','err'); }
+    if(_comprovOk)refreshComprovBadge();
   } else {
     const colab=$('#envColab').value.trim(); const doc2=$('#envColabDoc').value.trim()||null;
     if(!colab){toast('Informe o colaborador que retirou.','err');return;}
@@ -3161,7 +3553,7 @@ async function drawMutuoAbertos(){ const box=$('#mutuoAbertos'); if(!box)return;
     <table><thead><tr><th>Data</th><th>Descrição</th><th>Obras</th><th class="num">Valor</th><th></th></tr></thead><tbody>${
       g.itens.map(m=>`<tr><td class="muted" style="font-size:12px">${fmtDate(new Date(m.criado_em).getTime())}${m.registrado_por_nome?'<br><span style="font-size:10.5px">'+esc(m.registrado_por_nome)+'</span>':''}</td><td>${esc(m.descricao||'—')}</td><td class="muted" style="font-size:12px">${esc(m.obra_origem_nome||'')} → ${esc(m.obra_destino_nome||'')}</td><td class="num">${money(m.valor)}</td><td class="num" style="white-space:nowrap">${podeAlterarMutuo(m)?`<button class="btn ghost sm" title="Editar" onclick="editarMutuoModal('${m.id}')">✎</button> <button class="btn danger sm" title="Excluir" onclick="excluirMutuo('${m.id}')">✕</button>`:''}</td></tr>`).join('')
     }</tbody></table>
-    ${isAdminOuEncAlmox()?`<div style="text-align:right;margin-top:10px"><button class="btn primary sm" onclick="fecharPeriodoMutuo(${gi})">🔒 Fechar período</button></div>`:''}
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;flex-wrap:wrap"><button class="btn ghost sm" onclick="imprimirComprovMutuo('aberto',${gi})">📄 Comprovante do período</button>${isAdminOuEncAlmox()?`<button class="btn primary sm" onclick="fecharPeriodoMutuo(${gi})">🔒 Fechar período</button>`:''}</div>
   </div>`).join('');
 }
 async function drawMutuoFechados(){ const box=$('#mutuoFechados'); if(!box)return;
@@ -3169,8 +3561,8 @@ async function drawMutuoFechados(){ const box=$('#mutuoFechados'); if(!box)retur
   if(error){box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>';return;}
   _mutuoFechados={}; (data||[]).forEach(f=>{ _mutuoFechados[f.id]=f; });
   const podeReabrir=isAdmin(); /* reabrir período: somente administrador */
-  box.innerHTML=`<table><thead><tr><th>Período</th><th>Empresas</th><th class="num">Total</th><th>Fechado por</th><th>Quando</th>${podeReabrir?'<th></th>':''}</tr></thead><tbody>${
-    (data||[]).map(f=>`<tr><td>${periodoLabel(f.periodo)}</td><td>${esc(f.empresa_origem)} → ${esc(f.empresa_destino)}</td><td class="num">${money(f.total_valor)}</td><td class="muted" style="font-size:12px">${esc(f.fechado_por_nome||'—')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(f.criado_em).getTime())}</td>${podeReabrir?`<td class="num"><button class="btn ghost sm" title="Reabrir período" onclick="reabrirPeriodoMutuo('${esc(f.id)}')">🔓 Reabrir</button></td>`:''}</tr>`).join('')||`<tr><td colspan="${podeReabrir?6:5}" class="empty" style="padding:20px">Nenhum período fechado ainda.</td></tr>`}</tbody></table>`;
+  box.innerHTML=`<table><thead><tr><th>Período</th><th>Empresas</th><th class="num">Total</th><th>Fechado por</th><th>Quando</th><th></th></tr></thead><tbody>${
+    (data||[]).map(f=>`<tr><td>${periodoLabel(f.periodo)}</td><td>${esc(f.empresa_origem)} → ${esc(f.empresa_destino)}</td><td class="num">${money(f.total_valor)}</td><td class="muted" style="font-size:12px">${esc(f.fechado_por_nome||'—')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(f.criado_em).getTime())}</td><td class="num" style="white-space:nowrap"><button class="btn ghost sm" title="Comprovante do período" onclick="imprimirComprovMutuo('fechado','${esc(f.id)}')">📄 Comprovante</button>${podeReabrir?` <button class="btn ghost sm" title="Reabrir período" onclick="reabrirPeriodoMutuo('${esc(f.id)}')">🔓 Reabrir</button>`:''}</td></tr>`).join('')||`<tr><td colspan="6" class="empty" style="padding:20px">Nenhum período fechado ainda.</td></tr>`}</tbody></table>`;
 }
 function mutuoModal(){
   const empresas=[...new Set(state.obras.map(o=>o.empresa).filter(Boolean))];
@@ -4078,7 +4470,7 @@ function onAuthReady(){
   const p=(async()=>{
     profile=await loadProfile();
     if(!profile||!profile.ativo){ showPending(); return; }
-    hideGate(); applyRoleNav(); initNavGrps(); const pDev=refreshDevolucoesBloqueio().catch(()=>{}); await load(); await pDev; loadPhotos().then(()=>refreshTelaAtual()); loadReposAbertas().then(()=>refreshTelaAtual()); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); checkEntregaParcial().then(()=>refreshRetiradasBadge()); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge();
+    hideGate(); applyRoleNav(); initNavGrps(); const pDev=refreshDevolucoesBloqueio().catch(()=>{}); await load(); await pDev; loadPhotos().then(()=>refreshTelaAtual()); loadReposAbertas().then(()=>refreshTelaAtual()); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); checkEntregaParcial().then(()=>refreshRetiradasBadge()); _comprovOk=null; _comprovPend={confirmar:[],receber:[]}; _comprovUsers=null; refreshComprovPend().then(()=>{ refreshComprovBadge(); processarLinkRecebimento(); }); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge();
     _bootedUid=uid; go(abaInicial());
     if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); startVersionWatch(); }
   })();
