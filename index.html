@@ -416,7 +416,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-03T01:00:00-03:00';
+const APP_VERSION='2026-10-05T14:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -2282,7 +2282,7 @@ async function aprovarRequisicao(id){
     if(e3){toast('Verificação salva, mas houve erro ao gerar compra pendente: '+e3.message,'err');return;}
   }
   const novoStatus=temFaltante?'aguardando_compra':'em_separacao';
-  const {error:e4}=await sb.from('requisicoes').update({status:novoStatus,decidido_por:session.user.id,decidido_por_nome:profile.nome||profile.email,decidido_em:new Date().toISOString()}).eq('id',id);
+  const {error:e4}=await updReq(id,{status:novoStatus,decidido_por:session.user.id,decidido_por_nome:profile.nome||profile.email,decidido_em:new Date().toISOString()});
   if(e4){toast('Erro ao atualizar a requisição: '+e4.message,'err');return;}
   toast(temFaltante?'Requisição aprovada. Itens faltantes enviados para compras.':'Requisição aprovada — pronta para separação.','ok');
   drawAprovPend(); drawAprovHist(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshMinhasBadge(); refreshGlobalAlerts(); }
@@ -2292,7 +2292,7 @@ async function rejeitarRequisicao(id){
   if(!podeAprovarObra(r.obra_id)){toast('Você não está vinculado à obra (centro de custo) desta requisição.','err');return;}
   modal(`<h3>Rejeitar requisição</h3><p class="mp">Informe o motivo (visível ao solicitante).</p><div class="field"><textarea id="rjMotivo" rows="3" autofocus></textarea></div><div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn danger" id="rjOk">Rejeitar</button></div>`);
   $('#rjOk').onclick=async()=>{ const motivo=$('#rjMotivo').value.trim(); if(!motivo){toast('Informe o motivo.','err');return;}
-    const {error}=await sb.from('requisicoes').update({status:'rejeitada',motivo_rejeicao:motivo,decidido_por:session.user.id,decidido_por_nome:profile.nome||profile.email,decidido_em:new Date().toISOString()}).eq('id',id);
+    const {error}=await updReq(id,{status:'rejeitada',motivo_rejeicao:motivo,decidido_por:session.user.id,decidido_por_nome:profile.nome||profile.email,decidido_em:new Date().toISOString()});
     if(error){toast('Erro: '+error.message,'err');return;} closeModal(); toast('Requisição rejeitada.','warn'); drawAprovPend(); drawAprovHist(); refreshAprovBadge(); refreshGlobalAlerts(); }; }
 
 /* ===== SEPARAÇÃO (almoxarife / admin) ===== */
@@ -2391,8 +2391,15 @@ async function marcarCompraRecebida(id){
       const novoStatus=(item.quantidade_separada+novaDisp)>=item.quantidade_solicitada?'disponivel':'faltante';
       await sb.from('requisicao_itens_status').update({quantidade_disponivel:novaDisp,status:novoStatus,atualizado_em:new Date().toISOString()}).eq('id',item.id);
     }
-    const {count}=await sb.from('requisicao_itens_status').select('id',{count:'exact',head:true}).eq('requisicao_id',c.requisicao_id).eq('status','faltante');
-    if(!count){ await sb.from('requisicoes').update({status:'em_separacao'}).eq('id',c.requisicao_id); }
+    const {count,error:eCnt}=await sb.from('requisicao_itens_status').select('id',{count:'exact',head:true}).eq('requisicao_id',c.requisicao_id).eq('status','faltante');
+    let avisoReq='';
+    if(!eCnt&&count===0){ /* nada mais faltando: a requisição sai de "aguardando compra" e volta pra separação */
+      const {data:upd,error:eU}=await sb.from('requisicoes').update({status:'em_separacao'}).eq('id',c.requisicao_id).eq('status','aguardando_compra').select('id');
+      if(eU) avisoReq=eU.message;
+      else if(!upd||!upd.length){ const {data:cur}=await sb.from('requisicoes').select('status').eq('id',c.requisicao_id).maybeSingle();
+        if(cur&&cur.status==='aguardando_compra') avisoReq='o seu usuário ('+papelLabel(profile.papel||'')+(profile.setor?' · '+profile.setor:'')+') não tem permissão para alterar a requisição. Avise o administrador.'; }
+    }
+    if(avisoReq) toast('Recebimento registrado, mas a requisição NÃO voltou para a separação: '+avisoReq,'err'); else
     toast('Recebimento registrado.','ok'); drawComprasPendentes(); drawSeparacaoList(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshMinhasBadge(); refreshGlobalAlerts();
   };
 }
@@ -2402,6 +2409,18 @@ async function drawSeparacaoList(){ const box=$('#sepList'); if(!box)return;
   if(!reqs||!reqs.length){box.innerHTML='<div class="tbl-wrap"><div class="empty">Nenhuma requisição em separação no momento.</div></div>';return;}
   const ids=reqs.map(r=>r.id);
   const {data:itens}=await sb.from('requisicao_itens_status').select('*').in('requisicao_id',ids);
+  /* Requisição com TODOS os itens separados mas ainda "em separação" = a última etapa da separação não foi gravada.
+     Conclui sozinho aqui; se o banco recusar para este usuário, mostra o aviso no cartão em vez de deixar muda. */
+  let recuperou=false;
+  for(const r of reqs){
+    if(!SEP_ABERTA.includes(r.status))continue;
+    const its=(itens||[]).filter(i=>i.requisicao_id===r.id);
+    if(!its.length||its.some(i=>i.status!=='separado')){ _sepPresas.delete(r.id); continue; }
+    if(_sepPresas.has(r.id))continue;
+    const c=await concluirSeparacaoReq(r.id);
+    if(c.ok){ r.status='separado'; recuperou=true; } else _sepPresas.set(r.id,c.motivo);
+  }
+  if(recuperou){ refreshSeparacaoBadge(); refreshExpedBadge(); refreshRetiradasBadge(); refreshGlobalAlerts(); }
   box.innerHTML=reqs.map(r=>{
     const its=(itens||[]).filter(i=>i.requisicao_id===r.id);
     if(r.status==='separado'){
@@ -2422,13 +2441,13 @@ async function drawSeparacaoList(){ const box=$('#sepList'); if(!box)return;
       <div class="sechead" style="margin-bottom:10px"><h3 style="font-size:14px">REQ-${String(r.id).padStart(5,'0')} — ${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</h3><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span></div>
       <table><thead><tr><th>Item</th><th class="num">Solicitado</th><th class="num">Disponível agora</th><th>Situação</th><th></th></tr></thead><tbody>${
         its.map(i=>`<tr><td>${esc(i.descricao)}${i.quantidade_separada>0?`<div class="muted" style="font-size:10.5px">já separado: ${numf(i.quantidade_separada)}</div>`:''}</td><td class="num">${numf(i.quantidade_solicitada)} ${esc(i.unidade||'')}</td><td class="num">${numf(i.quantidade_disponivel)}</td><td><span class="pill ${i.status}">${itemStatusLabel(i.status)}</span></td><td class="num">${i.quantidade_disponivel>0&&i.status!=='separado'?`<button class="btn primary sm" onclick="separarItem(${i.id})">Separar ${numf(i.quantidade_disponivel)}</button>`:i.status==='separado'?'✓':''}</td></tr>`).join('')
-      }</tbody></table></div>`;
+      }</tbody></table>${_sepPresas.has(r.id)?`<div style="margin-top:10px;padding:10px 12px;border-left:4px solid #c0392b;background:#fbeeec;border-radius:6px;font-size:12.5px"><b>⚠ Todos os itens já foram separados, mas a requisição não avançou para a próxima etapa.</b><div class="muted" style="margin:3px 0 8px">Motivo: ${esc(_sepPresas.get(r.id))}</div><button class="btn primary sm" onclick="tentarConcluirSeparacao(${r.id})">Tentar concluir agora</button></div>`:''}</div>`;
   }).join('');
 }
 function definirTipoEnvio(reqId,ehMutuo){ const sel=document.querySelector('input[name=tipoEnvioPre_'+reqId+']:checked'); const tipo=sel?sel.value:'despacho';
   const payload=ehBalcao(tipo)?{tipo_envio:tipo,status:'romaneio_emitido'}:{tipo_envio:tipo};
   const win=(ehMutuo&&ehBalcao(tipo))?abrirJanelaImpressao():null; /* na retirada interna o romaneio é emitido aqui mesmo */
-  sb.from('requisicoes').update(payload).eq('id',reqId).then(({error})=>{ if(error){ if(win)win.close(); toast('Erro: '+error.message,'err');return;}
+  updReq(reqId,payload).then(({error})=>{ if(error){ if(win)win.close(); toast('Erro: '+error.message,'err');return;}
     if(win) imprimirRomaneioMutuo(reqId,win);
     toast(ehBalcao(tipo)?'Retirada no balcão — indo direto pra embalagem (sem romaneio).':'Tipo de envio definido.','ok');
     drawSeparacaoList(); drawExpedicaoList(); refreshExpedBadge(); }); }
@@ -2440,6 +2459,37 @@ async function trocarTipoEnvio(reqId){
   try{ await sb.rpc('log_event',{p_acao:'tipo_envio_resetado',p_entidade:'requisicoes',p_entidade_id:String(reqId)}); }catch(e){}
   toast('Tipo de envio liberado — escolha novamente.','ok');
   drawSeparacaoList(); drawExpedicaoList(); refreshExpedBadge();
+}
+/* Passa a requisição para "separado" e CONFERE se o banco gravou. Antes era um update sem conferência: quando o
+   banco recusava por permissão do usuário (RLS devolve zero linhas, sem erro) ou a rotina era interrompida no meio
+   (aba fechada, queda de conexão), a tela dizia "tudo separado" e a requisição ficava presa em "Em separação" com
+   todos os itens já separados — sem botão para seguir. */
+/* Alteração na requisição que CONFERE se o banco gravou. Quando a permissão do usuário (RLS) não cobre a etapa,
+   o Supabase não devolve erro — só zero linhas alteradas — e a tela seguia como se tivesse dado certo. */
+async function updReq(reqId,payload){
+  let data=null,error=null;
+  try{ ({data,error}=await sb.from('requisicoes').update(payload).eq('id',reqId).select('id')); }
+  catch(e){ error={message:(e&&e.message)||String(e)}; }
+  if(!error&&(!data||!data.length)) error={message:'a alteração não foi gravada — a requisição não existe mais ou o seu usuário ('+papelLabel((profile&&profile.papel)||'')+(profile&&profile.setor?' · '+profile.setor:'')+') não tem permissão para esta etapa. Avise o administrador.'};
+  return {error};
+}
+const SEP_ABERTA=['em_separacao','aguardando_compra'];
+const _sepPresas=new Map(); /* reqId -> motivo da última tentativa que falhou (evita insistir a cada redesenho) */
+async function concluirSeparacaoReq(reqId){
+  let data=null,error=null;
+  try{ ({data,error}=await sb.from('requisicoes').update({status:'separado'}).eq('id',reqId).in('status',SEP_ABERTA).select('id')); }
+  catch(e){ error={message:(e&&e.message)||String(e)}; }
+  if(error) return {ok:false,motivo:error.message};
+  if(data&&data.length){ try{ await sb.rpc('log_event',{p_acao:'separacao_concluida',p_entidade:'requisicoes',p_entidade_id:String(reqId)}); }catch(e){} return {ok:true}; }
+  const {data:cur}=await sb.from('requisicoes').select('status').eq('id',reqId).maybeSingle();
+  if(cur&&!SEP_ABERTA.includes(cur.status)) return {ok:true}; /* outra pessoa/aba já avançou */
+  return {ok:false,motivo:'o banco não permitiu que o seu usuário ('+papelLabel(profile.papel||'')+(profile.setor?' · '+profile.setor:'')+') altere a requisição. Avise o administrador.'};
+}
+async function tentarConcluirSeparacao(reqId){
+  const c=await concluirSeparacaoReq(reqId);
+  if(c.ok){ _sepPresas.delete(reqId); toast('Requisição liberada para a próxima etapa.','ok'); }
+  else { _sepPresas.set(reqId,c.motivo); toast('Não foi possível concluir: '+c.motivo,'err'); }
+  drawSeparacaoList(); refreshSeparacaoBadge(); refreshExpedBadge(); refreshRetiradasBadge(); refreshGlobalAlerts();
 }
 const _separandoItens=new Set();
 async function separarItem(id){
@@ -2476,8 +2526,12 @@ async function _separarItem(id){
     const {error:e3}=await sb.from('mutuos_intercompany').insert({periodo:periodoAtual(),empresa_origem:r.mutuo_empresa_origem,empresa_destino:r.mutuo_empresa_destino,obra_origem_nome:estObra?estObra.nome:'',obra_destino_nome:r.obra_nome,descricao:item.descricao+' (REQ-'+String(r.id).padStart(5,'0')+')',requisicao_id:r.id,item_code:item.code,valor:qtdSeparar*vu,registrado_por:session.user.id,registrado_por_nome:profile.nome||profile.email});
     if(e3)toast('Baixa feita, mas houve erro ao registrar o mútuo: '+e3.message,'err');
   }
-  const {count}=await sb.from('requisicao_itens_status').select('id',{count:'exact',head:true}).eq('requisicao_id',r.id).neq('status','separado');
-  if(!count){ await sb.from('requisicoes').update({status:'separado'}).eq('id',r.id); toast('Todos os itens separados! Requisição pronta para embalamento.','ok'); refreshExpedBadge(); refreshRetiradasBadge(); }
+  const {count,error:eCnt}=await sb.from('requisicao_itens_status').select('id',{count:'exact',head:true}).eq('requisicao_id',r.id).neq('status','separado');
+  if(!eCnt&&count===0){
+    const c=await concluirSeparacaoReq(r.id);
+    if(c.ok){ _sepPresas.delete(r.id); toast('Todos os itens separados! Requisição pronta para embalamento.','ok'); }
+    else { _sepPresas.set(r.id,c.motivo); toast('Item separado e baixado do estoque, mas a requisição NÃO avançou para a próxima etapa: '+c.motivo,'err'); }
+    refreshExpedBadge(); refreshRetiradasBadge(); }
   else toast(novoStatus==='separado'?'Item totalmente separado.':'Separado o que estava disponível — o restante continua aguardando compra.','ok');
   drawSeparacaoList(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshMinhasBadge(); refreshRetiradasBadge(); refreshGlobalAlerts();
 }
@@ -2707,7 +2761,7 @@ function voltarEtapa(reqId){
     else if(r.status==='embalado'){
       const fechadas=caixas.filter(c=>c.status==='fechada'); if(fechadas.length) await sb.from('caixas').update({status:'em_montagem',data_fechamento:null}).in('id',fechadas.map(c=>c.id));
     }
-    const {error}=await sb.from('requisicoes').update({status:prev}).eq('id',reqId);
+    const {error}=await updReq(reqId,{status:prev});
     if(error){toast('Erro: '+error.message,'err');return;}
     toast('Voltou para: '+reqStatusLabel(prev),'warn');
     await abrirExpedicao(reqId); drawExpedicaoList(); refreshExpedBadge(); refreshRetiradasBadge(); drawSeparacaoList(); refreshSeparacaoBadge();
@@ -2740,7 +2794,7 @@ async function excluirCaixa(caixaId){
 async function concluirEmbalamento(reqId){
   const tipoEnvio=window._expedCtx&&window._expedCtx.r?window._expedCtx.r.tipo_envio:null;
   const novoStatus=ehBalcao(tipoEnvio)?'faturado':'embalado';
-  const {error}=await sb.from('requisicoes').update({status:novoStatus}).eq('id',reqId);
+  const {error}=await updReq(reqId,{status:novoStatus});
   if(error){toast('Erro: '+error.message,'err');return;}
   toast(ehBalcao(tipoEnvio)?'Embalamento concluído — retirada no balcão, sem nota fiscal.':'Embalamento concluído.','ok');
   await abrirExpedicao(reqId); drawExpedicaoList(); refreshExpedBadge(); refreshRetiradasBadge(); }
@@ -2765,7 +2819,7 @@ async function imprimirRomaneioMutuo(reqId,win){ win=win||abrirJanelaImpressao()
     itens,assinaturas:['Almoxarifado (empresa origem)','Transportador / Conferente','Recebedor (empresa destino)']});
 }
 async function emitirRomaneio(reqId,ehMutuo){ const win=ehMutuo?abrirJanelaImpressao():null;
-  const {error}=await sb.from('requisicoes').update({status:'romaneio_emitido'}).eq('id',reqId);
+  const {error}=await updReq(reqId,{status:'romaneio_emitido'});
   if(error){ if(win)win.close(); toast('Erro: '+error.message,'err');return;} toast('Romaneio emitido — pronto para embalar.','ok');
   if(win) imprimirRomaneioMutuo(reqId,win);
   drawSeparacaoList(); drawExpedicaoList(); refreshSeparacaoBadge(); refreshExpedBadge(); refreshRetiradasBadge(); }
@@ -2773,7 +2827,7 @@ async function emitirNF(reqId){ const numero=$('#nfNumero').value.trim(); const 
   if(!numero){toast('Informe o número da NF.','err');return;}
   const {error:e1}=await sb.from('notas_fiscais_saida').insert({requisicao_id:reqId,numero_nf:numero,chave_acesso:chave||null,valor_total:valor,data_emissao:data,status:'emitida'});
   if(e1){toast('Erro: '+e1.message,'err');return;}
-  const {error:e2}=await sb.from('requisicoes').update({status:'faturado'}).eq('id',reqId);
+  const {error:e2}=await updReq(reqId,{status:'faturado'});
   if(e2){toast('NF salva, mas houve erro ao atualizar a requisição: '+e2.message,'err');return;}
   toast('NF emitida.','ok'); await abrirExpedicao(reqId); drawExpedicaoList(); refreshExpedBadge(); refreshRetiradasBadge(); }
 async function gerarEtiquetaCaixa(caixaId){ const {r,itensCaixa,caixas}=window._expedCtx; const c=caixas.find(x=>x.id===caixaId); const itsC=itensCaixa.filter(ic=>ic.caixa_id===caixaId);
@@ -2806,7 +2860,7 @@ async function registrarEnvio(reqId){ const tipo=$('#envioTipoFixo')?$('#envioTi
     const {nf}=window._expedCtx;
     const {error:e1}=await sb.from('embarques').insert({requisicao_id:reqId,nota_fiscal_id:nf?nf.id:null,transportadora:transp,data_embarque:new Date().toISOString(),data_prevista_entrega:prev,status:'embarcado',observacoes:obs});
     if(e1){toast('Erro: '+e1.message,'err');return;}
-    const {error:e2}=await sb.from('requisicoes').update({status:'embarcado'}).eq('id',reqId);
+    const {error:e2}=await updReq(reqId,{status:'embarcado'});
     if(e2){toast('Embarque salvo, mas houve erro ao atualizar a requisição: '+e2.message,'err');return;}
     toast('Envio (despacho) registrado.','ok');
   } else {
@@ -2814,7 +2868,7 @@ async function registrarEnvio(reqId){ const tipo=$('#envioTipoFixo')?$('#envioTi
     if(!colab){toast('Informe o colaborador que retirou.','err');return;}
     const {error:e1}=await sb.from('retiradas_internas').insert({requisicao_id:reqId,colaborador_nome:colab,colaborador_documento:doc2,registrado_por:session.user.id,registrado_por_nome:profile.nome||profile.email,observacao:obs});
     if(e1){toast('Erro: '+e1.message,'err');return;}
-    const {error:e2}=await sb.from('requisicoes').update({status:'retirado'}).eq('id',reqId);
+    const {error:e2}=await updReq(reqId,{status:'retirado'});
     if(e2){toast('Retirada salva, mas houve erro ao atualizar a requisição: '+e2.message,'err');return;}
     toast('Retirada no balcão registrada.','ok');
   }
