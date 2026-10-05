@@ -476,7 +476,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-06T14:00:00-03:00';
+const APP_VERSION='2026-10-06T17:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -894,6 +894,14 @@ function photoList(code){ const loc=fotosLocais(code), ex=fotosExt[code]; return
 async function loadFotosExt(){ try{ const {data,error}=await fetchAllRows(()=>sb.from('produto_fotos').select('id,code,path').order('criado_em').order('id')); if(error)return false;
     const m={}; (data||[]).forEach(r=>{ (m[r.code]=m[r.code]||[]).push({id:r.id,path:r.path,url:sb.storage.from('produtos').getPublicUrl(r.path).data.publicUrl}); });
     const mudou=JSON.stringify(Object.keys(m).map(k=>[k,m[k].length]))!==JSON.stringify(Object.keys(fotosExt).map(k=>[k,fotosExt[k].length])); fotosExt=m; return mudou; }catch(e){ return false; } }
+/* Foto tirada na contagem de um item "fora da lista" fica ligada ao registro dele (code = "extra:<id>").
+   Quando o item é lançado no estoque, ela passa para o produto. */
+async function fotosExtraParaProduto(extraId,code){ try{ const k='extra:'+extraId;
+    const {data:rows,error}=await sb.from('produto_fotos').select('id,path,bytes,origem,criado_por_nome').eq('code',k); if(error||!rows||!rows.length)return;
+    const up=await sb.from('produto_fotos').update({code}).eq('code',k).select('id'); if(!up.error&&up.data&&up.data.length)return;
+    /* banco ainda sem a regra de alteração (script antigo): troca excluindo e incluindo de novo com o código do produto */
+    const del=await sb.from('produto_fotos').delete().eq('code',k).select('id'); if(del.error||!del.data||!del.data.length)return;
+    await sb.from('produto_fotos').insert(rows.map(r=>({code,path:r.path,bytes:r.bytes,origem:r.origem,criado_por_nome:r.criado_por_nome}))); }catch(e){ console.warn('fotosExtraParaProduto',e); } }
 async function removeFotoExt(code,ex){ const {data,error}=await sb.from('produto_fotos').delete().eq('id',ex.id).select('id');
   if(error||!data||!data.length){ toast('Não foi possível remover a foto'+(error?': '+esc(error.message):' — seu usuário não tem permissão.'),'err'); return; }
   try{ await sb.storage.from('produtos').remove([ex.path]); }catch(e){}
@@ -2332,7 +2340,9 @@ function invLancar(){
       else{ tab='contagem_extras'; if(m.code)patch.code_final=m.code; }
       const {data,error}=await sb.from(tab).update(patch).eq('id',m.rowId).eq('status','aprovado').select('id');
       if(error||!data||!data.length)falhas++;
+      if(m.tipo!=='item'&&m.code)await fotosExtraParaProduto(m.rowId,m.code);
     }
+    loadFotosExt();
     if(falhas)toast('Estoque ajustado, mas '+falhas+' linha(s) não foram marcadas como lançadas. Abra o Inventário e repita: nada será lançado em duplicidade.','warn');
     else toast('Ajustes de inventário lançados e salvos.','ok');
     await renderInventario();
