@@ -214,6 +214,7 @@ function lerProdutos(v){
     unit : String(x.unit ?? x.un ?? x.unidade ?? ''),
     aux  : String(x.aux ?? '').trim(),
     ref  : String(x.ref ?? '').trim(),
+    fab  : String(x.fab ?? '').trim(),          // código(s) de barras do fabricante, separados por vírgula
     min  : Number(x.min) || 0,
     grupo: String(x.grupo ?? x.group ?? x.categoria ?? x.cat ?? '').trim()
   })).filter(x => x.code);
@@ -294,7 +295,8 @@ const ICO = {
   rev:'<path d="M4 6h10M4 12h10M4 18h6"/><path d="M16 17l2 2 4-5"/>',
   back:'<path d="M15 5l-7 7 7 7"/>',
   user:'<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/>',
-  refresh:'<path d="M20 11a8 8 0 0 0-14-4M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14 4M20 20v-4h-4"/>'
+  refresh:'<path d="M20 11a8 8 0 0 0-14-4M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14 4M20 20v-4h-4"/>',
+  barras:'<path d="M4 6v12M7.5 6v12M10 6v12M14 6v12M16.5 6v12M20 6v12"/>'
 };
 const ico = n => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICO[n]}</svg>`;
 
@@ -308,6 +310,7 @@ const S = {
   continuo: LS.get('contagem_continuo', true),
   folha:null,
   blob:null,
+  fabMap:{}, fabDe:{}, fabOk:null, fotoOk:null, fotosQtd:{},
   nova:{ obraId:'', grupo:'', ordem:'antigos', qtd:'20', soSaldo:true, soMinimo:false, ignorarAbertas:true,
          previa:[], nome:'', tol:'0', outro:true, obs:'', busca:'', obras:[], produtos:[], estado:'idle', erro:'',
          modo:'itens', nomeLivre:'' },
@@ -354,6 +357,7 @@ async function iniciarSessao(user){
   S.podeContar = S.gestor || perfil.setor === 'almoxarifado';
   S.tela = 'contar';
   render();
+  Promise.all([carregarFab(), carregarFotosQtd()]).then(() => atualizarCadFolha());
   await carregarCiclos();
   sync();
 }
@@ -540,7 +544,7 @@ function renderListaCiclo(){
   const total = S.itens.length;
   const q = S.busca.trim().toLowerCase();
   let lista = E[S.aba] || E.aContar;
-  if (q) lista = lista.filter(({ it }) => [it.code, it.descricao, it.aux, it.ref].some(x => String(x || '').toLowerCase().includes(q)));
+  if (q) lista = lista.filter(({ it }) => [it.code, it.descricao, it.aux, it.ref, ...(S.fabDe[it.code] || [])].some(x => String(x || '').toLowerCase().includes(q)));
   const MAX = 150, corte = lista.length > MAX;
   const html = lista.slice(0, MAX).map(({ it, ultimo, noFila }) => {
     const unid = esc(it.unidade || '');
@@ -579,6 +583,8 @@ function acharItem(txt){
     const k = normNum(norm(tk));
     const it = S.itens.find(i => [i.code, i.aux, i.ref].some(x => x && normNum(norm(x)) === k));
     if (it) return it;
+    const pc = S.fabMap[k];                      // código de barras do fabricante -> produto do cadastro
+    if (pc) { const itf = S.itens.find(i => i.code === pc); if (itf) return itf; }
   }
   return null;
 }
@@ -605,6 +611,7 @@ function abrirFolha(it){
       ${it.rodada_atual > 1 ? '<span class="chip ac">Recontagem</span>' : ''}${naFila ? '<span class="chip">Editando</span>' : ''}
       <span class="mu sm" style="margin-left:auto">${esc(it.unidade || '')}</span></div>
     <div class="fd">${esc(it.descricao)}</div>
+    ${htmlFolhaCadastro(it)}
     ${it.rodada_atual > 1 ? '<div class="mu sm" style="margin-top:6px">Conte de novo, do zero, sem se basear na contagem anterior.</div>' : ''}
     <input id="fq" class="big" type="text" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Quantidade contada">
     <div class="prev" id="fprev"></div>
@@ -645,6 +652,122 @@ function confirmarFolha(){
   fecharFolha(true);
   renderTopo(); renderListaCiclo();
   sync();
+}
+
+
+/* ---------- cadastro pela contagem: código de barras do fabricante e foto compacta do produto ----------
+   Os dois seguem pela mesma fila das contagens (funcionam sem conexão e sobem quando ela volta).
+   · Código do fabricante: fica no cadastro do produto (campo "fab") e passa a valer na leitura por câmera.
+   · Foto: reduzida no aparelho para ~520 px em JPEG (20 a 45 KB) antes de sair; o arquivo vai para a pasta
+     "produtos" do Supabase e o banco guarda só o endereço. No máximo 4 fotos por produto.
+   Sem o script fabricante_e_fotos.sql instalado, os botões simplesmente não aparecem. */
+const MAX_FOTOS = 4, FOTO_LADO = 520, FOTO_ALVO = 45 * 1024;
+const semRecurso = e => !!e && (['PGRST202', 'PGRST205', '42P01', '42883'].includes(e.code) || /schema cache|does not exist/i.test(e.message || ''));
+function montarFab(lista){
+  const map = {}, de = {};
+  const por = (code, c) => { if (!c) return; map[normNum(c)] = code; (de[code] ??= []); if (!de[code].includes(c)) de[code].push(c); };
+  for (const r of lista || []) for (const c of String(r.fab || '').split(/[\s,;]+/).map(norm)) por(r.code, c);
+  for (const f of Fila.ler()) if (f.tipo === 'fab') por(f.row.code, norm(f.row.fab));     // vínculos ainda na fila já valem neste aparelho
+  S.fabMap = map; S.fabDe = de;
+}
+async function carregarFab(){
+  let lista = cacheGet('fab') || [];
+  if (navigator.onLine && sb) {
+    try {
+      const { data, error } = await sb.rpc('produtos_cod_fabricante');
+      if (error) { if (semRecurso(error)) { S.fabOk = false; cacheSet('fabOk', false); } }
+      else { S.fabOk = true; lista = data || []; cacheSet('fab', lista); cacheSet('fabOk', true); }
+    } catch {}
+  }
+  if (S.fabOk === null) S.fabOk = !!cacheGet('fabOk');
+  montarFab(lista);
+}
+async function carregarFotosQtd(){
+  if (navigator.onLine && sb) {
+    try {
+      const rows = await buscarTudo(() => sb.from('produto_fotos').select('code').order('code').order('id'));
+      const q = {}; for (const r of rows) q[r.code] = (q[r.code] || 0) + 1;
+      S.fotosQtd = q; S.fotoOk = true; cacheSet('fotosQtd', q); cacheSet('fotoOk', true); return;
+    } catch (e) { if (semRecurso(e)) { S.fotoOk = false; cacheSet('fotoOk', false); return; } }
+  }
+  if (S.fotoOk === null) S.fotoOk = !!cacheGet('fotoOk');
+  if (!Object.keys(S.fotosQtd).length) S.fotosQtd = cacheGet('fotosQtd') || {};
+}
+const fotosDe = code => (S.fotosQtd[code] || 0) + Fila.ler().filter(f => f.tipo === 'foto' && f.row.code === code).length;
+function htmlCadInterno(it){
+  const nF = fotosDe(it.code), fabs = S.fabDe[it.code] || [];
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      ${S.fotoOk ? `<button type="button" class="btn peq" data-act="foto-prod" ${nF >= MAX_FOTOS ? 'disabled' : ''}>${ico('camera')} ${nF ? `Foto do produto (${nF} de ${MAX_FOTOS})` : 'Fotografar o produto'}</button>` : ''}
+      ${S.fabOk ? `<button type="button" class="btn peq" data-act="fab-scan">${ico('barras')} Código de barras do fabricante</button>` : ''}</div>
+    <div class="mu sm" id="f-cad-st" role="status" style="margin-top:6px">${fabs.length ? 'Fabricante: <span class="mono">' + fabs.map(esc).join(', ') + '</span>' : ''}</div>`;
+}
+function htmlFolhaCadastro(it){
+  if (!S.fotoOk && !S.fabOk) return '<div id="f-cad"></div>';
+  return `<div id="f-cad">${htmlCadInterno(it)}</div><input id="fp-file" type="file" accept="image/*" capture="environment" hidden>`;
+}
+function atualizarCadFolha(msg){
+  const b = $('#f-cad'); if (!b || !S.folha || !S.folha.it) return;
+  if (S.fotoOk || S.fabOk) { b.innerHTML = htmlCadInterno(S.folha.it); if (!$('#fp-file')) b.insertAdjacentHTML('afterend', '<input id="fp-file" type="file" accept="image/*" capture="environment" hidden>'); }
+  if (msg) { const st = $('#f-cad-st'); if (st) st.textContent = msg; }
+}
+/* foto do celular (vários MB) -> JPEG pequeno; tenta qualidades menores até caber no alvo */
+async function fotoCompacta(file){
+  let bmp; try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch { bmp = await createImageBitmap(file); }
+  let out = null;
+  try {
+    for (const [lado, q] of [[FOTO_LADO, 0.62], [FOTO_LADO, 0.48], [400, 0.5], [320, 0.45]]) {
+      const c = paraCanvas(bmp, 0, lado, false);
+      const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', q)); liberarCanvas(c);
+      if (!blob) continue;
+      out = blob; if (blob.size <= FOTO_ALVO) break;
+    }
+  } finally { try { bmp.close(); } catch {} }
+  if (!out) throw new Error('foto');
+  const b64 = await new Promise((ok, no) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result).split(',')[1]); fr.onerror = () => no(new Error('foto')); fr.readAsDataURL(out); });
+  return { b64, bytes: out.size };
+}
+async function guardarFotoProduto(file){
+  const it = S.folha && S.folha.it; if (!it) return;
+  if (fotosDe(it.code) >= MAX_FOTOS) return toast(`Este produto já tem ${MAX_FOTOS} fotos.`, 'bad');
+  atualizarCadFolha('Preparando a foto…');
+  let f;
+  try { f = await fotoCompacta(file); }
+  catch (e) { atualizarCadFolha(); return toast(ehErroDeMemoria(e) ? 'Memória insuficiente no aparelho para preparar a foto. Feche outros aplicativos e tente de novo.' : 'Não consegui preparar a foto. Tente de novo.', 'bad'); }
+  const fila = Fila.ler();
+  fila.push({ tipo:'foto', row:{ id: uuid(), code: it.code, b64: f.b64, bytes: f.bytes, criado_por_nome: (S.perfil && S.perfil.nome) || S.user.email, criado_em: new Date().toISOString() } });
+  Fila.gravar(fila);
+  beep(true); toast(`Foto guardada (${Math.max(1, Math.round(f.bytes / 1024))} KB). Ela sobe junto com as contagens.`, 'ok');
+  atualizarCadFolha(); renderTopo(); sync();
+}
+function vincularFab(txt){
+  const it = S.folha && S.folha.it; if (!it) return;
+  if (lerEtiqueta(txt)) { beep(false); return toast('Essa é a etiqueta do sistema. Leia o código de barras impresso pelo fabricante na embalagem.', 'bad'); }
+  const cod = norm(txt), k = normNum(cod);
+  if (cod.length < 4 || cod.length > 60 || /[\s,;|]/.test(cod)) { beep(false); return toast('Código de barras não reconhecido. Tente de novo.', 'bad'); }
+  if ([it.code, it.aux].some(x => x && normNum(norm(x)) === k)) { beep(false); return toast('Esse já é o código do próprio produto no sistema.', 'bad'); }
+  if ((S.fabDe[it.code] || []).some(c => normNum(c) === k)) { beep(true); return toast('Esse código já está vinculado a este produto.', 'ok'); }
+  const outro = S.itens.find(i => i.code !== it.code && [i.code, i.aux].some(x => x && normNum(norm(x)) === k));
+  const dono = S.fabMap[k];
+  if (outro || (dono && dono !== it.code)) { beep(false); return toast(`Esse código já pertence a outro produto (${outro ? outro.descricao : dono}).`, 'bad'); }
+  if (!confirm(`Vincular o código ${cod} ao produto "${it.descricao}"?`)) return;
+  const fila = Fila.ler();
+  fila.push({ tipo:'fab', row:{ id: uuid(), code: it.code, fab: cod, criado_em: new Date().toISOString() } });
+  Fila.gravar(fila);
+  montarFab(cacheGet('fab') || []);
+  beep(true); toast('Código do fabricante vinculado. A próxima leitura dele já abre este produto.', 'ok');
+  atualizarCadFolha(); renderTopo(); sync();
+}
+/* envia um registro da fila; devolve { error } no formato do Supabase */
+async function enviarDaFila(f){
+  if (f.tipo === 'foto') {
+    const r = f.row, path = 'p/' + String(r.code).replace(/[^A-Za-z0-9._-]/g, '_') + '/' + r.id + '.jpg';
+    const bin = Uint8Array.from(atob(r.b64), c => c.charCodeAt(0));
+    const up = await sb.storage.from('produtos').upload(path, new Blob([bin], { type:'image/jpeg' }), { contentType:'image/jpeg', upsert:false, cacheControl:'31536000' });
+    if (up.error && !/exist|duplicate/i.test(up.error.message || '')) return { error: { code: up.error.code || '', message: up.error.message || 'falha no envio da foto' } };
+    return await sb.from('produto_fotos').insert({ id: r.id, code: r.code, path, bytes: r.bytes, origem: 'contagem', criado_por_nome: r.criado_por_nome });
+  }
+  if (f.tipo === 'fab') return await sb.rpc('produto_vincular_cod_fabricante', { p_code: f.row.code, p_fab: f.row.fab });
+  return await sb.from(f.tipo === 'extra' ? 'contagem_extras' : 'contagem_registros').insert(f.row);
 }
 
 /* ---------- item fora da lista ---------- */
@@ -712,7 +835,7 @@ async function preencherPorCodigo(code){
   let r = cache[code];
   if (!r && navigator.onLine && sb) {
     try {
-      const { data, error } = await sb.rpc('contagem_descricao_por_codigo', { p_code: code });
+      const { data, error } = await sb.rpc('contagem_descricao_por_codigo', { p_code: S.fabMap[normNum(norm(code))] || code });
       if (!error && data) {
         r = data; cache[code] = data;
         const ks = Object.keys(cache); if (ks.length > 300) delete cache[ks[0]];
@@ -894,6 +1017,7 @@ async function aoLer(txt){
   Scan.ultimo = txt; Scan.ultimoT = agora;
   const alvo = Scan.alvo; Scan.alvo = null;
   await fecharScanner();
+  if (alvo === 'fab') return vincularFab(txt);
   const it = acharItem(txt);
   if (alvo === 'campo') {                       // leitura pedida de dentro da folha "item fora da lista"
     beep(true);
@@ -924,20 +1048,27 @@ async function sync(){
   if (sincronizando || !navigator.onLine || !S.user || !sb) return;
   const fila = Fila.ler(); if (!fila.length) return;
   sincronizando = true;
-  const feitos = new Set(); const novosErros = []; let enviados = 0;
+  const feitos = new Set(); const novosErros = []; let enviados = 0, nFotos = 0, nFab = 0;
   for (const f of fila) {
-    const { error } = await sb.from(f.tipo === 'extra' ? 'contagem_extras' : 'contagem_registros').insert(f.row);
-    if (!error || error.code === '23505') { feitos.add(f.row.id); enviados++; continue; }
+    let error = null;
+    try { ({ error } = await enviarDaFila(f)); } catch (e) { error = { message: (e && e.message) || String(e) }; }
+    if (!error || error.code === '23505') { feitos.add(f.row.id); enviados++; if (f.tipo === 'foto') nFotos++; if (f.tipo === 'fab') nFab++; continue; }
     const cod = error.code || '', msg = error.message || '';
     if ((!cod && /fetch|network|failed|load/i.test(msg)) || cod === 'PGRST301' || /JWT/i.test(msg)) break;
     feitos.add(f.row.id);
-    novosErros.push({ ...f, codigo: cod, erro: cod === '42501' ? 'Lista encerrada ou sem permissão' : cod === '23503' ? 'Item não existe mais na lista' : msg, em: new Date().toISOString() });
+    const txt = f.tipo === 'foto' ? (cod === '42501' || /row-level security/i.test(msg) ? 'Foto não aceita: o produto já tem 4 fotos ou seu usuário não tem permissão' : 'Foto não enviada: ' + msg)
+              : f.tipo === 'fab' ? msg
+              : cod === '42501' ? 'Lista encerrada ou sem permissão' : cod === '23503' ? 'Item não existe mais na lista' : msg;
+    novosErros.push({ ...f, row: f.tipo === 'foto' ? { ...f.row, b64: undefined } : f.row, codigo: cod, erro: txt, em: new Date().toISOString() });
   }
   Fila.gravar(Fila.ler().filter(f => !feitos.has(f.row.id)));
   if (novosErros.length) LS.set(ERROS_K, LS.get(ERROS_K, []).concat(novosErros));
   sincronizando = false;
-  if (enviados) toast(`${enviados} contagem(ns) enviada(s)`, 'ok');
-  if (novosErros.length) toast(`${novosErros.length} contagem(ns) não foram aceitas. Toque no aviso no topo.`, 'bad');
+  if (enviados) toast(nFotos || nFab ? `${enviados} registro(s) enviado(s)${nFotos ? ` · ${nFotos} foto(s)` : ''}${nFab ? ` · ${nFab} código(s) de fabricante` : ''}` : `${enviados} contagem(ns) enviada(s)`, 'ok');
+  if (novosErros.length) toast(`${novosErros.length} registro(s) não foram aceitos. Toque no aviso no topo.`, 'bad');
+  if (nFab || novosErros.some(e => e.tipo === 'fab')) await carregarFab();
+  if (nFotos || novosErros.some(e => e.tipo === 'foto')) await carregarFotosQtd();
+  atualizarCadFolha();
   if (enviados && S.ciclo && S.tela === 'ciclo') await carregarItens();
   renderTopo();
   if (S.tela === 'ciclo') renderListaCiclo();
@@ -952,7 +1083,7 @@ function popSync(){
     <div><b>${navigator.onLine ? 'Conectado' : 'Sem conexão'}</b><div class="mu sm">${fila.length ? `${fila.length} contagem(ns) aguardando envio` : 'Tudo enviado'}</div></div>
     ${fila.length && navigator.onLine ? `<button class="btn pri" data-act="sync-agora">Enviar agora</button>` : ''}
     ${erros.length ? `<div class="hr"></div><b style="color:var(--bad)">Não aceitas pelo servidor</b>` +
-      erros.map((e, i) => `<div class="sm"><span class="rcode">${esc(e.row.code || e.row.descricao)}</span> · ${fmt(e.row.quantidade)}<br><span class="mu">${esc(e.erro)}</span></div>`).join('') +
+      erros.map((e, i) => `<div class="sm"><span class="rcode">${esc(e.row.code || e.row.descricao)}</span> · ${e.tipo === 'foto' ? 'foto' : e.tipo === 'fab' ? 'cód. fabricante ' + esc(e.row.fab) : fmt(e.row.quantidade)}<br><span class="mu">${esc(e.erro)}</span></div>`).join('') +
       `<button class="btn peq" data-act="erros-limpar">Descartar</button>` : ''}
     </div>`;
   p.hidden = false;
@@ -1043,7 +1174,7 @@ function htmlPrevia(){
       <div class="rside"><span class="qtd">${fmt(p.saldo)}</span><span class="sub">${p.ultima ? 'contado em ' + fmtData(p.ultima) : 'nunca contado'}</span></div></label>`).join('');
   const q = n.busca.trim().toLowerCase();
   const naPrevia = new Set(n.previa.map(p => p.code));
-  const achados = q.length >= 2 ? n.produtos.filter(p => !naPrevia.has(p.code) && [p.code, p.desc, p.aux].some(x => String(x).toLowerCase().includes(q))).slice(0, 6) : [];
+  const achados = q.length >= 2 ? n.produtos.filter(p => !naPrevia.has(p.code) && [p.code, p.desc, p.aux, p.fab].some(x => String(x).toLowerCase().includes(q))).slice(0, 6) : [];
   return `<div class="hr"></div><h2>Prévia da lista</h2>
     <div class="mu sm">Saldo do sistema neste momento. Desmarque o que não quiser contar.</div>
     <div class="rows" style="margin-top:8px">${rows}</div>
@@ -1209,11 +1340,12 @@ function htmlRevisao(){
   </div>`;
 }
 const normC = x => String(x ?? '').trim().toUpperCase();
+const temFab = (p, k) => !!p.fab && p.fab.split(/[\s,;]+/).map(normC).includes(k);
 function formEx(x){
   const f = S.rev.form;
   if (!f[x.id]) {
     const prods = S.blob ? lerProdutos(S.blob) : [], k = normC(x.code_lido);
-    const sug = k ? prods.find(p => normC(p.code) === k || (p.aux && normC(p.aux) === k)) : null;
+    const sug = k ? prods.find(p => normC(p.code) === k || (p.aux && normC(p.aux) === k) || temFab(p, k)) : null;
     f[x.id] = { decisao: sug ? 'vincular' : '', code: sug ? sug.code : '', modo: '', busca: '', ccode: x.code_lido || '', desc: x.descricao, unid: x.unidade || 'UN', custo: '', motivo: '' };
     if (sug) f[x.id].modo = saldoNaObra(sug.code) > 0 ? '' : 'definir';
   }
@@ -1235,7 +1367,7 @@ function htmlRevExtra(x){
     return `<div class="rv">${cab}<div class="mu sm" style="margin-top:8px">${x.decisao === 'cadastrar' ? 'Novo produto' : 'Vinculado a'} <b>${esc(x.code_final || 'código gerado no lançamento')}</b> · ${esc(x.desc_final || '')} · ${x.modo === 'somar' ? 'soma ao saldo' : 'define o saldo'}${x.custo != null ? ' · custo ' + fmt(x.custo) : ''}</div></div>`;
   if (x.status === 'rejeitado') return `<div class="rv">${cab}<div class="mu sm" style="margin-top:8px">Rejeitado: ${esc(x.motivo || '')}</div></div>`;
   const f = formEx(x), prods = S.blob ? lerProdutos(S.blob) : [], id = esc(x.id);
-  const k = normC(x.code_lido), sug = k ? prods.find(p => normC(p.code) === k || (p.aux && normC(p.aux) === k)) : null;
+  const k = normC(x.code_lido), sug = k ? prods.find(p => normC(p.code) === k || (p.aux && normC(p.aux) === k) || temFab(p, k)) : null;
   const escolhido = f.code ? prods.find(p => p.code === f.code) : null;
   let corpo = '';
   if (f.decisao === 'vincular') {
@@ -1386,6 +1518,8 @@ const ACT = {
   'nova-modo'(el){ S.nova.modo = el.dataset.modo; render(); },
   'nova-criar-livre'(){ criarListaLivre(); },
   'extra-novo'(){ abrirFolhaExtra(); },
+  'foto-prod'(){ const i = $('#fp-file'); if (i) i.click(); },
+  'fab-scan'(){ abrirScanner('fab'); },
   'extra-editar'(el){
     const x = listaExtras().find(e => e.id === el.dataset.id);
     if (x && x.noFila) abrirFolhaExtra(x); else if (x) toast('Este registro já foi enviado. O encarregado vai analisar.', '');
@@ -1449,7 +1583,7 @@ document.addEventListener('input', e => {
   if (el.id === 'busca') { S.busca = el.value; return renderListaCiclo(); }
   if (el.id === 'n-busca') {
     S.nova.busca = el.value; const q = el.value.trim().toLowerCase(), naPrevia = new Set(S.nova.previa.map(p => p.code));
-    const achados = q.length >= 2 ? S.nova.produtos.filter(p => !naPrevia.has(p.code) && [p.code, p.desc, p.aux].some(x => String(x).toLowerCase().includes(q))).slice(0, 6) : [];
+    const achados = q.length >= 2 ? S.nova.produtos.filter(p => !naPrevia.has(p.code) && [p.code, p.desc, p.aux, p.fab].some(x => String(x).toLowerCase().includes(q))).slice(0, 6) : [];
     $('#n-achados').innerHTML = htmlAchados(achados); return;
   }
   if (el.id === 'chkCont') { S.continuo = el.checked; LS.set('contagem_continuo', S.continuo); return; }
@@ -1457,7 +1591,7 @@ document.addEventListener('input', e => {
   if (el.dataset.exid) {
     const id = el.dataset.exid, f = S.rev.form[id]; if (!f) return; f.busca = el.value;
     const q = el.value.trim().toLowerCase(), prods = S.blob ? lerProdutos(S.blob) : [];
-    const ach = q.length >= 2 ? prods.filter(p => [p.code, p.desc, p.aux].some(v => String(v || '').toLowerCase().includes(q))).slice(0, 6) : [];
+    const ach = q.length >= 2 ? prods.filter(p => [p.code, p.desc, p.aux, p.fab].some(v => String(v || '').toLowerCase().includes(q))).slice(0, 6) : [];
     $('#exr-' + id).innerHTML = ach.map(p => `<div class="pickrow" data-act="ex-pick" data-id="${esc(id)}" data-code="${esc(p.code)}">
       <div><span class="rcode">${esc(p.code)}</span><div class="sm">${esc(p.desc)}</div></div><span class="chip ac">Escolher</span></div>`).join('');
     return;
@@ -1468,6 +1602,7 @@ document.addEventListener('change', e => {
   const el = e.target;
   if (el.id === 'chkCont') { S.continuo = el.checked; LS.set('contagem_continuo', S.continuo); return; }
   if (el.id === 'fx-foto') { const f = el.files && el.files[0]; el.value = ''; if (f) lerEtiquetaFoto(f); return; }
+  if (el.id === 'fp-file') { const f = el.files && el.files[0]; el.value = ''; if (f) guardarFotoProduto(f); return; }
   if (el.id === 'fx-code') { dica(''); return preencherPorCodigo(el.value); }
   if (el.dataset.bind) { setPath(el.dataset.bind, el.type === 'checkbox' ? el.checked : el.value); if (el.dataset.rerender) ACT[el.dataset.rerender](el); }
 });
