@@ -476,7 +476,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-06T08:00:00-03:00';
+const APP_VERSION='2026-10-06T10:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -1802,7 +1802,9 @@ function renderBaixa(){
     <button id="bmScan" onclick="setBaixaMode('scanner')">Scanner (rápido)</button>
     <button id="bmMan" onclick="setBaixaMode('manual')">Manual / Saída de material</button></div></div>
   <div id="baixaPane"></div>
-  <div class="sechead" style="margin-top:24px"><h3>Últimas baixas</h3></div>
+  <div class="sechead" style="margin-top:24px"><h3>Últimas baixas</h3>
+    <div class="search" style="flex:1;min-width:240px;max-width:480px"><span class="si">⌕</span><input id="baixaBusca" placeholder="Buscar: REQ-00136, nº da saída, produto, equipamento, OS..." oninput="baixaBuscaInput()"></div></div>
+  <div id="baixaBuscaInfo" style="font-size:12.5px;color:#6a6357;margin:-6px 0 10px;display:none"></div>
   <div class="tbl-wrap"><table><thead><tr><th>Data</th><th>Nº</th><th>Obra</th><th>Produto</th><th class="num">Qtd</th><th class="num">Total</th><th></th></tr></thead><tbody id="baixaHist"></tbody></table></div>
   <div class="sechead" style="margin-top:24px"><h3>Minhas solicitações pendentes de aprovação</h3></div>
   <div class="tbl-wrap" id="minhasFrotas"><div class="empty">Carregando...</div></div>
@@ -1979,8 +1981,27 @@ function setBaixaMode(m){ baixaMode=m; if($('#bmScan'))$('#bmScan').classList.to
 }
 function toggleSaidaMutuo(){ const chk=$('#saidaMutuo'); const box=$('#saidaMutuoFields'); if(box)box.style.display=chk&&chk.checked?'':'none'; onSaidaMutuoChange(); }
 function updateSaidaTotal(){ const el=$('#saidaTotal'); if(!el)return; let t=0; saidaCart.forEach(i=>{const p=findProduct(i.code); t+=(i.qty||0)*((p&&p.custo)||0);}); el.textContent=money(t); }
-function drawBaixaHist(){ const _o=curObra(); const list=state.movements.filter(m=>m.tipo==='baixa'&&(_o==='__all'||m.obra===_o)).slice(0,40);
-  $('#baixaHist').innerHTML=list.length?list.map(m=>`<tr><td class="muted" style="font-size:12px">${fmtDate(m.ts)}</td><td class="mono">${m.seq?seqf(m.seq):'—'}</td><td>${esc(obraName(m.obra))}</td><td>${esc(m.desc)}${m.aplic?`<br><span class="muted" style="font-size:11px">→ ${esc(aplicName(m.aplic))}</span>`:''}${m.os?`<br><span class="muted" style="font-size:11px">OS ${esc(m.os)}</span>`:''}${m.obs?`<br><span class="muted" style="font-size:11px">obs: ${esc(m.obs)}</span>`:''}</td>${isMovDevolReq(m)?`<td class="num pos" title="Devolução de requisição — voltou ao estoque">↩ +${numf(-m.qty)}</td>`:`<td class="num neg">−${numf(m.qty)}</td>`}<td class="num">${money(m.valorTotal)}</td><td class="num">${isMovDevolReq(m)?`<button class="btn ghost sm" title="Comprovante da devolução" onclick="imprimirDevolReq(null,'${m.id}')">🖨</button>`:`<button class="btn ghost sm" title="Comprovante (agrupado)" onclick="reportBaixaGroup('${m.baixaId||m.id}')">🖨</button>`} ${reqIdFromDoc(m.doc)?`<button class="btn ghost sm" title="Ver requisição" onclick="abrirRequisicao(${reqIdFromDoc(m.doc)})">👁</button>`:''}</td></tr>`).join(''):`<tr><td colspan="7" class="empty" style="padding:24px">Nenhuma baixa.</td></tr>`; }
+/* Últimas baixas com busca. Sem busca: as mais recentes da obra selecionada. Com busca: todas as obras, e o número
+   pode ser de requisição (REQ-00136 ou 136) ou da saída. Baixa de requisição mais antiga que o histórico carregado
+   (90 dias) é buscada no banco na hora. */
+let _baixaLim=40, _baixaSig='', _baixaBuscaT=null; const _baixaReqBuscadas=new Set();
+function baixaBuscaInput(){ clearTimeout(_baixaBuscaT); _baixaBuscaT=setTimeout(drawBaixaHist,200); }
+function baixaMais(todos){ _baixaLim=todos?Infinity:_baixaLim+LIST_PAGE; drawBaixaHist(); }
+function baixaFiltro(q){ const t=String(q||'').trim().toLowerCase(); if(!t)return null;
+  const mr=/^req[\s\-#.nº°]*0*(\d+)$/.exec(t); if(mr){ const n=parseInt(mr[1],10); return {req:n,soReq:true,fn:m=>reqIdFromDoc(m.doc)===n}; }
+  const mn=/^#?0*(\d+)$/.exec(t); if(mn){ const n=parseInt(mn[1],10), d=mn[1]; return {req:n,fn:m=>reqIdFromDoc(m.doc)===n||Number(m.seq)===n||String(m.code||'').includes(d)||String(m.os||'').includes(d)}; }
+  const toks=t.split(/\s+/); return {req:null,fn:m=>{ const p=findProduct(m.code); const h=[m.desc,m.code,p&&p.aux,m.aplic?aplicName(m.aplic):'',m.os,m.obs,m.doc,obraName(m.obra)].join(' ').toLowerCase(); return toks.every(k=>h.includes(k)); }}; }
+function drawBaixaHist(){ const tb=$('#baixaHist'); if(!tb)return; const _o=curObra(); const q=$('#baixaBusca')?$('#baixaBusca').value:''; const f=baixaFiltro(q); const info=$('#baixaBuscaInfo');
+  const sig=String(q).trim().toLowerCase()+'|'+_o; if(sig!==_baixaSig){ _baixaSig=sig; _baixaLim=f?LIST_PAGE:40; }
+  const todas=state.movements.filter(m=>m.tipo==='baixa'&&(f?f.fn(m):(_o==='__all'||m.obra===_o)));
+  if(f&&f.req!=null&&isOnline&&movLoadedFrom!=null&&movLoadedFrom>0&&!_baixaReqBuscadas.has(f.req)){ _baixaReqBuscadas.add(f.req); const n=f.req;
+    sb.from('movimentos_estoque').select('*').eq('tipo','baixa').ilike('doc','%REQ-'+String(n).padStart(5,'0')+'%').then(({data,error})=>{ if(error||!data||!data.length)return; const antes=state.movements.length; mergeMovs(data); if(state.movements.length!==antes&&activeTab==='baixa')drawBaixaHist(); }); }
+  const list=todas.slice(0,_baixaLim);
+  if(info){ if(!f){ info.style.display='none'; info.innerHTML=''; }
+    else{ info.style.display=''; const tot=todas.reduce((a,m)=>a+(Number(m.valorTotal)||0)*(isMovDevolReq(m)?-1:1),0);
+      info.innerHTML=todas.length?`<b>${todas.length}</b> ${todas.length===1?'baixa encontrada':'baixas encontradas'} em todas as obras · total ${money(tot)} <a href="#" onclick="$('#baixaBusca').value='';drawBaixaHist();return false" style="margin-left:8px;color:#7a5100">limpar busca</a>`
+        :`Nenhuma baixa encontrada para <b>${esc(String(q).trim())}</b>.${f.req!=null?' A baixa do estoque é gerada na <b>Separação</b>: requisição que ainda não foi separada (ou que só aguarda compra) não aparece aqui.':''} <a href="#" onclick="$('#baixaBusca').value='';drawBaixaHist();return false" style="margin-left:8px;color:#7a5100">limpar busca</a>`; } }
+  tb.innerHTML=list.length?list.map(m=>`<tr><td class="muted" style="font-size:12px">${fmtDate(m.ts)}</td><td class="mono">${m.seq?seqf(m.seq):'—'}${reqIdFromDoc(m.doc)?`<br><a href="#" onclick="abrirRequisicao(${reqIdFromDoc(m.doc)});return false" title="Ver requisição" style="font-size:11px;color:#7a5100;text-decoration:none;white-space:nowrap">REQ-${String(reqIdFromDoc(m.doc)).padStart(5,'0')}</a>`:''}</td><td>${esc(obraName(m.obra))}</td><td>${esc(m.desc)}${m.aplic?`<br><span class="muted" style="font-size:11px">→ ${esc(aplicName(m.aplic))}</span>`:''}${m.os?`<br><span class="muted" style="font-size:11px">OS ${esc(m.os)}</span>`:''}${m.obs?`<br><span class="muted" style="font-size:11px">obs: ${esc(m.obs)}</span>`:''}</td>${isMovDevolReq(m)?`<td class="num pos" title="Devolução de requisição — voltou ao estoque">↩ +${numf(-m.qty)}</td>`:`<td class="num neg">−${numf(m.qty)}</td>`}<td class="num">${money(m.valorTotal)}</td><td class="num">${isMovDevolReq(m)?`<button class="btn ghost sm" title="Comprovante da devolução" onclick="imprimirDevolReq(null,'${m.id}')">🖨</button>`:`<button class="btn ghost sm" title="Comprovante (agrupado)" onclick="reportBaixaGroup('${m.baixaId||m.id}')">🖨</button>`} ${reqIdFromDoc(m.doc)?`<button class="btn ghost sm" title="Ver requisição" onclick="abrirRequisicao(${reqIdFromDoc(m.doc)})">👁</button>`:''}</td></tr>`).join('')+(todas.length>list.length?`<tr class="list-more"><td colspan="7" style="text-align:center;padding:14px"><span class="muted" style="font-size:12px;margin-right:10px">Mostrando ${list.length} de ${todas.length}</span><button class="btn ghost sm" onclick="baixaMais(false)">Mostrar mais</button> <button class="btn ghost sm" onclick="baixaMais(true)">Mostrar todas</button></td></tr>`:''):`<tr><td colspan="7" class="empty" style="padding:24px">${f?'Nada encontrado para esta busca.':'Nenhuma baixa.'}</td></tr>`; }
 function reportBaixaGroup(gid){ const ms=state.movements.filter(m=>m.tipo==='baixa'&&(m.baixaId||m.id)===gid); if(!ms.length)return; const m0=ms[0];
   const itens=ms.map(m=>{const p=findProduct(m.code); return {code:m.code,aux:p?p.aux:'',desc:m.desc,qty:m.qty,unit:p?p.unit:'',valor:m.valorUnit};});
   printSignReport({titulo:'Comprovante de Saída de Material',numero:seqf(m0.seq),subtitulo:'Baixa de estoque',data:fmtDate(m0.ts),obra:obraName(m0.obra),aplicacao:aplicName(m0.aplic),doc:m0.doc,obs:m0.obs,itens,assinaturas:['Solicitante','Responsável pelo almoxarifado','Recebedor']}); }
