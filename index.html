@@ -476,7 +476,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-06T15:50:00-03:00';
+const APP_VERSION='2026-10-06T16:30:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -1434,6 +1434,18 @@ function renderEntrada(){
       <div class="field" style="margin:0"><label>CNPJ do tomador (destinatário)</label><input id="nfCnpjTom" class="mono" placeholder="00.000.000/0000-00"></div>
       <div class="field" style="margin:0"><label>CNPJ do fornecedor (emitente)</label><input id="nfCnpjEmit" class="mono" placeholder="00.000.000/0000-00"></div>
     </div>
+    ${_nfRepos?'':`<div style="margin-top:14px;padding-top:12px;border-top:1px dashed #e4dfd4">
+      <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-weight:600;margin:0"><input type="checkbox" id="nfApd" style="width:auto" onchange="onNfApdChange()"> 🔧 Aplicação direta — gerar a requisição automaticamente até "Aguardando retirada"</label>
+      <div id="nfApdBox" style="display:none;margin-top:10px">
+        <p class="desc" style="margin:0 0 8px">Logo após a entrada, o sistema cria a requisição com todos os itens da nota, aprova, separa (baixa do estoque) e deixa como <b>Retirada no balcão — compra p/ aplicação direta</b>, aguardando retirada.</p>
+        <div class="row c2">
+          <div class="field" style="margin:0"><label>Aplicação (obrigatório)</label>${state.aplicacoes.length?`<input type="hidden" id="saidaAplic" value="">
+            <div class="search" style="max-width:none"><span class="si">⌕</span><input id="saidaAplicSearch" placeholder="Digite qualquer informação e pesquise..." autocomplete="off" oninput="onAplicInput(this.value)" onfocus="drawAplicResults(this.value)"></div>
+            <div id="saidaAplicResults" style="display:none"></div>`:`<input disabled placeholder="cadastre em Aplicações">`}</div>
+          <div class="field" style="margin:0"><label>Ordem de Serviço (obrigatório)</label><input id="nfApdOS" placeholder="Nº da OS"></div>
+        </div>
+      </div>
+    </div>`}
   </div>
   <div class="panel">
     <div class="tabs">
@@ -1454,6 +1466,7 @@ function renderEntrada(){
   $('#nfData').value=new Date().toISOString().slice(0,10);
   setEntradaTab(entradaTab); drawNfItems(); drawNfHist(); drawNfReposBanner();
 }
+function onNfApdChange(){ const c=$('#nfApd'), b=$('#nfApdBox'); if(b)b.style.display=c&&c.checked?'':'none'; }
 function drawNfReposBanner(){ const el=$('#nfReposBanner'); if(!el)return;
   if(!_nfRepos){ el.innerHTML=''; return; }
   el.innerHTML=`<div class="panel" style="border-left:4px solid #f5a623;background:#fffaf0;margin-bottom:16px;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap">
@@ -1643,6 +1656,7 @@ function setNfCusto(i,v){ if(nfItems[i])nfItems[i].custo=parseFloat(v)||0; refre
 function refreshNfTotals(){ let tot=0; nfItems.forEach((it,i)=>{const t=(it.qty||0)*(it.custo||0);tot+=t;const c=$('#nft_'+i);if(c)c.textContent=money(t);}); if($('#nfTotal'))$('#nfTotal').textContent=money(tot); }
 function processNf(force){
   if(!nfItems.length){toast('Adicione ao menos um item.','err');return;}
+  const apd=nfApdDados(); if(apd===false)return;
   const obra=$('#nfObra').value; const numero=$('#nfNum').value.replace(/\D/g,'')||'s/nº'; const forn=$('#nfForn').value.trim(); const dataEmissao=$('#nfData').value||'';
   const cnpjTom=$('#nfCnpjTom')?$('#nfCnpjTom').value.trim():''; const cnpjEmit=$('#nfCnpjEmit')?$('#nfCnpjEmit').value.trim():'';
   const totalCheck=nfItems.reduce((s,it)=>s+it.qty*it.custo,0);
@@ -1667,7 +1681,59 @@ function processNf(force){
   save('Entrada NF '+numero+' em '+obraName(obra)); const n=nfItems.length; nfItems=[];
   toast(`Entrada em ${esc(obraName(obra))} · ${n} item(ns).`,'ok'); alerts.forEach(a=>toast('⚠ '+a,'warn'));
   if(_nfRepos){ const ctx=_nfRepos; _nfRepos=null; reposAposNota(ctx,obra,movsNota); return; }
+  if(apd){ requisicaoAplicacaoDireta({obra,itens:notaItens,numero,forn,aplic:apd.aplic,os:apd.os}); return; }
   go('produtos');
+}
+/* ===== Aplicação direta na entrada da NF =====
+   Material comprado para aplicar direto (OS): logo após a entrada, gera a requisição e percorre o mesmo fluxo da tela —
+   aprovação → separação (baixa do estoque item a item) → tipo de envio "aplicacao_direta" — até ficar em
+   "Aguardando retirada". Se alguma etapa for recusada (permissão/conexão), para ali e a requisição segue pelo fluxo manual. */
+function nfApdDados(){ const c=$('#nfApd'); if(!c||!c.checked)return null;
+  if(_nfRepos){ toast('Aplicação direta não pode ser usada numa nota vinculada a reposição.','err'); return false; }
+  const aplic=$('#saidaAplic')?$('#saidaAplic').value:''; if(!aplic){ toast('Aplicação direta: informe a aplicação.','err'); if($('#saidaAplicSearch'))$('#saidaAplicSearch').focus(); return false; }
+  const os=($('#nfApdOS').value||'').trim(); if(!os){ toast('Aplicação direta: informe o número da Ordem de Serviço.','err'); $('#nfApdOS').focus(); return false; }
+  const obra=$('#nfObra').value;
+  if(!isOnline){ toast('Aplicação direta precisa de conexão — a requisição é gerada na hora.','err'); return false; }
+  if(!podeAprovarObra(obra)||!isAlmoxarife()){ toast('Aplicação direta: seu usuário precisa poder aprovar requisições desta obra e separar no almoxarifado.','err'); return false; }
+  return {aplic,os}; }
+async function requisicaoAplicacaoDireta({obra,itens,numero,forn,aplic,os}){
+  const quem=profile.nome||profile.email;
+  const porCode=new Map(); itens.forEach(i=>{ const x=porCode.get(i.code); if(x)x.qty+=Number(i.qty)||0; else porCode.set(i.code,{code:i.code,desc:i.desc,unit:i.unit||'',qty:Number(i.qty)||0}); });
+  const lista=[...porCode.values()].filter(i=>i.qty>0);
+  const falta=lista.filter(i=>saldoOf(obra,i.code)<i.qty-1e-9);
+  if(falta.length){ toast('Entrada feita, mas a requisição de aplicação direta NÃO foi gerada: saldo disponível insuficiente em '+falta.map(i=>i.desc).join(', ')+' (há devolução bloqueando saldo?).','err'); go('produtos'); return; }
+  const etapa=(msg,reqN)=>{ toast('Entrada feita'+(reqN?' e '+reqN+' criada':'')+', mas a automação parou: '+msg+(reqN?' — continue pelo fluxo normal.':''),'err'); refreshAprovBadge(); refreshSeparacaoBadge(); refreshRetiradasBadge(); refreshGlobalAlerts(); go('produtos'); };
+  // 1) cria a requisição
+  const payload={obra_id:obra,obra_nome:obraName(obra),solicitante_id:session.user.id,solicitante_nome:quem,
+    itens:lista.map(i=>({code:i.code,desc:i.desc,unit:i.unit,qty:i.qty})),
+    observacao:'Aplicação direta — NF '+numero+(forn?' · '+forn:''),ordem_servico:os,aplicacao_id:aplic,aplicacao_nome:aplicName(aplic)};
+  const {data:ins,error:e1}=await sb.from('requisicoes').insert(payload).select('id');
+  if(e1||!ins||!ins.length)return etapa('não foi possível criar a requisição'+(e1?' ('+e1.message+')':''));
+  const reqId=ins[0].id, reqN='REQ-'+String(reqId).padStart(5,'0');
+  // 2) aprovação (tudo disponível — o saldo acabou de entrar)
+  const {error:e2}=await sb.from('requisicao_itens_status').upsert(lista.map(i=>({requisicao_id:reqId,code:i.code,descricao:i.desc,unidade:i.unit,quantidade_solicitada:i.qty,quantidade_disponivel:i.qty,status:'disponivel'})),{onConflict:'requisicao_id,code'});
+  if(e2)return etapa('erro ao gravar os itens da aprovação ('+e2.message+')',reqN);
+  const {error:e3}=await updReq(reqId,{status:'em_separacao',decidido_por:session.user.id,decidido_por_nome:quem,decidido_em:new Date().toISOString()});
+  if(e3)return etapa('aprovação recusada ('+e3.message+')',reqN);
+  // 3) separação item a item (mesma reserva + baixa da tela de Separação)
+  for(const i of lista){
+    const {data:claim,error:eC}=await sb.from('requisicao_itens_status').update({quantidade_disponivel:0,quantidade_separada:i.qty,status:'separado',atualizado_em:new Date().toISOString()})
+      .eq('requisicao_id',reqId).eq('code',i.code).eq('quantidade_separada',0).select('id');
+    if(eC||!claim||!claim.length){ await save('Separação '+reqN+' (aplicação direta)'); return etapa('separação de '+i.desc+' não gravou'+(eC?' ('+eC.message+')':''),reqN); }
+    const p=findProduct(i.code); const vu=p?(p.custo||0):0;
+    addSaldo(obra,i.code,-i.qty);
+    const {data:numData,error:eNum}=await sb.rpc('proximo_numero_documento',{p_tipo:'baixa'});
+    pushMov({id:uid(),ts:Date.now(),seq:eNum?0:numData,tipo:'baixa',obra,aplic,obs:payload.observacao,os,code:i.code,desc:i.desc,qty:i.qty,valorUnit:vu,valorTotal:i.qty*vu,doc:'Separação '+reqN,saldo:saldoOf(obra,i.code)});
+  }
+  await save('Separação '+reqN+' (aplicação direta)');
+  const c=await concluirSeparacaoReq(reqId); if(!c.ok){ _sepPresas.set(reqId,c.motivo); return etapa('separação não concluída ('+c.motivo+')',reqN); }
+  // 4) tipo de envio: balcão — aplicação direta (vai para "Aguardando retirada")
+  const {error:e4}=await updReq(reqId,{tipo_envio:'aplicacao_direta',status:'romaneio_emitido'});
+  if(e4)return etapa('tipo de envio não gravado ('+e4.message+')',reqN);
+  try{ await sb.rpc('log_event',{p_acao:'aplicacao_direta_nf',p_entidade:'requisicoes',p_entidade_id:String(reqId),p_detalhes:{nf:numero,fornecedor:forn||null,os,aplicacao:aplicName(aplic)}}); }catch(e){}
+  toast(reqN+' gerada (OS '+os+') — aguardando retirada.','ok');
+  refreshAprovBadge(); refreshSeparacaoBadge(); refreshExpedBadge(); refreshRetiradasBadge(); refreshMinhasBadge(); refreshGlobalAlerts();
+  go(podeVerRetiradas()?'retiradas':'produtos');
 }
 
 /* ===== PRODUTOS ===== */
