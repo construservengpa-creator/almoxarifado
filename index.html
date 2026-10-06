@@ -476,7 +476,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-06T18:40:00-03:00';
+const APP_VERSION='2026-10-06T19:30:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -1690,12 +1690,12 @@ function processNf(force){
     if(p.max>0&&saldoOf(obra,p.code)>p.max)alerts.push(`${p.desc}: ${numf(saldoOf(obra,p.code))} acima do máximo`);
   });
   const xmlExtra=_nfXmlExtra||{}; _nfXmlExtra=null;
-  const ctrl=ctrlLerCampos('nf'); const valorNota=xmlExtra.vNF>0?xmlExtra.vNF:total;
+  const ctrl=ctrlLerCampos('nf'); const anexosCtrl=ctrlLerAnexos('nf'); const valorNota=xmlExtra.vNF>0?xmlExtra.vNF:total;
   if(ctrl.obraId){ if(!state.obraControleMap)state.obraControleMap={}; state.obraControleMap[obra]=ctrl.obraId; } /* lembra a obra do Controle para esta obra do estoque */
   state.notas.unshift(Object.assign({id:notaId,numero,forn,dataEmissao,cnpjTomador:cnpjTom,cnpjEmit,obra,valor:total,itens:notaItens,ts,controle:ctrl},xmlExtra.chave?{chave:xmlExtra.chave}:{},xmlExtra.dest?{destinatario:xmlExtra.dest}:{},xmlExtra.vNF>0?{valorNF:xmlExtra.vNF}:{}));
   save('Entrada NF '+numero+' em '+obraName(obra)); const n=nfItems.length; nfItems=[];
   enviarNotaControle(Object.assign({numero,fornecedor:forn,valor:valorNota,dataEmissao,chaveAcesso:xmlExtra.chave||null,cnpjEmitente:cnpjEmit||null,cnpjDestinatario:cnpjTom||null,destinatario:xmlExtra.dest||null,obraNome:obraName(obra),estoqueNotaId:notaId,
-    descricao:'Recebida no estoque ('+obraName(obra)+') · '+notaItens.length+' item(ns)'},ctrl));
+    descricao:'Recebida no estoque ('+obraName(obra)+') · '+notaItens.length+' item(ns)'},ctrl),anexosCtrl);
   toast(`Entrada em ${esc(obraName(obra))} · ${n} item(ns).`,'ok'); alerts.forEach(a=>toast('⚠ '+a,'warn'));
   if(_nfRepos){ const ctx=_nfRepos; _nfRepos=null; reposAposNota(ctx,obra,movsNota); return; }
   if(apd){ requisicaoAplicacaoDireta({obra,itens:notaItens,numero,forn,aplic:apd.aplic,os:apd.os}); return; }
@@ -1713,14 +1713,35 @@ async function ctrlApi(body){
   if(!res.ok)throw new Error(r.error||('HTTP '+res.status));
   return r;
 }
-async function enviarNotaControle(nota){
+async function enviarNotaControle(nota,anexos){
   if(!isOnline||!nota.numero||nota.numero==='s/nº'||!nota.fornecedor){ if(nota.numero&&nota.numero!=='s/nº'&&!nota.fornecedor)toast('Controle de notas: nota não enviada — informe o fornecedor.','warn'); else if(!isOnline)toast('Sem conexão: a nota não foi enviada ao Controle de Notas. Depois use "Enviar ao Controle" nos detalhes da nota.','warn'); return false; }
+  let r;
   try{
-    const r=await ctrlApi(nota);
+    r=await ctrlApi(nota);
     toast(r.resultado==='criada'?'Controle de notas: NF '+esc(nota.numero)+' incluída'+(r.obraVinculada?'':' (sem obra — ajuste lá)')+'.':'Controle de notas: NF '+esc(nota.numero)+' já constava — vinculada e completada.','ok');
-    return true;
   }catch(e){ toast('Não foi possível avisar o Controle de Notas: '+esc((e&&e.message)||String(e)),'warn'); return false; }
+  if(anexos&&anexos.length&&r&&r.id)await ctrlEnviarAnexos(r.id,nota.estoqueNotaId,anexos);
+  return true;
 }
+/* Anexos (boleto, CT-e...) vão para os "Documentos anexados" da nota no Controle, um por vez */
+const CTRL_ANEXO_MAX=15*1024*1024;
+function ctrlLerAnexos(px){ const out=[];
+  [['CtrlAnexos','nota'],['CtrlAnexosFrete','frete']].forEach(([id,categoria])=>{ const e=$('#'+px+id); if(!e||!e.files)return;
+    if(categoria==='frete'){ const f=$('#'+px+'CtrlFrete'); if(!f||f.value!=='sim')return; }
+    [...e.files].forEach(file=>out.push({file,categoria})); });
+  return out; }
+function ctrlArquivoBase64(file){ return new Promise((ok,fail)=>{ const r=new FileReader(); r.onload=()=>ok(String(r.result).split(',')[1]||''); r.onerror=()=>fail(new Error('não foi possível ler o arquivo')); r.readAsDataURL(file); }); }
+async function ctrlEnviarAnexos(notaId,estoqueNotaId,anexos){ let ok=0; const falhas=[];
+  for(const a of anexos){
+    try{
+      if(a.file.size>CTRL_ANEXO_MAX)throw new Error('maior que 15 MB');
+      const base64=await ctrlArquivoBase64(a.file);
+      await ctrlApi({acao:'anexo',notaId,estoqueNotaId,categoria:a.categoria,nome:a.file.name,mime:a.file.type||'application/octet-stream',base64});
+      ok++;
+    }catch(e){ falhas.push(a.file.name+' ('+((e&&e.message)||'erro')+')'); }
+  }
+  if(ok)toast('Controle de notas: '+ok+' anexo(s) enviado(s).','ok');
+  if(falhas.length)toast('Anexos não enviados: '+esc(falhas.join(', '))+'. Anexe pelos detalhes da nota ou direto no Controle.','warn'); }
 /* Campos que o Controle de Notas precisa (obra de lá, pedido, vencimento, pagamento, frete, prioridade).
    px = prefixo dos ids ('nf' na tela de entrada, 'cr' no modal de reenvio). */
 const CTRL_FORMAS_PAG=['Boleto','PIX','Transferência','Cartão','Depósito','Cheque','Outro'];
@@ -1733,9 +1754,25 @@ function ctrlCamposHtml(px,v){ v=v||{};
     </div>
     <div class="row c3" style="margin-top:8px">
       <div class="field" style="margin:0"><label>Forma de pagamento</label><select id="${px}CtrlForma"><option value="">Selecione...</option>${CTRL_FORMAS_PAG.map(f=>`<option${v.formaPagamento===f?' selected':''}>${f}</option>`).join('')}</select></div>
-      <div class="field" style="margin:0"><label>Frete (CT-e à parte)</label><select id="${px}CtrlFrete"><option value="nao">Não</option><option value="sim"${v.frete==='sim'?' selected':''}>Sim</option></select></div>
+      <div class="field" style="margin:0"><label>Frete (CT-e à parte)</label><select id="${px}CtrlFrete" onchange="ctrlFreteToggle('${px}')"><option value="nao">Não</option><option value="sim"${v.frete==='sim'?' selected':''}>Sim</option></select></div>
       <div class="field" style="margin:0"><label>Prioridade</label><select id="${px}CtrlPrior">${[['baixa','Baixa'],['media','Média'],['alta','Alta']].map(([k,l])=>`<option value="${k}"${(v.prioridade||'media')===k?' selected':''}>${l}</option>`).join('')}</select></div>
-    </div>`; }
+    </div>
+    <div id="${px}CtrlFreteBox" style="${v.frete==='sim'?'':'display:none;'}margin-top:10px;padding:10px 12px;border:1px dashed #e4dfd4;border-radius:8px">
+      <div style="font-size:11px;color:#8a8377;text-transform:uppercase;letter-spacing:.5px;font-weight:700;margin-bottom:6px">🚚 Dados do frete</div>
+      <div class="row c3">
+        <div class="field" style="margin:0"><label>Nº do CT-e</label><input id="${px}CtrlFreteCte" class="mono" value="${esc(v.freteCte||'')}" placeholder="Nº do conhecimento de transporte"></div>
+        <div class="field" style="margin:0"><label>Transportador</label><input id="${px}CtrlFreteTransp" value="${esc(v.freteTransportador||'')}"></div>
+        <div class="field" style="margin:0"><label>Valor do frete (R$)</label><input id="${px}CtrlFreteValor" type="number" step="0.01" min="0" value="${esc(v.freteValor==null?'':v.freteValor)}"></div>
+      </div>
+      <div class="row c3" style="margin-top:8px">
+        <div class="field" style="margin:0"><label>Forma de pagamento do frete</label><select id="${px}CtrlFreteForma"><option value="">Selecione...</option>${CTRL_FORMAS_PAG.map(f=>`<option${v.freteFormaPagamento===f?' selected':''}>${f}</option>`).join('')}</select></div>
+        <div class="field" style="margin:0"><label>Vencimento do frete</label><input id="${px}CtrlFreteVenc" type="date" value="${esc(v.freteVencimento||'')}"></div>
+        <div class="field" style="margin:0"><label>Documentos do frete (CT-e etc.)</label><input id="${px}CtrlAnexosFrete" type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.xml,.doc,.docx,.xls,.xlsx,.txt"></div>
+      </div>
+    </div>
+    <div class="field" style="margin:10px 0 0"><label>📎 Boleto / documentos da nota (anexos)</label><input id="${px}CtrlAnexos" type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.xml,.doc,.docx,.xls,.xlsx,.txt">
+      <div class="muted" style="font-size:11.5px;margin-top:3px">Vão para "Documentos anexados" da nota no Controle de Notas (máx. 15 MB cada).</div></div>`; }
+function ctrlFreteToggle(px){ const f=$('#'+px+'CtrlFrete'), b=$('#'+px+'CtrlFreteBox'); if(b)b.style.display=f&&f.value==='sim'?'':'none'; }
 function ctrlObrasLista(){ if(_ctrlObras)return Promise.resolve(_ctrlObras); if(_ctrlObrasP)return _ctrlObrasP;
   _ctrlObrasP=ctrlApi({acao:'obras'}).then(r=>{ _ctrlObras=r.obras||[]; return _ctrlObras; }).finally(()=>{ _ctrlObrasP=null; }); return _ctrlObrasP; }
 async function ctrlCarregarObras(px,obraEstoque,cnpj){ const el=$('#'+px+'CtrlObra'); if(!el)return;
@@ -1752,11 +1789,14 @@ function ctrlSugerirObra(px,obraEstoque,cnpj){ const el=$('#'+px+'CtrlObra'); if
   if(!ok(id)){ id=''; const d=onlyDigits(cnpj); if(d){ const m=_ctrlObras.filter(o=>(o.cnpjs||[]).some(c=>onlyDigits(c)===d)); if(m.length===1)id=m[0].id; } }
   el.value=ok(id)?String(id):''; }
 function ctrlLerCampos(px){ const v=id=>{ const e=$('#'+px+id); return e?e.value.trim():''; };
-  return {obraId:v('CtrlObra')?Number(v('CtrlObra')):null, pedidoCompras:v('CtrlPedido')||null, vencimento:v('CtrlVenc')||null,
-    formaPagamento:v('CtrlForma')||null, frete:v('CtrlFrete')||'nao', prioridade:v('CtrlPrior')||'media'}; }
-function ctrlLimpar(px){ ['CtrlPedido','CtrlVenc','CtrlForma'].forEach(id=>{ const e=$('#'+px+id); if(e)e.value=''; });
+  const c={obraId:v('CtrlObra')?Number(v('CtrlObra')):null, pedidoCompras:v('CtrlPedido')||null, vencimento:v('CtrlVenc')||null,
+    formaPagamento:v('CtrlForma')||null, frete:v('CtrlFrete')||'nao', prioridade:v('CtrlPrior')||'media'};
+  if(c.frete==='sim')Object.assign(c,{freteCte:v('CtrlFreteCte')||null, freteTransportador:v('CtrlFreteTransp')||null,
+    freteValor:v('CtrlFreteValor')!==''?Number(v('CtrlFreteValor')):null, freteFormaPagamento:v('CtrlFreteForma')||null, freteVencimento:v('CtrlFreteVenc')||null});
+  return c; }
+function ctrlLimpar(px){ ['CtrlPedido','CtrlVenc','CtrlForma','CtrlFreteCte','CtrlFreteTransp','CtrlFreteValor','CtrlFreteForma','CtrlFreteVenc','CtrlAnexos','CtrlAnexosFrete'].forEach(id=>{ const e=$('#'+px+id); if(e)e.value=''; });
   const f=$('#'+px+'CtrlFrete'); if(f)f.value='nao'; const p=$('#'+px+'CtrlPrior'); if(p)p.value='media';
-  const o=$('#'+px+'CtrlObra'); if(o){ o.dataset.manual=''; o.value=''; } }
+  const o=$('#'+px+'CtrlObra'); if(o){ o.dataset.manual=''; o.value=''; } ctrlFreteToggle(px); }
 /* Lê do XML: vencimento (1ª duplicata), forma de pagamento (tPag), pedido de compra (xPed) e modalidade do frete */
 function ctrlPreencherDoXml(doc){ const set=(id,v)=>{ const e=$('#nf'+id); if(e&&v)e.value=v; };
   const dups=[...tagsOf(doc,'dup')].map(d=>txt(d,'dVenc')).filter(Boolean).sort(); set('CtrlVenc',dups[0]||'');
@@ -1764,18 +1804,20 @@ function ctrlPreencherDoXml(doc){ const set=(id,v)=>{ const e=$('#nf'+id); if(e&
   const tp=tagsOf(doc,'detPag')[0]; const tPag=tp?txt(tp,'tPag'):''; set('CtrlForma',TPAG[tPag]||(dups.length?'Boleto':''));
   const compra=tagsOf(doc,'compra')[0]; let ped=compra?txt(compra,'xPed'):''; if(!ped){ const x=tagsOf(doc,'xPed')[0]; ped=x?x.textContent.trim():''; } set('CtrlPedido',ped);
   const tr=tagsOf(doc,'transp')[0]; const mod=tr?txt(tr,'modFrete'):''; if(mod)set('CtrlFrete',(mod==='1'||mod==='2')?'sim':'nao');
+  const transp=tr?tagsOf(tr,'transporta')[0]:null; set('CtrlFreteTransp',transp?txt(transp,'xNome'):''); ctrlFreteToggle('nf');
   const dest=tagsOf(doc,'dest')[0]; ctrlSugerirObra('nf',$('#nfObra')&&$('#nfObra').value,dest?(txt(dest,'CNPJ')||txt(dest,'CPF')):''); }
 /* Reenvio pela tela de detalhes: completa no Controle uma nota já lançada (ex.: que foi sem obra/vencimento) */
 function ctrlReenviarModal(id){ const n=state.notas.find(x=>x.id===id); if(!n)return;
-  modal(`<h3>Enviar ao Controle de Notas · NF ${esc(n.numero)}</h3><p class="mp">${esc(n.forn||'sem fornecedor')} · ${money(n.valorNF||n.valor||0)}. Se a nota já estiver no Controle, só os campos que estiverem vazios lá são completados.</p>
+  modal(`<h3>Enviar ao Controle de Notas · NF ${esc(n.numero)}</h3><p class="mp">${esc(n.forn||'sem fornecedor')} · ${money(n.valorNF||n.valor||0)}. Se a nota já estiver no Controle, só os campos que estiverem vazios lá são completados; os anexos são sempre acrescentados.</p>
     ${ctrlCamposHtml('cr',n.controle)}
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px"><button class="btn ghost" onclick="notaDetalhe('${n.id}')">Voltar</button><button class="btn primary" id="crEnviar" onclick="ctrlReenviar('${n.id}')">📤 Enviar</button></div>`);
   ctrlCarregarObras('cr',n.obra,n.cnpjTomador); }
 async function ctrlReenviar(id){ const n=state.notas.find(x=>x.id===id); if(!n)return; const ctrl=ctrlLerCampos('cr');
   if(!ctrl.obraId){ toast('Escolha a obra no Controle de Notas.','err'); return; }
   const b=$('#crEnviar'); if(b)b.disabled=true;
+  const anexos=ctrlLerAnexos('cr');
   const ok=await enviarNotaControle(Object.assign({numero:n.numero,fornecedor:n.forn,valor:n.valorNF||n.valor||0,dataEmissao:n.dataEmissao||null,chaveAcesso:n.chave||null,cnpjEmitente:n.cnpjEmit||null,cnpjDestinatario:n.cnpjTomador||null,destinatario:n.destinatario||null,obraNome:obraName(n.obra),estoqueNotaId:n.id,
-    descricao:'Recebida no estoque ('+obraName(n.obra)+') · '+(n.itens||[]).length+' item(ns)'},ctrl));
+    descricao:'Recebida no estoque ('+obraName(n.obra)+') · '+(n.itens||[]).length+' item(ns)'},ctrl),anexos);
   if(!ok){ if(b)b.disabled=false; return; }
   n.controle=ctrl; if(!state.obraControleMap)state.obraControleMap={}; state.obraControleMap[n.obra]=ctrl.obraId;
   save('NF '+n.numero+' enviada ao Controle de Notas'); closeModal(); }
