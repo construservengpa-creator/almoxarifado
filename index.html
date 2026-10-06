@@ -476,7 +476,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-06T17:20:00-03:00';
+const APP_VERSION='2026-10-06T18:40:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -1426,14 +1426,19 @@ function renderEntrada(){
   <div class="panel">
     <h3>Dados da entrada</h3><p class="desc">Defina a obra de destino e o documento. Depois preencha os itens por XML ou manualmente.</p>
     <div class="row c4">
-      <div class="field"><label>Obra (destino)</label><select id="nfObra">${obraOptions(_nfRepos?_nfRepos.obra_id:(curObra()==='__all'?(state.obras[0]&&state.obras[0].id):curObra()),false)}</select></div>
+      <div class="field"><label>Obra (destino)</label><select id="nfObra" onchange="ctrlSugerirObra('nf',this.value,$('#nfCnpjTom').value)">${obraOptions(_nfRepos?_nfRepos.obra_id:(curObra()==='__all'?(state.obras[0]&&state.obras[0].id):curObra()),false)}</select></div>
       <div class="field"><label>Nº da Nota</label><input id="nfNum" class="mono" placeholder="000000" inputmode="numeric" pattern="[0-9]*" oninput="this.value=this.value.replace(/\D/g,'')"></div>
       <div class="field"><label>Fornecedor</label><input id="nfForn" placeholder="Nome"></div>
       <div class="field"><label>Data de emissão</label><input id="nfData" type="date"></div>
     </div>
     <div class="row c2">
-      <div class="field" style="margin:0"><label>CNPJ do tomador (destinatário)</label><input id="nfCnpjTom" class="mono" placeholder="00.000.000/0000-00"></div>
+      <div class="field" style="margin:0"><label>CNPJ do tomador (destinatário)</label><input id="nfCnpjTom" class="mono" placeholder="00.000.000/0000-00" onchange="ctrlSugerirObra('nf',$('#nfObra').value,this.value)"></div>
       <div class="field" style="margin:0"><label>CNPJ do fornecedor (emitente)</label><input id="nfCnpjEmit" class="mono" placeholder="00.000.000/0000-00"></div>
+    </div>
+    <div style="margin-top:14px;padding-top:12px;border-top:1px dashed #e4dfd4">
+      <div style="font-size:11px;color:#8a8377;text-transform:uppercase;letter-spacing:.5px;font-weight:700;margin-bottom:6px">📑 Controle de Notas Fiscais</div>
+      <p class="desc" style="margin:0 0 8px">Dados enviados ao Controle de Notas junto com a entrada. O XML preenche o que tiver (vencimento, forma de pagamento, pedido, frete); confira e complete.</p>
+      ${ctrlCamposHtml('nf')}
     </div>
     ${_nfRepos?'':`<div style="margin-top:14px;padding-top:12px;border-top:1px dashed #e4dfd4">
       <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-weight:600;margin:0"><input type="checkbox" id="nfApd" style="width:auto" onchange="onNfApdChange()"> 🔧 Aplicação direta — gerar a requisição automaticamente até "Aguardando retirada"</label>
@@ -1466,6 +1471,7 @@ function renderEntrada(){
   <div class="tbl-wrap" id="nfHist"></div>`;
   $('#nfData').value=new Date().toISOString().slice(0,10);
   setEntradaTab(entradaTab); drawNfItems(); drawNfHist(); drawNfReposBanner();
+  ctrlCarregarObras('nf',$('#nfObra').value,$('#nfCnpjTom').value);
 }
 function onNfApdChange(){ const c=$('#nfApd'), b=$('#nfApdBox'); if(b)b.style.display=c&&c.checked?'':'none'; }
 function drawNfReposBanner(){ const el=$('#nfReposBanner'); if(!el)return;
@@ -1489,7 +1495,7 @@ function notaDetalhe(id){ const n=state.notas.find(x=>x.id===id); if(!n)return;
   modal(`<h3>Nota ${esc(n.numero)}</h3><p class="mp">Emissão: ${n.dataEmissao?new Date(n.dataEmissao+'T00:00:00').toLocaleDateString('pt-BR'):'—'} · ${esc(n.forn||'sem fornecedor')} · Obra: ${esc(obraName(n.obra))}</p>
   <div class="tbl-wrap"><table><thead><tr><th>Código</th><th>Descrição</th><th class="num">Qtd</th><th class="num">Custo un.</th><th class="num">Total</th></tr></thead><tbody>${linhas}</tbody></table></div>
   <div style="text-align:right;margin-top:12px;font-size:14px">Total da nota: <b class="mono">${money(n.valor||0)}</b></div>
-  <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="closeModal()">Fechar</button></div>`);
+  <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="ctrlReenviarModal('${n.id}')">📤 Enviar ao Controle de Notas</button><button class="btn ghost" onclick="closeModal()">Fechar</button></div>`);
 }
 function setEntradaTab(t){ entradaTab=t; $('#tbXml').classList.toggle('on',t==='xml'); $('#tbMan').classList.toggle('on',t==='manual');
   const pane=$('#entradaPane');
@@ -1545,7 +1551,9 @@ function importXml(content){
     const dhEmi=ide?(txt(ide,'dhEmi')||txt(ide,'dEmi')):''; if(dhEmi&&$('#nfData'))$('#nfData').value=dhEmi.slice(0,10);
     const emitCnpj=emit?txt(emit,'CNPJ'):''; if(emitCnpj&&$('#nfCnpjEmit'))$('#nfCnpjEmit').value=emitCnpj;
     { const inf=tagsOf(doc,'infNFe')[0]; const ch=onlyDigits((inf&&inf.getAttribute('Id'))||txt(doc,'chNFe')||''); const dest=tagsOf(doc,'dest')[0];
-      _nfXmlExtra={chave:ch.length===44?ch:'',dest:dest?txt(dest,'xNome'):''}; }
+      const tot=tagsOf(doc,'ICMSTot')[0]; const vNF=tot?parseFloat(txt(tot,'vNF'))||0:0;
+      _nfXmlExtra={chave:ch.length===44?ch:'',dest:dest?txt(dest,'xNome'):'',vNF}; }
+    ctrlPreencherDoXml(doc);
     const dest=tagsOf(doc,'dest')[0]; const destDoc=dest?(txt(dest,'CNPJ')||txt(dest,'CPF')):''; if(destDoc&&$('#nfCnpjTom'))$('#nfCnpjTom').value=destDoc;
     if($('#xmlText'))$('#xmlText').value='';
     drawNfItems(); toast(`XML lido · ${add} item(ns) carregado(s)`+(auto?` · ${auto} vinculado(s) automaticamente`:'')+(add-auto?` · ${add-auto} sem vínculo`:'')+'.','ok');
@@ -1641,6 +1649,7 @@ function cancelarNf(ok){
   nfItems=[]; _nfRepos=null; _nfXmlExtra=null; drawNfReposBanner(); ['nfNum','nfForn','nfCnpjTom','nfCnpjEmit'].forEach(id=>{ if($('#'+id))$('#'+id).value=''; });
   if($('#nfData'))$('#nfData').value=new Date().toISOString().slice(0,10);
   if($('#xmlFile'))$('#xmlFile').value='';
+  ctrlLimpar('nf'); ctrlSugerirObra('nf',$('#nfObra').value,'');
   drawNfItems(); toast('Inserção da nota cancelada.','ok'); }
 function addNfItem(){ const desc=$('#itDesc').value.trim(); const qty=parseFloat($('#itQty').value);
   if(!desc){toast('Informe a descrição.','err');return;} if(!(qty>0)){toast('Quantidade inválida.','err');return;}
@@ -1681,10 +1690,12 @@ function processNf(force){
     if(p.max>0&&saldoOf(obra,p.code)>p.max)alerts.push(`${p.desc}: ${numf(saldoOf(obra,p.code))} acima do máximo`);
   });
   const xmlExtra=_nfXmlExtra||{}; _nfXmlExtra=null;
-  state.notas.unshift(Object.assign({id:notaId,numero,forn,dataEmissao,cnpjTomador:cnpjTom,cnpjEmit,obra,valor:total,itens:notaItens,ts},xmlExtra.chave?{chave:xmlExtra.chave}:{}));
+  const ctrl=ctrlLerCampos('nf'); const valorNota=xmlExtra.vNF>0?xmlExtra.vNF:total;
+  if(ctrl.obraId){ if(!state.obraControleMap)state.obraControleMap={}; state.obraControleMap[obra]=ctrl.obraId; } /* lembra a obra do Controle para esta obra do estoque */
+  state.notas.unshift(Object.assign({id:notaId,numero,forn,dataEmissao,cnpjTomador:cnpjTom,cnpjEmit,obra,valor:total,itens:notaItens,ts,controle:ctrl},xmlExtra.chave?{chave:xmlExtra.chave}:{},xmlExtra.dest?{destinatario:xmlExtra.dest}:{},xmlExtra.vNF>0?{valorNF:xmlExtra.vNF}:{}));
   save('Entrada NF '+numero+' em '+obraName(obra)); const n=nfItems.length; nfItems=[];
-  enviarNotaControle({numero,fornecedor:forn,valor:total,dataEmissao,chaveAcesso:xmlExtra.chave||null,cnpjEmitente:cnpjEmit||null,cnpjDestinatario:cnpjTom||null,destinatario:xmlExtra.dest||null,obraNome:obraName(obra),estoqueNotaId:notaId,
-    descricao:'Recebida no estoque ('+obraName(obra)+') · '+notaItens.length+' item(ns)'});
+  enviarNotaControle(Object.assign({numero,fornecedor:forn,valor:valorNota,dataEmissao,chaveAcesso:xmlExtra.chave||null,cnpjEmitente:cnpjEmit||null,cnpjDestinatario:cnpjTom||null,destinatario:xmlExtra.dest||null,obraNome:obraName(obra),estoqueNotaId:notaId,
+    descricao:'Recebida no estoque ('+obraName(obra)+') · '+notaItens.length+' item(ns)'},ctrl));
   toast(`Entrada em ${esc(obraName(obra))} · ${n} item(ns).`,'ok'); alerts.forEach(a=>toast('⚠ '+a,'warn'));
   if(_nfRepos){ const ctx=_nfRepos; _nfRepos=null; reposAposNota(ctx,obra,movsNota); return; }
   if(apd){ requisicaoAplicacaoDireta({obra,itens:notaItens,numero,forn,aplic:apd.aplic,os:apd.os}); return; }
@@ -1695,16 +1706,79 @@ function processNf(force){
    se a nota já estiver lá, só vincula; senão é incluída em "Entradas". A API confere o login deste usuário.
    Falha aqui não desfaz a entrada — só avisa. */
 const CONTROLE_NOTAS_API='https://kygainafarusnsstvvhc.supabase.co/functions/v1/receber-nota-estoque';
-async function enviarNotaControle(nota){
-  if(!isOnline||!nota.numero||nota.numero==='s/nº'||!nota.fornecedor){ if(nota.numero&&nota.numero!=='s/nº'&&!nota.fornecedor)toast('Controle de notas: nota não enviada — informe o fornecedor.','warn'); return; }
-  try{
-    const {data:sd}=await sb.auth.getSession(); const tk=sd&&sd.session&&sd.session.access_token; if(!tk)return;
-    const res=await fetch(CONTROLE_NOTAS_API,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+tk},body:JSON.stringify(nota)});
-    const r=await res.json().catch(()=>({}));
-    if(!res.ok)throw new Error(r.error||('HTTP '+res.status));
-    toast(r.resultado==='criada'?'Controle de notas: NF '+esc(nota.numero)+' incluída'+(r.obraVinculada?'':' (sem obra — ajuste lá)')+'.':'Controle de notas: NF '+esc(nota.numero)+' já constava — vinculada.','ok');
-  }catch(e){ toast('Entrada feita, mas não foi possível avisar o Controle de Notas: '+esc((e&&e.message)||String(e)),'warn'); }
+async function ctrlApi(body){
+  const {data:sd}=await sb.auth.getSession(); const tk=sd&&sd.session&&sd.session.access_token; if(!tk)throw new Error('sessão expirada — entre de novo');
+  const res=await fetch(CONTROLE_NOTAS_API,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+tk},body:JSON.stringify(body)});
+  const r=await res.json().catch(()=>({}));
+  if(!res.ok)throw new Error(r.error||('HTTP '+res.status));
+  return r;
 }
+async function enviarNotaControle(nota){
+  if(!isOnline||!nota.numero||nota.numero==='s/nº'||!nota.fornecedor){ if(nota.numero&&nota.numero!=='s/nº'&&!nota.fornecedor)toast('Controle de notas: nota não enviada — informe o fornecedor.','warn'); else if(!isOnline)toast('Sem conexão: a nota não foi enviada ao Controle de Notas. Depois use "Enviar ao Controle" nos detalhes da nota.','warn'); return false; }
+  try{
+    const r=await ctrlApi(nota);
+    toast(r.resultado==='criada'?'Controle de notas: NF '+esc(nota.numero)+' incluída'+(r.obraVinculada?'':' (sem obra — ajuste lá)')+'.':'Controle de notas: NF '+esc(nota.numero)+' já constava — vinculada e completada.','ok');
+    return true;
+  }catch(e){ toast('Não foi possível avisar o Controle de Notas: '+esc((e&&e.message)||String(e)),'warn'); return false; }
+}
+/* Campos que o Controle de Notas precisa (obra de lá, pedido, vencimento, pagamento, frete, prioridade).
+   px = prefixo dos ids ('nf' na tela de entrada, 'cr' no modal de reenvio). */
+const CTRL_FORMAS_PAG=['Boleto','PIX','Transferência','Cartão','Depósito','Cheque','Outro'];
+let _ctrlObras=null, _ctrlObrasP=null;
+function ctrlCamposHtml(px,v){ v=v||{};
+  return `<div class="row c3">
+      <div class="field" style="margin:0"><label>Obra no Controle de Notas</label><select id="${px}CtrlObra" data-want="${esc(v.obraId||'')}" onchange="this.dataset.manual='1'"><option value="">Carregando...</option></select></div>
+      <div class="field" style="margin:0"><label>Pedido de compras</label><input id="${px}CtrlPedido" value="${esc(v.pedidoCompras||'')}" placeholder="Nº do pedido"></div>
+      <div class="field" style="margin:0"><label>Vencimento</label><input id="${px}CtrlVenc" type="date" value="${esc(v.vencimento||'')}"></div>
+    </div>
+    <div class="row c3" style="margin-top:8px">
+      <div class="field" style="margin:0"><label>Forma de pagamento</label><select id="${px}CtrlForma"><option value="">Selecione...</option>${CTRL_FORMAS_PAG.map(f=>`<option${v.formaPagamento===f?' selected':''}>${f}</option>`).join('')}</select></div>
+      <div class="field" style="margin:0"><label>Frete (CT-e à parte)</label><select id="${px}CtrlFrete"><option value="nao">Não</option><option value="sim"${v.frete==='sim'?' selected':''}>Sim</option></select></div>
+      <div class="field" style="margin:0"><label>Prioridade</label><select id="${px}CtrlPrior">${[['baixa','Baixa'],['media','Média'],['alta','Alta']].map(([k,l])=>`<option value="${k}"${(v.prioridade||'media')===k?' selected':''}>${l}</option>`).join('')}</select></div>
+    </div>`; }
+function ctrlObrasLista(){ if(_ctrlObras)return Promise.resolve(_ctrlObras); if(_ctrlObrasP)return _ctrlObrasP;
+  _ctrlObrasP=ctrlApi({acao:'obras'}).then(r=>{ _ctrlObras=r.obras||[]; return _ctrlObras; }).finally(()=>{ _ctrlObrasP=null; }); return _ctrlObrasP; }
+async function ctrlCarregarObras(px,obraEstoque,cnpj){ const el=$('#'+px+'CtrlObra'); if(!el)return;
+  if(!isOnline){ el.innerHTML='<option value="">(sem conexão)</option>'; return; }
+  let obras; try{ obras=await ctrlObrasLista(); }catch(e){ const el2=$('#'+px+'CtrlObra'); if(el2)el2.innerHTML='<option value="">(não carregou — '+esc((e&&e.message)||'erro')+')</option>'; return; }
+  const sel=$('#'+px+'CtrlObra'); if(!sel)return; const want=sel.value||sel.dataset.want||'';
+  sel.innerHTML='<option value="">Selecione...</option>'+obras.map(o=>`<option value="${o.id}">${esc((o.codigo?o.codigo+' - ':'')+o.nome)}</option>`).join('');
+  if(want&&obras.some(o=>String(o.id)===String(want))){ sel.value=String(want); sel.dataset.manual='1'; }
+  else ctrlSugerirObra(px,obraEstoque,cnpj); }
+/* Sugere a obra do Controle: a última usada para esta obra do estoque; senão a única obra com o CNPJ do destinatário. Não mexe se o usuário já escolheu. */
+function ctrlSugerirObra(px,obraEstoque,cnpj){ const el=$('#'+px+'CtrlObra'); if(!el||!_ctrlObras||el.dataset.manual==='1')return;
+  const ok=id=>id&&_ctrlObras.some(o=>String(o.id)===String(id));
+  let id=(state.obraControleMap||{})[obraEstoque];
+  if(!ok(id)){ id=''; const d=onlyDigits(cnpj); if(d){ const m=_ctrlObras.filter(o=>(o.cnpjs||[]).some(c=>onlyDigits(c)===d)); if(m.length===1)id=m[0].id; } }
+  el.value=ok(id)?String(id):''; }
+function ctrlLerCampos(px){ const v=id=>{ const e=$('#'+px+id); return e?e.value.trim():''; };
+  return {obraId:v('CtrlObra')?Number(v('CtrlObra')):null, pedidoCompras:v('CtrlPedido')||null, vencimento:v('CtrlVenc')||null,
+    formaPagamento:v('CtrlForma')||null, frete:v('CtrlFrete')||'nao', prioridade:v('CtrlPrior')||'media'}; }
+function ctrlLimpar(px){ ['CtrlPedido','CtrlVenc','CtrlForma'].forEach(id=>{ const e=$('#'+px+id); if(e)e.value=''; });
+  const f=$('#'+px+'CtrlFrete'); if(f)f.value='nao'; const p=$('#'+px+'CtrlPrior'); if(p)p.value='media';
+  const o=$('#'+px+'CtrlObra'); if(o){ o.dataset.manual=''; o.value=''; } }
+/* Lê do XML: vencimento (1ª duplicata), forma de pagamento (tPag), pedido de compra (xPed) e modalidade do frete */
+function ctrlPreencherDoXml(doc){ const set=(id,v)=>{ const e=$('#nf'+id); if(e&&v)e.value=v; };
+  const dups=[...tagsOf(doc,'dup')].map(d=>txt(d,'dVenc')).filter(Boolean).sort(); set('CtrlVenc',dups[0]||'');
+  const TPAG={'02':'Cheque','03':'Cartão','04':'Cartão','15':'Boleto','16':'Depósito','17':'PIX','18':'Transferência','99':'Outro'};
+  const tp=tagsOf(doc,'detPag')[0]; const tPag=tp?txt(tp,'tPag'):''; set('CtrlForma',TPAG[tPag]||(dups.length?'Boleto':''));
+  const compra=tagsOf(doc,'compra')[0]; let ped=compra?txt(compra,'xPed'):''; if(!ped){ const x=tagsOf(doc,'xPed')[0]; ped=x?x.textContent.trim():''; } set('CtrlPedido',ped);
+  const tr=tagsOf(doc,'transp')[0]; const mod=tr?txt(tr,'modFrete'):''; if(mod)set('CtrlFrete',(mod==='1'||mod==='2')?'sim':'nao');
+  const dest=tagsOf(doc,'dest')[0]; ctrlSugerirObra('nf',$('#nfObra')&&$('#nfObra').value,dest?(txt(dest,'CNPJ')||txt(dest,'CPF')):''); }
+/* Reenvio pela tela de detalhes: completa no Controle uma nota já lançada (ex.: que foi sem obra/vencimento) */
+function ctrlReenviarModal(id){ const n=state.notas.find(x=>x.id===id); if(!n)return;
+  modal(`<h3>Enviar ao Controle de Notas · NF ${esc(n.numero)}</h3><p class="mp">${esc(n.forn||'sem fornecedor')} · ${money(n.valorNF||n.valor||0)}. Se a nota já estiver no Controle, só os campos que estiverem vazios lá são completados.</p>
+    ${ctrlCamposHtml('cr',n.controle)}
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px"><button class="btn ghost" onclick="notaDetalhe('${n.id}')">Voltar</button><button class="btn primary" id="crEnviar" onclick="ctrlReenviar('${n.id}')">📤 Enviar</button></div>`);
+  ctrlCarregarObras('cr',n.obra,n.cnpjTomador); }
+async function ctrlReenviar(id){ const n=state.notas.find(x=>x.id===id); if(!n)return; const ctrl=ctrlLerCampos('cr');
+  if(!ctrl.obraId){ toast('Escolha a obra no Controle de Notas.','err'); return; }
+  const b=$('#crEnviar'); if(b)b.disabled=true;
+  const ok=await enviarNotaControle(Object.assign({numero:n.numero,fornecedor:n.forn,valor:n.valorNF||n.valor||0,dataEmissao:n.dataEmissao||null,chaveAcesso:n.chave||null,cnpjEmitente:n.cnpjEmit||null,cnpjDestinatario:n.cnpjTomador||null,destinatario:n.destinatario||null,obraNome:obraName(n.obra),estoqueNotaId:n.id,
+    descricao:'Recebida no estoque ('+obraName(n.obra)+') · '+(n.itens||[]).length+' item(ns)'},ctrl));
+  if(!ok){ if(b)b.disabled=false; return; }
+  n.controle=ctrl; if(!state.obraControleMap)state.obraControleMap={}; state.obraControleMap[n.obra]=ctrl.obraId;
+  save('NF '+n.numero+' enviada ao Controle de Notas'); closeModal(); }
 /* ===== Aplicação direta na entrada da NF =====
    Material comprado para aplicar direto (OS): logo após a entrada, gera a requisição e percorre o mesmo fluxo da tela —
    aprovação → separação (baixa do estoque item a item) → tipo de envio "aplicacao_direta" — até ficar em
