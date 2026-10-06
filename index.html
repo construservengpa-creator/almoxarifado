@@ -1421,7 +1421,7 @@ function renderEntrada(){
     <h3>Dados da entrada</h3><p class="desc">Defina a obra de destino e o documento. Depois preencha os itens por XML ou manualmente.</p>
     <div class="row c4">
       <div class="field"><label>Obra (destino)</label><select id="nfObra">${obraOptions(_nfRepos?_nfRepos.obra_id:(curObra()==='__all'?(state.obras[0]&&state.obras[0].id):curObra()),false)}</select></div>
-      <div class="field"><label>Nº da Nota</label><input id="nfNum" class="mono" placeholder="000.000"></div>
+      <div class="field"><label>Nº da Nota</label><input id="nfNum" class="mono" placeholder="000000" inputmode="numeric" pattern="[0-9]*" oninput="this.value=this.value.replace(/\D/g,'')"></div>
       <div class="field"><label>Fornecedor</label><input id="nfForn" placeholder="Nome"></div>
       <div class="field"><label>Data de emissão</label><input id="nfData" type="date"></div>
     </div>
@@ -1444,6 +1444,7 @@ function renderEntrada(){
     </div>
   </div>
   <div class="sechead" style="margin-top:24px"><h3>Histórico de notas importadas</h3><span id="nfHistResumo" style="font-size:12.5px;color:#8a8377"></span></div>
+  <div class="search" style="max-width:none;margin-bottom:8px"><span class="si">⌕</span><input id="nfHistBusca" placeholder="Buscar nota por número ou fornecedor..." autocomplete="off" oninput="drawNfHist()"></div>
   <div class="tbl-wrap" id="nfHist"></div>`;
   $('#nfData').value=new Date().toISOString().slice(0,10);
   setEntradaTab(entradaTab); drawNfItems(); drawNfHist(); drawNfReposBanner();
@@ -1455,10 +1456,12 @@ function drawNfReposBanner(){ const el=$('#nfReposBanner'); if(!el)return;
     <div class="muted" style="font-size:12px;margin-top:2px">Carregue o XML ou confira os itens abaixo. Ao dar entrada, a nota fica vinculada à solicitação: abate o pendente e, quando chegar tudo, o item sai de "Solicitações em aberto".</div></div>
     <button class="btn ghost sm" onclick="desvincularNfRepos()">Desvincular</button></div>`; }
 function desvincularNfRepos(){ _nfRepos=null; nfItems=nfItems.filter(i=>!i.reposPre); drawNfItems(); drawNfReposBanner(); toast('Nota desvinculada da solicitação de reposição.','ok'); }
-function drawNfHist(){ const el=$('#nfHist'); if(!el)return; const list=state.notas.slice(0,40);
+function filtraNotas(q,lim){ q=(q||'').trim().toLowerCase(); if(!q)return state.notas.slice(0,lim);
+  return state.notas.filter(n=>String(n.numero||'').toLowerCase().includes(q)||String(n.forn||'').toLowerCase().includes(q)); }
+function drawNfHist(){ const el=$('#nfHist'); if(!el)return; const list=filtraNotas($('#nfHistBusca')&&$('#nfHistBusca').value,40);
   const totalGeral=state.notas.reduce((s,n)=>s+(n.valor||0),0);
   const res=$('#nfHistResumo'); if(res)res.textContent=`${state.notas.length} nota(s) · ${money(totalGeral)}`;
-  if(!list.length){ el.innerHTML=`<div class="empty" style="padding:28px">Nenhuma nota lançada ainda.</div>`; return; }
+  if(!list.length){ el.innerHTML=`<div class="empty" style="padding:28px">${state.notas.length?'Nenhuma nota encontrada.':'Nenhuma nota lançada ainda.'}</div>`; return; }
   el.innerHTML=`<table><thead><tr><th>Número</th><th>Emissão</th><th>Fornecedor</th><th>Obra</th><th class="num">Itens</th><th class="num">Valor</th><th></th></tr></thead><tbody>`+
     list.map(n=>`<tr><td class="mono">${esc(n.numero)}</td><td class="muted" style="font-size:12px">${n.dataEmissao?new Date(n.dataEmissao+'T00:00:00').toLocaleDateString('pt-BR'):fmtDate(n.ts)}</td><td>${esc(n.forn||'—')}</td><td>${esc(obraName(n.obra))}</td><td class="num">${n.itens.length}</td><td class="num"><b>${money(n.valor||0)}</b></td><td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="notaDetalhe('${n.id}')">Detalhes</button> <button class="btn danger sm" title="Excluir e estornar (supervisor)" onclick="deleteNotaId('${n.id}',true)">🗑</button></td></tr>`).join('')+`</tbody></table>`;
 }
@@ -1519,7 +1522,7 @@ function importXml(content){
         xml:{cProd, cEAN:eanOk?cEAN:'', xProd, uCom, qty, custo, cnpj:onlyDigits(emitCnpjX)}, link:null, fator:1, lembrar:true};
       autoVincular(it); if(it.link)auto++;
       nfItems.push(it); add++; });
-    if(nNF&&$('#nfNum'))$('#nfNum').value=nNF; if(forn&&$('#nfForn'))$('#nfForn').value=forn;
+    if(nNF&&$('#nfNum'))$('#nfNum').value=String(nNF).replace(/\D/g,''); if(forn&&$('#nfForn'))$('#nfForn').value=forn;
     const dhEmi=ide?(txt(ide,'dhEmi')||txt(ide,'dEmi')):''; if(dhEmi&&$('#nfData'))$('#nfData').value=dhEmi.slice(0,10);
     const emitCnpj=emit?txt(emit,'CNPJ'):''; if(emitCnpj&&$('#nfCnpjEmit'))$('#nfCnpjEmit').value=emitCnpj;
     const dest=tagsOf(doc,'dest')[0]; const destDoc=dest?(txt(dest,'CNPJ')||txt(dest,'CPF')):''; if(destDoc&&$('#nfCnpjTom'))$('#nfCnpjTom').value=destDoc;
@@ -1635,7 +1638,7 @@ function setNfCusto(i,v){ if(nfItems[i])nfItems[i].custo=parseFloat(v)||0; refre
 function refreshNfTotals(){ let tot=0; nfItems.forEach((it,i)=>{const t=(it.qty||0)*(it.custo||0);tot+=t;const c=$('#nft_'+i);if(c)c.textContent=money(t);}); if($('#nfTotal'))$('#nfTotal').textContent=money(tot); }
 function processNf(force){
   if(!nfItems.length){toast('Adicione ao menos um item.','err');return;}
-  const obra=$('#nfObra').value; const numero=$('#nfNum').value.trim()||'s/nº'; const forn=$('#nfForn').value.trim(); const dataEmissao=$('#nfData').value||'';
+  const obra=$('#nfObra').value; const numero=$('#nfNum').value.replace(/\D/g,'')||'s/nº'; const forn=$('#nfForn').value.trim(); const dataEmissao=$('#nfData').value||'';
   const cnpjTom=$('#nfCnpjTom')?$('#nfCnpjTom').value.trim():''; const cnpjEmit=$('#nfCnpjEmit')?$('#nfCnpjEmit').value.trim():'';
   const totalCheck=nfItems.reduce((s,it)=>s+it.qty*it.custo,0);
   const dup=state.notas.find(n=>n.numero===numero && (n.forn||'')===forn && (n.cnpjTomador||'')===cnpjTom && (n.dataEmissao||'')===dataEmissao && Math.abs((n.valor||0)-totalCheck)<0.01);
@@ -4319,7 +4322,7 @@ async function verDocDevolucao(id){ const {data,error}=await sb.from('devolucoes
   if(error||!data||!data.doc_devolucao_base64){toast('Documento não encontrado.','err');return;}
   const w=window.open(); if(!w){toast('Permita pop-ups.','err');return;} w.document.write(`<title>${esc(data.doc_devolucao_nome||'Documento')}</title><body style="margin:0"><img src="${data.doc_devolucao_base64}" style="max-width:100%" onerror="this.replaceWith(document.createTextNode('Não foi possível exibir o arquivo diretamente — baixe pelo link.'))"><a href="${data.doc_devolucao_base64}" download="${esc(data.doc_devolucao_nome||'documento')}">Baixar</a></body>`); }
 function devolucaoModal(){
-  const notasRecentes=state.notas.slice(0,80);
+  const notasRecentes=state.notas;
   modal(`<h3>Nova devolução</h3>
     <div class="row c2"><div class="field"><label>Obra</label><select id="dvObra">${state.obras.map(o=>`<option value="${o.id}">${esc(o.nome)}</option>`).join('')}</select></div>
     <div class="field"><label>Nota de origem (opcional)</label><select id="dvNota" onchange="devolNotaChange()"><option value="">— sem nota de origem —</option>${notasRecentes.map(n=>`<option value="${n.id}">${esc(n.numero)} · ${esc(n.forn||'—')}</option>`).join('')}</select></div></div>
@@ -4336,7 +4339,7 @@ function devolucaoModal(){
   window._dvItens=[];
 }
 function devolNotaChange(){ const notaId=$('#dvNota').value; const n=state.notas.find(x=>x.id===notaId);
-  window._dvItens=[]; if(n&&n.itens){ n.itens.forEach(it=>{ window._dvItens.push({code:it.code,desc:it.desc,unit:it.unit||'',qty:0,max:it.qty,valorUnit:it.valorUnit||0}); }); }
+  window._dvItens=[]; if(n&&n.itens){ n.itens.forEach(it=>{ window._dvItens.push({code:it.code,desc:it.desc,unit:it.unit||'',qty:0,max:it.qty,valorUnit:Number(it.valorUnit||it.custo||0)}); }); if(n.obra&&$('#dvObra'))$('#dvObra').value=n.obra; }
   devolRenderItens(); }
 function devolBuscaResults(q){ const box=$('#dvBuscaResults'); if(!box)return; q=(q||'').trim(); if(!q){box.innerHTML='';return;}
   const list=searchProducts(q).slice(0,6);
@@ -4367,24 +4370,24 @@ async function salvarDevolucao(){
 function devolEditarNota(id){
   sb.from('devolucoes').select('numero_nota_devolucao,data_nota_devolucao').eq('id',id).maybeSingle().then(({data})=>{
     modal(`<h3>Número da nota de devolução</h3>
-      <div class="field"><label>Número</label><input id="dvNumNota" value="${data&&data.numero_nota_devolucao?esc(data.numero_nota_devolucao):''}"></div>
+      <div class="field"><label>Número</label><input id="dvNumNota" inputmode="numeric" pattern="[0-9]*" oninput="this.value=this.value.replace(/\D/g,'')" value="${data&&data.numero_nota_devolucao?esc(data.numero_nota_devolucao):''}"></div>
       <div class="field"><label>Data de emissão</label><input id="dvDataNota" type="date" value="${data&&data.data_nota_devolucao?data.data_nota_devolucao:''}"></div>
       <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="salvarNumNota(${id})">Salvar</button></div>`);
   }); }
-async function salvarNumNota(id){ const numero=$('#dvNumNota').value.trim(); const data=$('#dvDataNota').value||null;
+async function salvarNumNota(id){ const numero=$('#dvNumNota').value.replace(/\D/g,''); const data=$('#dvDataNota').value||null;
   const {error}=await sb.from('devolucoes').update({numero_nota_devolucao:numero||null,data_nota_devolucao:data}).eq('id',id);
   if(error){toast('Erro: '+error.message,'err');return;} toast('Nota atualizada.','ok'); closeModal(); drawDevolAbertas(); drawDevolConcluidas(); }
 async function marcarEmEnvio(id){ const {error}=await sb.from('devolucoes').update({status:'em_envio'}).eq('id',id);
   if(error){toast('Erro: '+error.message,'err');return;} toast('Devolução marcada como em envio.','ok'); drawDevolAbertas(); refreshDevolucaoBadge(); refreshGlobalAlerts(); }
 function concluirDevolucaoModal(id){
   modal(`<h3>Concluir devolução #${id}</h3><p class="mp">Isso estorna (baixa definitiva) o saldo bloqueado desta devolução — não há como desfazer sozinho, precisa de um administrador.</p>
-    <div class="row c2"><div class="field"><label>Nº da nota de devolução</label><input id="dvNumNotaC"></div><div class="field"><label>Data de emissão</label><input id="dvDataNotaC" type="date" value="${new Date().toISOString().slice(0,10)}"></div></div>
+    <div class="row c2"><div class="field"><label>Nº da nota de devolução</label><input id="dvNumNotaC" inputmode="numeric" pattern="[0-9]*" oninput="this.value=this.value.replace(/\D/g,'')"></div><div class="field"><label>Data de emissão</label><input id="dvDataNotaC" type="date" value="${new Date().toISOString().slice(0,10)}"></div></div>
     <div class="field"><label>Documento assinado (imagem ou PDF)</label><input id="dvDoc" type="file" accept="image/*,.pdf"></div>
     <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="concluirDevolucao(${id})">Concluir e estornar saldo</button></div>`);
 }
 function fileToDataURL(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(file); }); }
 async function concluirDevolucao(id){
-  const numero=$('#dvNumNotaC').value.trim(); const data=$('#dvDataNotaC').value||null;
+  const numero=$('#dvNumNotaC').value.replace(/\D/g,''); const data=$('#dvDataNotaC').value||null;
   const fileEl=$('#dvDoc'); const file=fileEl&&fileEl.files[0];
   let docB64=null,docNome=null;
   if(file){ if(file.size>4*1024*1024){toast('Arquivo muito grande (máx. 4MB).','err');return;} docB64=await fileToDataURL(file); docNome=file.name; }
@@ -4493,7 +4496,6 @@ async function downloadTemplate(){
 /* ===== ADMIN ===== */
 async function renderAdmin(){
   if(!isAdmin()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito a administradores.</div></div>'; return; }
-  const notas=state.notas.slice(0,60);
   const {data:users,error:uerr}=await sb.from('profiles').select('*').order('criado_em',{ascending:true});
   if(uerr)toast('Erro ao carregar usuários: '+uerr.message,'err');
   _adminUsersCache=users||[];
@@ -4508,11 +4510,14 @@ async function renderAdmin(){
     <td class="num">${u.id===profile.id?'<span class="muted">você</span>':`<button class="btn primary sm" onclick="saveUserRole('${u.id}')">Salvar</button>`}</td></tr>`;}).join('');
   let html=`<div class="panel"><h3>👤 Usuários</h3><p class="desc">Cadastros novos ficam <b>inativos</b> até você aprovar. <b>Papel</b> define a permissão — operador (solicita e consulta), encarregado (aprova requisições, faz entradas/baixas), admin (tudo). <b>Setor</b> é independente do papel e define a função — almoxarifado (separa e embala), compras/frotas (aparecem pra atribuição de compra de faltantes). Um <b>encarregado</b> só vê e aprova requisições das <b>obras (centro de custo) vinculadas</b> a ele — sem nenhuma vinculada, não aprova nenhuma. Admin sempre aprova de qualquer obra.</p>
     <div class="tbl-wrap"><table><thead><tr><th>Usuário</th><th>Papel</th><th>Setor</th><th>Obras vinculadas</th><th class="num">Situação</th><th></th></tr></thead><tbody>${uRows||'<tr><td colspan="6" class="empty">Nenhum usuário.</td></tr>'}</tbody></table></div></div>
-  <div class="panel"><h3>Excluir nota fiscal</h3><p class="desc">As entradas da nota são <b>estornadas do estoque</b> da obra correspondente.</p>`;
-  if(!notas.length)html+=`<div class="empty" style="padding:26px">Nenhuma nota lançada.</div>`;
-  else html+=`<div class="tbl-wrap"><table><thead><tr><th>Nota</th><th>Obra</th><th>Emissão</th><th class="num">Itens</th><th class="num">Valor</th><th></th></tr></thead><tbody>`+notas.map(n=>`<tr><td class="mono">NF ${esc(n.numero)}</td><td>${esc(obraName(n.obra))}</td><td class="muted" style="font-size:12px">${n.dataEmissao?new Date(n.dataEmissao+'T00:00:00').toLocaleDateString('pt-BR'):fmtDate(n.ts)}</td><td class="num">${n.itens.length}</td><td class="num">${money(n.valor||0)}</td><td class="num"><button class="btn danger sm" onclick="deleteNotaId('${n.id}')">🔒 Excluir</button></td></tr>`).join('')+`</tbody></table></div>`;
+  <div class="panel"><h3>Excluir nota fiscal</h3><p class="desc">As entradas da nota são <b>estornadas do estoque</b> da obra correspondente.</p>
+    <div class="search" style="max-width:none;margin-bottom:8px"><span class="si">⌕</span><input id="admNotaBusca" placeholder="Buscar nota por número ou fornecedor..." autocomplete="off" oninput="drawAdmNotas()"></div><div id="admNotas"></div>`;
   html+=`</div><div class="panel danger-zone"><h3>⚠ Zona de risco</h3><p class="desc" style="color:#a05050">Apaga <b>todos os produtos, saldos, movimentações, notas, fotos, requisições, itens de compra, caixas e embarques</b>. Obras e usuários são mantidos.</p><button class="btn danger" onclick="wipeAll()">🔒 Zerar todo o estoque</button></div>`;
-  $('#view').innerHTML=html;
+  $('#view').innerHTML=html; drawAdmNotas();
+}
+function drawAdmNotas(){ const el=$('#admNotas'); if(!el)return; const notas=filtraNotas($('#admNotaBusca')&&$('#admNotaBusca').value,60);
+  if(!notas.length){ el.innerHTML=`<div class="empty" style="padding:26px">${state.notas.length?'Nenhuma nota encontrada.':'Nenhuma nota lançada.'}</div>`; return; }
+  el.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>Nota</th><th>Obra</th><th>Emissão</th><th class="num">Itens</th><th class="num">Valor</th><th></th></tr></thead><tbody>`+notas.map(n=>`<tr><td class="mono">NF ${esc(n.numero)}</td><td>${esc(obraName(n.obra))}</td><td class="muted" style="font-size:12px">${n.dataEmissao?new Date(n.dataEmissao+'T00:00:00').toLocaleDateString('pt-BR'):fmtDate(n.ts)}</td><td class="num">${n.itens.length}</td><td class="num">${money(n.valor||0)}</td><td class="num"><button class="btn danger sm" onclick="deleteNotaId('${n.id}')">🔒 Excluir</button></td></tr>`).join('')+`</tbody></table></div>`;
 }
 function abrirObrasVinculadas(userId){
   const u=_adminUsersCache.find(x=>x.id===userId); if(!u)return;
