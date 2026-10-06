@@ -476,7 +476,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-06T14:33:00-03:00';
+const APP_VERSION='2026-10-06T15:50:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -682,6 +682,11 @@ function subscribeRealtime(){
     if(t==='separacao'&&typeof drawSeparacaoList==='function')queueRefresh(drawSeparacaoList);
     if(t==='notificacoes'&&typeof drawNotificacoes==='function')queueRefresh(drawNotificacoes);
   }).subscribe();
+  // Devoluções ao fornecedor: registro/conclusão feitos por outra pessoa (ou outra aba) atualizam a tela,
+  // o bloqueio de saldo e os contadores sem precisar sair e voltar. A consulta a cada 30 s cobre o caso
+  // de o evento em tempo real não chegar (tabela fora da publicação do Realtime, conexão caiu etc.).
+  sb.channel('devolucoes_sync').on('postgres_changes',{event:'*',schema:'public',table:'devolucoes'},()=>queueRefresh(atualizarDevolucoesAoVivo)).subscribe();
+  setInterval(()=>{ if(activeTab==='devolucao'&&document.visibilityState==='visible')atualizarDevolucoesAoVivo(); },30000);
   // Movimentações e saldos: aplica só a linha que mudou em vez de recarregar tudo do banco.
   let _movRenderTimer=null;
   const rerenderMov=()=>{ clearTimeout(_movRenderTimer); _movRenderTimer=setTimeout(()=>{
@@ -4084,6 +4089,10 @@ function reposEditarSienge(gi){ const g=_reposGrupos[gi]; if(!g)return;
     toast(data&&data.length?'Nº do Sienge atualizado.':'Nada foi alterado (permissão).',data&&data.length?'ok':'err'); await drawReposicao(); refreshTelaAtual(); }; }
 
 /* ===== DEVOLUÇÃO DE MATERIAIS ===== */
+async function atualizarDevolucoesAoVivo(){
+  await refreshDevolucoesBloqueio(); refreshDevolucaoBadge(); refreshGlobalAlerts();
+  if(activeTab!=='devolucao'||_devolAba!=='fornecedor'||modalAberto())return; /* não mexe na tela com um formulário aberto */
+  drawDevolAbertas(); if(devolMostrarConcluidas)drawDevolConcluidas(); }
 async function refreshDevolucaoBadge(){ if(!isAlmoxarife())return; const b=$('#navBadgeDevol'); if(!b)return;
   const {count}=await sb.from('devolucoes').select('id',{count:'exact',head:true}).in('status',['aguardando_nota','em_envio']);
   if(count){b.textContent=count;b.style.display='';}else b.style.display='none'; }
