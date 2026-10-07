@@ -467,16 +467,16 @@ function podeVerCompras(){ return isAlmoxarife()||isCompras()||isFrotas(); }
 /* Operar retirada/expedição: almoxarifado e encarregados. Ver (só leitura): também o setor de compras */
 function podeOperarRetiradas(){ return isAlmoxarife()||isEncarregado(); }
 function podeVerRetiradas(){ return podeOperarRetiradas()||isCompras(); }
-/* Painel de Notificações: só leitura — almoxarifado, encarregados/admin e os setores de compras e frotas
-   (inclusive operadores desses setores). Consulta e Relatórios não têm trava de perfil: todo usuário ativo vê. */
-function podeVerNotificacoes(){ return podeVerRetiradas()||isCompras()||isFrotas(); }
+/* Painel de Notificações: só leitura e liberado para todo usuário ativo (como Consulta e Relatórios).
+   Os atalhos dos cartões (ir para Separação / Retirada) continuam respeitando a permissão de cada perfil. */
+function podeVerNotificacoes(){ return !!profile&&!!profile.ativo; }
 
 /* ===== Persistência (Supabase: tabela app_kv + auditoria via RPC) ===== */
 const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-07T17:00:00-03:00';
+const APP_VERSION='2026-10-07T18:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -3780,7 +3780,7 @@ function notifSairApresentacao(){
 }
 document.addEventListener('fullscreenchange',()=>{ if(!document.fullscreenElement)document.body.classList.remove('apresentacao'); });
 function renderNotificacoes(){
-  if(!podeVerNotificacoes()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito ao almoxarifado, compras, frotas e encarregados/administradores.</div></div>'; return; }
+  if(!podeVerNotificacoes()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito a usuários ativos.</div></div>'; return; }
   _notifSepKnown=new Set(); _notifRetKnown=new Set(); _notifFirstLoad=true;
   $('#view').innerHTML=`
     <div class="panel" id="notifHeader" style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:16px">
