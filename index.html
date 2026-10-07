@@ -476,7 +476,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-06T19:30:00-03:00';
+const APP_VERSION='2026-10-07T10:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -543,7 +543,7 @@ async function _drainSave(k){ const q=_saveQ[k]; q.busy=true;
 let state={ obras:[], aplicacoes:[], products:[], estoque:{}, movements:[], notas:[], seq:{baixa:0,transfer:0}, config:{supHash:null}, currentObra:null };
 let photos={};
 // Garante a estrutura mínima do state (usado no load e quando chega atualização em tempo real)
-function normalizeState(){ if(!state.obras)state.obras=[]; if(!state.aplicacoes)state.aplicacoes=[]; if(!state.estoque)state.estoque={}; if(!state.movements)state.movements=[]; if(!state.notas)state.notas=[]; if(!state.seq)state.seq={baixa:0,transfer:0}; if(!state.config)state.config={supHash:null}; if(!state.empresas)state.empresas=[]; if(!state.aplicTipos||!state.aplicTipos.length)state.aplicTipos=[{id:'equipamento',label:'EQUIPAMENTO',icone:'⚙',usaSetor:false},{id:'veiculo',label:'VEÍCULO',icone:'🚚',usaSetor:false},{id:'sede',label:'SEDE',icone:'🏢',usaSetor:true}]; if(!state.setores||!state.setores.length)state.setores=[{id:'oficina',nome:'OFICINA'},{id:'escritorio',nome:'ESCRITÓRIO / ADM'},{id:'lavajato',nome:'LAVAJATO'},{id:'diretoria',nome:'DIRETORIA'}]; }
+function normalizeState(){ if(!state.obras)state.obras=[]; if(!state.aplicacoes)state.aplicacoes=[]; if(!state.estoque)state.estoque={}; if(!state.movements)state.movements=[]; if(!state.notas)state.notas=[]; if(!state.limitesObra||typeof state.limitesObra!=='object')state.limitesObra={}; if(!state.seq)state.seq={baixa:0,transfer:0}; if(!state.config)state.config={supHash:null}; if(!state.empresas)state.empresas=[]; if(!state.aplicTipos||!state.aplicTipos.length)state.aplicTipos=[{id:'equipamento',label:'EQUIPAMENTO',icone:'⚙',usaSetor:false},{id:'veiculo',label:'VEÍCULO',icone:'🚚',usaSetor:false},{id:'sede',label:'SEDE',icone:'🏢',usaSetor:true}]; if(!state.setores||!state.setores.length)state.setores=[{id:'oficina',nome:'OFICINA'},{id:'escritorio',nome:'ESCRITÓRIO / ADM'},{id:'lavajato',nome:'LAVAJATO'},{id:'diretoria',nome:'DIRETORIA'}]; }
 async function load(){ const pMov=isOnline?fetchMovimentosEDaldos():null; /* dispara junto com o documento principal */ const d=await Store.get(KEY);
   if(d===undefined){ if(loadCache())toast('Sem conexão — carregando última cópia salva neste aparelho.','warn'); }
   else if(d&&d.products){state=d;}
@@ -858,17 +858,42 @@ async function ensureMovsInv(keys){ keys=[...new Set((keys||[]).filter(Boolean))
 function valorAtualEstoque(obraId){ const cm={}; state.products.forEach(p=>cm[p.code]=p.custo||0); let v=0;
   (obraId==='__all'?Object.keys(state.estoque):[obraId]).forEach(ob=>Object.entries(state.estoque[ob]||{}).forEach(([c,q])=>{ v+=(Number(q)||0)*(cm[c]||0); }));
   return v; }
-function statusOf(p,saldo){ if(saldo<=p.min)return'low'; if(p.max>0&&saldo>=p.max)return'high'; return'good'; }
+/* ===== Mín/Máx por obra (centro de custo) =====
+   state.limitesObra[obraId][code] = {min,max} (valores próprios da obra) ou {off:true} (não controlar nesta obra).
+   Sem valor próprio, vale o padrão do cadastro do produto (p.min/p.max). Em "todas as obras" vale o padrão. */
+function podeEditarLimites(){ return isAlmoxarife(); } /* admin, setor almoxarifado (inclui encarregado do almoxarifado) */
+function limObra(obra,code){ const m=state.limitesObra&&state.limitesObra[obra]; return (m&&m[code])||null; }
+function limDe(p,obra){ const o=(obra&&obra!=='__all')?limObra(obra,p.code):null;
+  if(o&&o.off)return {min:0,max:0,off:true,proprio:true};
+  if(o)return {min:Number(o.min)||0,max:Number(o.max)||0,proprio:true};
+  return {min:Number(p.min)||0,max:Number(p.max)||0,proprio:false}; }
+function acimaMax(p,obra,s){ if(!obra||obra==='__all')return state.obras.some(ob=>acimaMax(p,ob.id,saldoOf(ob.id,p.code)));
+  const L=limDe(p,obra); return !L.off&&L.max>0&&s>=L.max; }
+function limTxt(p,obra){ const L=limDe(p,obra); return L.off?'não controla':numf(L.min)+' / '+(L.max>0?numf(L.max):'—'); }
+function salvarLimObra(obra,code,novo,label){ if(!podeEditarLimites()){ toast('Somente admin e almoxarifado alteram mínimo/máximo.','err'); return false; }
+  if(!state.limitesObra)state.limitesObra={}; if(!state.limitesObra[obra])state.limitesObra[obra]={};
+  if(novo)state.limitesObra[obra][code]=novo; else { delete state.limitesObra[obra][code]; if(!Object.keys(state.limitesObra[obra]).length)delete state.limitesObra[obra]; }
+  save(label); refreshBadge(); return true; }
+function setLimObra(obra,code,f,v){ const p=findProduct(code); if(!p)return; const L=limDe(p,obra);
+  const novo={min:L.off?(Number(p.min)||0):L.min,max:L.off?(Number(p.max)||0):L.max}; novo[f]=parseFloat(v)||0;
+  if(novo.max>0&&novo.min>novo.max)toast('Mínimo maior que o máximo.','warn');
+  salvarLimObra(obra,code,novo,'Mín/Máx de '+p.desc+' em '+obraName(obra)); }
+function resetLimObra(obra,code){ const p=findProduct(code); if(!p)return; salvarLimObra(obra,code,null,'Mín/Máx de '+p.desc+' em '+obraName(obra)+' voltou ao padrão'); }
+function offLimObra(obra,code,off){ const p=findProduct(code); if(!p)return; const L=limDe(p,obra);
+  salvarLimObra(obra,code,off?{off:true}:(L.proprio&&!L.off?{min:L.min,max:L.max}:null),(off?'Deixou de controlar ':'Voltou a controlar ')+p.desc+' em '+obraName(obra)); }
+function statusOf(p,saldo,obra){ const L=limDe(p,obra); if(L.off)return'good'; if(saldo<=L.min)return'low'; if(L.max>0&&saldo>=L.max)return'high'; return'good'; }
 /* Reposição só faz sentido para item que já teve estoque/movimento na obra. Mín/Máx é cadastrado no produto (global):
    sem essa checagem, todo item com mínimo > 0 aparecia como "Repor" em obra que nunca o recebeu. */
 function buildTracked(){ const t=new Set(movPares);
   (state.movements||[]).forEach(m=>{ if(m.obra)t.add(m.obra+'|'+m.code); if(m.obraDest)t.add(m.obraDest+'|'+m.code); });
   Object.keys(state.estoque||{}).forEach(ob=>Object.entries(state.estoque[ob]||{}).forEach(([c,v])=>{ if(v)t.add(ob+'|'+c); }));
   return t; }
-function needsRepor(p,s,obra,tr){ if(!(s<=p.min))return false; if(s!==0)return true; if(!(p.min>0))return false;
-  if(!obra||obra==='__all')return state.obras.some(ob=>tr.has(ob.id+'|'+p.code));
+function needsRepor(p,s,obra,tr){
+  if(!obra||obra==='__all')return state.obras.some(ob=>needsRepor(p,saldoOf(ob.id,p.code),ob.id,tr)); /* consolidado: alguma obra abaixo do SEU mínimo */
+  const L=limDe(p,obra); if(L.off)return false;
+  if(!(s<=L.min))return false; if(s!==0)return true; if(!(L.min>0))return false;
   return tr.has(obra+'|'+p.code); }
-function statusRepor(p,s,obra,tr){ if(needsRepor(p,s,obra,tr))return'low'; if(p.max>0&&s>=p.max)return'high'; return'good'; }
+function statusRepor(p,s,obra,tr){ if(needsRepor(p,s,obra,tr))return'low'; if(acimaMax(p,obra,s))return'high'; return'good'; }
 function toast(msg,type='ok'){ const t=document.createElement('div'); t.className='toast '+type; t.innerHTML=msg; $('#toasts').appendChild(t);
   setTimeout(()=>{t.style.transition='.3s';t.style.opacity='0';t.style.transform='translateX(40px)';setTimeout(()=>t.remove(),300);},3400); }
 function refreshBadge(){ const o=curObra(); const b=$('#navBadge'); if(!o){b.style.display='none';return;}
@@ -1103,7 +1128,7 @@ function renderPainel(){
   const ps=state.products;
   const tr=buildTracked(); const stOf=(p,s)=>statusRepor(p,s,o,tr);
   const low=ps.filter(p=>stOf(p,sal(p.code))==='low');
-  const high=ps.filter(p=>p.max>0&&sal(p.code)>=p.max);
+  const high=ps.filter(p=>acimaMax(p,o,sal(p.code)));
   const valEst=ps.reduce((s,p)=>s+sal(p.code)*(p.custo||0),0);
   const sede=defaultSedeObra();
   const per=window._dashPer||(window._dashPer={dias:90});
@@ -1128,7 +1153,7 @@ function renderPainel(){
   if(low.length||high.length){
     html+=`<div class="sechead"><h3>⚠ Alertas${all?'':' · '+esc(obraName(o))}</h3></div><div class="tbl-wrap" style="margin-bottom:24px"><table><thead><tr><th>Código</th><th>Produto</th><th class="num">Saldo</th><th class="num">Mín</th><th class="num">Máx</th><th>Situação</th></tr></thead><tbody>`;
     [...low,...high.filter(h=>!low.includes(h))].forEach(p=>{const s=sal(p.code);const st=stOf(p,s)==='low'?'low':'high';
-      html+=`<tr><td class="mono">${esc(p.code)}</td><td>${esc(p.desc)}</td><td class="num">${numf(s)} ${esc(p.unit||'')}</td><td class="num muted">${numf(p.min)}</td><td class="num muted">${p.max>0?numf(p.max):'—'}</td><td>${st==='low'?reposPill(p.code,o,'<span class="pill low">Repor</span>'):'<span class="pill high">Excesso</span>'}</td></tr>`;});
+      html+=`<tr><td class="mono">${esc(p.code)}</td><td>${esc(p.desc)}</td><td class="num">${numf(s)} ${esc(p.unit||'')}</td><td class="num muted">${all?'—':limDe(p,o).off?'—':numf(limDe(p,o).min)}</td><td class="num muted">${all?'—':limDe(p,o).max>0?numf(limDe(p,o).max):'—'}</td><td>${st==='low'?reposPill(p.code,o,'<span class="pill low">Repor</span>'):'<span class="pill high">Excesso</span>'}</td></tr>`;});
     html+=`</tbody></table></div>`;
   }
   html+=`<div class="sechead"><h3>Painel de produtos${all?' (consolidado)':' · '+esc(obraName(o))}</h3>
@@ -1155,7 +1180,7 @@ function renderPainel(){
     let budget=window._dashLim||LIST_PAGE, shown=0;
     const rowHTML=p=>{const s=sal(p.code);const st=stOf(p,s);
       const pill=st==='low'?reposPill(p.code,o,'<span class="pill low">Abaixo do mín</span>'):st==='high'?'<span class="pill high">Acima do máx</span>':'<span class="pill good">Normal</span>';
-      return `<tr><td>${thumb(p.code)}</td><td class="mono">${esc(p.code)}${p.aux?`<br><span style="font-size:10px;color:#a09a8d">aux: ${esc(p.aux)}</span>`:''}</td><td><a href="#" onclick="productDetailModal('${esc(p.code)}');return false" style="color:#1c1c1c;font-weight:600;text-decoration:none">${esc(p.desc)}</a>${p.ref?`<div class="refline clamp" title="${esc(p.ref)}" onclick="this.classList.toggle('aberta')">↳ ${esc(p.ref)}</div>`:''}</td><td class="num"><b class="${st==='low'?'neg':''}">${numf(s)}</b> ${esc(p.unit||'')}</td><td class="num muted">${numf(p.min)} / ${p.max>0?numf(p.max):'—'}</td><td class="num">${money(p.custo||0)}</td><td class="num">${p.preco?money(p.preco):'—'}</td><td>${pill}</td><td class="num"><button class="btn ghost sm" title="Detalhes do produto" onclick="productDetailModal('${esc(p.code)}')">🔍</button></td></tr>`;};
+      return `<tr><td>${thumb(p.code)}</td><td class="mono">${esc(p.code)}${p.aux?`<br><span style="font-size:10px;color:#a09a8d">aux: ${esc(p.aux)}</span>`:''}</td><td><a href="#" onclick="productDetailModal('${esc(p.code)}');return false" style="color:#1c1c1c;font-weight:600;text-decoration:none">${esc(p.desc)}</a>${p.ref?`<div class="refline clamp" title="${esc(p.ref)}" onclick="this.classList.toggle('aberta')">↳ ${esc(p.ref)}</div>`:''}</td><td class="num"><b class="${st==='low'?'neg':''}">${numf(s)}</b> ${esc(p.unit||'')}</td><td class="num muted">${all?'por obra':limTxt(p,o)}</td><td class="num">${money(p.custo||0)}</td><td class="num">${p.preco?money(p.preco):'—'}</td><td>${pill}</td><td class="num"><button class="btn ghost sm" title="Detalhes do produto" onclick="productDetailModal('${esc(p.code)}')">🔍</button></td></tr>`;};
     let body;
     if(!grouped){ const vis=list.slice(0,budget); shown=vis.length; body=vis.map(rowHTML).join(''); }
     else{
@@ -1254,16 +1279,21 @@ function drawDashboard(){
 }
 
 function productDetailModal(code){ const p=findProduct(code); if(!p)return; const fotos=photoList(code);
-  const saldos=state.obras.filter(o=>saldoOf(o.id,code)>0).map(o=>`<tr><td>${esc(o.nome)}</td><td class="num">${numf(saldoOf(o.id,code))} ${esc(p.unit||'')}</td></tr>`).join('');
+  const ed=podeEditarLimites();
+  const saldos=state.obras.filter(o=>saldoOf(o.id,code)>0||limObra(o.id,code)).map(o=>{ const L=limDe(p,o.id); const st=statusOf(p,saldoOf(o.id,code),o.id);
+    const cel=f=>L.off?'—':ed?`<input class="inline-edit" type="number" step="any" style="width:70px;${L.proprio?'':'color:#a09a8d;font-style:italic'}" value="${L[f]}" onchange="setLimObra('${esc(o.id)}','${esc(code)}','${f}',this.value);productDetailModal('${esc(code)}')">`:(f==='max'&&!(L.max>0)?'—':numf(L[f]));
+    return `<tr><td>${esc(o.nome)}${L.proprio&&!L.off?' <span class="pill good" style="font-size:9.5px">próprio</span>':''}</td><td class="num"><b class="${st==='low'?'neg':''}">${numf(saldoOf(o.id,code))}</b> ${esc(p.unit||'')}</td><td class="num">${cel('min')}</td><td class="num">${cel('max')}</td>
+      <td class="num" style="white-space:nowrap">${ed?`<label style="display:inline-flex;align-items:center;gap:4px;text-transform:none;font-weight:500;margin:0;font-size:11.5px"><input type="checkbox" style="width:auto" ${L.off?'':'checked'} onchange="offLimObra('${esc(o.id)}','${esc(code)}',!this.checked);productDetailModal('${esc(code)}')"> controla</label>${L.proprio&&!L.off?` <a href="#" style="font-size:11px;color:#7a5100" onclick="resetLimObra('${esc(o.id)}','${esc(code)}');productDetailModal('${esc(code)}');return false">↺ padrão</a>`:''}`:(L.off?'não controla':'')}</td></tr>`; }).join('');
   modal(`<h3>${esc(p.desc)}</h3><p class="mp mono">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''}${p.fab?' · fabricante '+esc(p.fab):''}</p>
     ${fotos.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">${fotos.map((s,i)=>`<img src="${s}" style="width:84px;height:84px;object-fit:cover;border-radius:8px;border:1px solid #e4dfd4;cursor:zoom-in" onclick="openPhoto('${esc(code)}',${i})">`).join('')}</div>`:'<p class="mp">Sem foto cadastrada.</p>'}
     <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:13px;margin-bottom:12px">
       <div><b>Saldo total:</b> ${numf(totalSaldo(code))} ${esc(p.unit||'')}</div>
       <div><b>Custo médio:</b> ${money(p.custo||0)}</div>
       <div><b>Preço venda:</b> ${p.preco?money(p.preco):'—'}</div>
-      <div><b>Mín / Máx:</b> ${numf(p.min)} / ${p.max>0?numf(p.max):'—'}</div></div>
+      <div><b>Mín / Máx padrão:</b> ${numf(p.min)} / ${p.max>0?numf(p.max):'—'}</div></div>
     ${p.ref?`<div style="font-size:13px;color:#6a6357;margin-bottom:12px"><b>Referências / Aplicação:</b><br>${esc(p.ref).replace(/\n/g,'<br>')}</div>`:''}
-    <div class="tbl-wrap"><table><thead><tr><th>Obra</th><th class="num">Saldo</th></tr></thead><tbody>${saldos||'<tr><td colspan="2" class="empty" style="padding:14px">Sem saldo em nenhuma obra.</td></tr>'}</tbody></table></div>
+    <div class="tbl-wrap"><table><thead><tr><th>Obra</th><th class="num">Saldo</th><th class="num">Mín</th><th class="num">Máx</th><th class="num">Controle</th></tr></thead><tbody>${saldos||'<tr><td colspan="5" class="empty" style="padding:14px">Sem saldo em nenhuma obra.</td></tr>'}</tbody></table></div>
+    <p class="muted" style="font-size:11.5px;margin-top:6px">Mín/Máx em cinza/itálico = padrão do produto. Para definir em uma obra sem saldo, selecione a obra no topo da tela Produtos.</p>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="closeModal()">Fechar</button><button class="btn primary" onclick="closeModal();editProductModal('${esc(code)}')">Editar</button></div>`);
 }
 /* ===== OBRAS ===== */
@@ -1687,7 +1717,7 @@ function processNf(force){
     addSaldo(obra,p.code,it.qty); total+=it.qty*it.custo;
     notaItens.push(Object.assign({code:p.code,desc:p.desc,qty:it.qty,custo:it.custo,unit:p.unit}, it.xml?{xmlCod:it.xml.cProd,xmlDesc:it.xml.xProd,xmlUnit:it.xml.uCom,xmlQty:it.xml.qty,fator:it.fator||1}:{}));
     movsNota.push(pushMov({id:uid(),ts,tipo:'entrada',obra,notaId,code:p.code,desc:p.desc,qty:it.qty,valorUnit:it.custo,valorTotal:it.qty*it.custo,doc,saldo:saldoOf(obra,p.code)}));
-    if(p.max>0&&saldoOf(obra,p.code)>p.max)alerts.push(`${p.desc}: ${numf(saldoOf(obra,p.code))} acima do máximo`);
+    { const Lm=limDe(p,obra); if(!Lm.off&&Lm.max>0&&saldoOf(obra,p.code)>Lm.max)alerts.push(`${p.desc}: ${numf(saldoOf(obra,p.code))} acima do máximo`); }
   });
   const xmlExtra=_nfXmlExtra||{}; _nfXmlExtra=null;
   const ctrl=ctrlLerCampos('nf'); const anexosCtrl=ctrlLerAnexos('nf'); const valorNota=xmlExtra.vNF>0?xmlExtra.vNF:total;
@@ -1877,7 +1907,7 @@ async function requisicaoAplicacaoDireta({obra,itens,numero,forn,aplic,os}){
 function renderProdutos(){
   $('#topActions').innerHTML=`${obraSelectorHTML(true)} <button class="btn ghost sm" onclick="newProductModal()">+ Produto</button> <button class="btn dark sm" onclick="labelsModal()">🏷 Etiquetas</button>`;
   const o=curObra(); const all=o==='__all'; const sal=c=>all?totalSaldo(c):saldoOf(o,c);
-  let html=`<div class="sechead"><h3>Produtos${all?' (saldo total)':' · saldo em '+esc(obraName(o))}</h3>
+  let html=`<div class="sechead"><h3>Produtos${all?' (saldo total)':' · saldo em '+esc(obraName(o))}</h3><span class="muted" style="font-size:11.5px">${all?'Mín/Máx: padrão do produto (vale nas obras sem valor próprio)':'Mín/Máx desta obra — em cinza/itálico = padrão do produto'}</span>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <div class="search" style="min-width:180px"><span class="si">⌕</span><input id="prodSearch" placeholder="Nome, código, auxiliar ou equipamento..."></div>
       <label style="display:flex;align-items:center;gap:6px;font-size:12px;text-transform:none;font-weight:500;margin:0;color:#5a544a"><input type="checkbox" id="prodZero" style="width:auto"> Incluir zerados</label>
@@ -1892,14 +1922,18 @@ function renderProdutos(){
       return true; });
     const sig=[q,zero,curObra()].join('|'); if(window._prodSig!==sig){ window._prodSig=sig; window._prodLim=LIST_PAGE; }
     const full=list; list=full.slice(0,window._prodLim||LIST_PAGE);
-    $('#prodRows').innerHTML=list.map(p=>{const s=sal(p.code);const st=statusOf(p,s);
+    const ed=podeEditarLimites();
+    $('#prodRows').innerHTML=list.map(p=>{const s=sal(p.code);const st=statusOf(p,s,o); const L=limDe(p,o);
+      const inp=f=>all?`<input class="inline-edit" type="number" step="any" value="${p[f]}" ${ed?'':'disabled'} title="Padrão do produto (vale nas obras sem valor próprio)" onchange="setField('${esc(p.code)}','${f}',this.value)">`
+        :L.off?`<span class="muted" style="font-size:11px">não controla</span>`
+        :`<input class="inline-edit" type="number" step="any" value="${L[f]}" ${ed?'':'disabled'} style="${L.proprio?'':'color:#a09a8d;font-style:italic'}" title="${L.proprio?'Valor próprio desta obra':'Padrão do produto — altere para definir o valor desta obra'}" onchange="setLimObra('${esc(o)}','${esc(p.code)}','${f}',this.value)">`;
       return `<tr><td>${thumb(p.code)}</td>
       <td><svg class="bc" id="bc_${esc(p.code)}"></svg><div class="mono" style="font-size:11px;color:#8a8377;text-align:center">${esc(p.code)}</div></td>
       <td class="mono">${esc(p.aux||'—')}</td>
       <td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.unit||'UN')}</span>${p.grupo?` · <span class="muted" style="font-size:11px">${esc(p.grupo)}</span>`:''}${(p.localizacao||p.endereco)?`<div class="refline">📍 ${esc([p.localizacao,p.endereco].filter(Boolean).join(' · '))}</div>`:''}${p.ref?`<div class="refline clamp" title="${esc(p.ref)}" onclick="this.classList.toggle('aberta')">↳ ${esc(p.ref)}</div>`:''}</td>
       <td class="num"><b class="${st==='low'?'neg':''}">${numf(s)}</b></td>
-      <td class="num"><input class="inline-edit" type="number" step="any" value="${p.min}" onchange="setField('${esc(p.code)}','min',this.value)"></td>
-      <td class="num"><input class="inline-edit" type="number" step="any" value="${p.max}" onchange="setField('${esc(p.code)}','max',this.value)"></td>
+      <td class="num">${inp('min')}</td>
+      <td class="num">${inp('max')}${!all&&L.proprio&&ed?`<div><a href="#" style="font-size:10.5px;color:#7a5100" title="Voltar ao padrão do produto" onclick="resetLimObra('${esc(o)}','${esc(p.code)}');renderProdutos();return false">↺ padrão</a></div>`:''}</td>
       <td class="num">${money(p.custo||0)}</td>
       <td class="num">${p.preco?money(p.preco):'—'}</td>
       <td class="num" style="white-space:nowrap"><button class="btn ghost sm" title="Editar (custo, venda, foto, equipamento)" onclick="editProductModal('${esc(p.code)}')">✎</button> <button class="btn danger sm" title="Excluir (supervisor)" onclick="delProduct('${esc(p.code)}')">✕</button></td></tr>`;}).join('')+listMoreRow(10,list.length,full.length,'prodMais')||`<tr><td colspan="10" class="empty" style="padding:28px">Nada encontrado.</td></tr>`;
@@ -1908,7 +1942,9 @@ function renderProdutos(){
   window.prodMais=all=>{ window._prodLim=all?Infinity:(window._prodLim||LIST_PAGE)+LIST_PAGE*2; draw(); };
   draw(); ['prodSearch','prodZero'].forEach(id=>{const el=$('#'+id); if(el){el.oninput=draw; el.onchange=draw;}});
 }
-function setField(code,f,v){ const p=findProduct(code); if(!p)return; p[f]=parseFloat(v)||0; save();
+function setField(code,f,v){ const p=findProduct(code); if(!p)return;
+  if((f==='min'||f==='max')&&!podeEditarLimites()){ toast('Somente admin e almoxarifado alteram mínimo/máximo.','err'); return; }
+  p[f]=parseFloat(v)||0; save();
   if(f==='min'||f==='max'){ if(p.max>0&&p.min>p.max)toast('Mínimo maior que o máximo.','warn'); } refreshBadge(); }
 function delProduct(code){ const p=findProduct(code); if(!p)return;
   requireSupervisor(`Excluir produto "${p.desc}"`,()=>{ state.products=state.products.filter(x=>String(x.code)!==String(code));
@@ -2276,7 +2312,7 @@ function lookupScan(code,exactCode){ code=String(code).trim(); if(!code)return; 
   if(!p){ const list=searchProducts(code); if(list.length===1){p=list[0];} else if(list.length>1){ drawScanResults(code); toast('Vários itens encontrados — escolha na lista.','warn'); return; } }
   if(!p){ fc.className='found-card show'; fc.style.borderColor='var(--red)'; fc.innerHTML=`<div style="text-align:center;color:#c0392b">Nada encontrado para: <span class="mono">${esc(code)}</span></div>`; $('#scanInput').value=''; $('#scanInput').focus(); toast('Produto não encontrado.','err'); return; }
   if($('#scanResults'))$('#scanResults').innerHTML='';
-  const s=saldoOf(o,p.code); const st=statusOf(p,s);
+  const s=saldoOf(o,p.code); const st=statusOf(p,s,o);
   baixaProduct=p;
   fc.style.borderColor=s<=0?'var(--red)':'var(--amber)'; fc.className='found-card show';
   fc.innerHTML=`<div class="fc-head"><div><div class="code">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · ${esc(obraName(o))}</div><div class="name">${esc(p.desc)}</div></div>${s<=0?'<span class="pill low">Sem saldo</span>':st==='low'?'<span class="pill low">Abaixo do mín</span>':st==='high'?'<span class="pill high">Acima do máx</span>':'<span class="pill good">Normal</span>'}</div>
@@ -4073,7 +4109,7 @@ function reposHintCode(code){ const l=reposAbertasDoCodigo(code); if(!l.length)r
   return `<div style="font-size:11px;color:#2766b8;margin-top:2px">📦 Reposição já solicitada: ${l.map(r=>esc(r.numero_solicitacao_sienge)+' ('+numf(r.quantidade)+' · '+esc(r.obra_nome||obraName(r.obra_id))+')').join(', ')}</div>`; }
 function reposTabelaFaltando(e){ const m=(e&&e.message)||''; return !!e&&(e.code==='42P01'||e.code==='PGRST205'||(/reposicoes_estoque/.test(m)&&/(could not find|does not exist|não existe|schema cache)/i.test(m))); }
 function podeSolicitarRepos(){ return isAlmoxarife()||isCompras(); }
-function reposSugerida(p,s){ let q=p.max>0?p.max-s:p.min-s; if(!(q>0))q=p.min>0?p.min:1; return Math.round(q*1000)/1000; }
+function reposSugerida(p,s,obra){ const L=limDe(p,obra); let q=L.max>0?L.max-s:L.min-s; if(!(q>0))q=L.min>0?L.min:1; return Math.round(q*1000)/1000; }
 function entradasDesde(obra,code,ts){ let q=0; const docs=new Set();
   (state.movements||[]).forEach(m=>{ if(m.tipo==='entrada'&&m.notaId&&m.obra===obra&&String(m.code)===String(code)&&m.ts>=ts){ q+=Number(m.qty)||0; if(m.doc)docs.add(m.doc); } });
   return {q,docs:[...docs]}; }
@@ -4099,7 +4135,7 @@ async function drawReposicao(){ const box=$('#comprasBody'); if(!box)return;
   const tr=buildTracked(); const pode=podeSolicitarRepos();
   _reposLinhas=[];
   obras.forEach(ob=>state.products.forEach(p=>{ const s=saldoOf(ob.id,p.code); if(!needsRepor(p,s,ob.id,tr))return;
-    const k=ob.id+'|'+String(p.code); _reposLinhas.push({k,ob,p,s,ab:reposAberta(ob.id,p.code),sug:reposSugerida(p,s)}); }));
+    const k=ob.id+'|'+String(p.code); _reposLinhas.push({k,ob,p,s,ab:reposAberta(ob.id,p.code),sug:reposSugerida(p,s,ob.id)}); }));
   _reposLinhas.sort((a,b)=>(a.ab?1:0)-(b.ab?1:0)||a.ob.nome.localeCompare(b.ob.nome,'pt-BR')||a.p.desc.localeCompare(b.p.desc,'pt-BR'));
   Object.keys(_reposSel).forEach(k=>{ if(!_reposLinhas.some(l=>l.k===k&&!l.ab))delete _reposSel[k]; });
   const pend=_reposLinhas.filter(l=>!l.ab).length, jaSol=_reposLinhas.length-pend;
@@ -4113,7 +4149,7 @@ async function drawReposicao(){ const box=$('#comprasBody'); if(!box)return;
       ${all?`<td class="muted" style="font-size:12px">${esc(l.ob.nome)}</td>`:''}
       <td class="mono" style="font-size:12px">${esc(p.code)}</td>
       <td>${esc(p.desc)}${p.grupo?`<div class="muted" style="font-size:11px">${esc(p.grupo)}</div>`:''}${cpInfo}</td>
-      <td class="num"><b class="neg">${numf(l.s)}</b> ${esc(p.unit||'')}</td><td class="num muted">${numf(p.min)}</td><td class="num muted">${p.max>0?numf(p.max):'—'}</td>
+      <td class="num"><b class="neg">${numf(l.s)}</b> ${esc(p.unit||'')}</td><td class="num muted">${numf(limDe(p,l.ob.id).min)}</td><td class="num muted">${limDe(p,l.ob.id).max>0?numf(limDe(p,l.ob.id).max):'—'}</td>
       <td class="num">${l.ab?'—':`<input type="number" step="any" min="0" class="inline-edit" style="width:90px" value="${_reposQtd[l.k]!=null?_reposQtd[l.k]:l.sug}" onchange="reposQtd(${i},this.value)" ${pode?'':'disabled'}>`}</td>
       <td>${sit}</td></tr>`; };
   /* solicitações abertas agrupadas por nº do Sienge + obra */
@@ -4645,12 +4681,12 @@ async function showConsulta(p){ _consAtual=p.code; const o=curObra(); const all=
   movs.forEach(m=>{ const e=efeito(m); if(e>0){totIn+=e;valIn+=valMov(m);} else if(e<0){totOut+=-e;valOut+=valMov(m);} });
   const tot=all?totalSaldo(p.code):saldoOf(o,p.code);
   const box=$('#consResult');
-  let obrasRows=(all?state.obras:state.obras.filter(ob=>ob.id===o)).map(ob=>{const s=saldoOf(ob.id,p.code);const st=statusOf(p,s);return s>0?`<tr><td>${esc(ob.nome)}</td><td class="num"><b class="${st==='low'?'neg':''}">${numf(s)}</b> ${esc(p.unit||'')}</td><td class="num">${money(s*(p.custo||0))}</td><td>${st==='low'?'<span class="pill low">Abaixo do mín</span>':st==='high'?'<span class="pill high">Acima do máx</span>':'<span class="pill good">Normal</span>'}</td></tr>`:'';}).join('');
+  let obrasRows=(all?state.obras:state.obras.filter(ob=>ob.id===o)).map(ob=>{const s=saldoOf(ob.id,p.code);const st=statusOf(p,s,ob.id);return s>0?`<tr><td>${esc(ob.nome)}</td><td class="num"><b class="${st==='low'?'neg':''}">${numf(s)}</b> ${esc(p.unit||'')}</td><td class="num">${money(s*(p.custo||0))}</td><td>${st==='low'?'<span class="pill low">Abaixo do mín</span>':st==='high'?'<span class="pill high">Acima do máx</span>':'<span class="pill good">Normal</span>'}</td></tr>`:'';}).join('');
   box.innerHTML=`<div class="panel">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:20px;flex-wrap:wrap">
       <div style="display:flex;gap:18px;align-items:flex-start">${photoList(p.code).length?`<div style="display:flex;flex-wrap:wrap;gap:6px;max-width:170px">${photoList(p.code).map((s,i)=>`<img src="${s}" style="width:${photoList(p.code).length>1?'78px':'150px'};height:${photoList(p.code).length>1?'78px':'150px'};object-fit:cover;border-radius:10px;border:1px solid #e4dfd4;cursor:zoom-in" onclick="openPhoto('${esc(p.code)}',${i})">`).join('')}</div>`:''}
         <div><div class="mono muted" style="font-size:12px">${esc(p.code)}${p.aux?' · aux: '+esc(p.aux):''}</div><h3 style="font-size:22px">${esc(p.desc)}</h3>
-        <div class="muted" style="font-size:12.5px;margin-top:2px">Unidade: ${esc(p.unit||'UN')} · Mín ${numf(p.min)} / Máx ${p.max>0?numf(p.max):'—'}</div>
+        <div class="muted" style="font-size:12.5px;margin-top:2px">Unidade: ${esc(p.unit||'UN')} · Mín/Máx ${all?'padrão '+numf(p.min)+' / '+(p.max>0?numf(p.max):'—'):limTxt(p,o)+(limDe(p,o).proprio?'':' (padrão)')}</div>
         ${p.ref?`<div style="margin-top:10px;font-size:13px;color:#6a6357;max-width:420px;line-height:1.5"><b style="color:#4a443a">Referências / Aplicação:</b><br>${esc(p.ref).replace(/\n/g,'<br>')}</div>`:''}</div></div>
       <svg id="consBc"></svg></div></div>
     <div class="cards" style="grid-template-columns:repeat(4,1fr)">
@@ -4696,7 +4732,7 @@ function previewImport(){ if(!importRows.length){toast('Nenhuma linha válida.',
   <div class="tbl-wrap"><table><thead><tr><th>Código</th><th>Descrição</th><th>Un.</th><th class="num">Qtd</th><th class="num">Mín</th><th class="num">Máx</th><th class="num">Custo</th><th>Ação</th></tr></thead><tbody>`+importRows.map(r=>{const ex=r.code&&findProduct(r.code);return `<tr><td class="mono">${r.code?esc(r.code):'<span class="muted">auto</span>'}</td><td>${esc(r.desc)}</td><td>${esc(r.unit)}</td><td class="num">${numf(r.qty)}</td><td class="num">${numf(r.min)}</td><td class="num">${r.max>0?numf(r.max):'—'}</td><td class="num">${money(r.custo)}</td><td>${ex?'<span class="pill high">Atualiza</span>':'<span class="pill good">Novo</span>'}</td></tr>`;}).join('')+`</tbody></table></div>`; }
 function commitImport(){ const obra=$('#impObra').value; let novos=0,atual=0;
   importRows.forEach(r=>{ let p=r.code?findProduct(r.code):null;
-    if(p){ p.desc=r.desc||p.desc;p.unit=r.unit||p.unit;p.min=r.min;p.max=r.max;if(r.custo>0)p.custo=r.custo;if(r.preco>0)p.preco=r.preco;if(r.ref)p.ref=r.ref;if(r.aux)p.aux=r.aux; atual++; }
+    if(p){ p.desc=r.desc||p.desc;p.unit=r.unit||p.unit; if((r.min||r.max)&&podeEditarLimites()){ if(!state.limitesObra)state.limitesObra={}; if(!state.limitesObra[obra])state.limitesObra[obra]={}; state.limitesObra[obra][p.code]={min:r.min,max:r.max}; }if(r.custo>0)p.custo=r.custo;if(r.preco>0)p.preco=r.preco;if(r.ref)p.ref=r.ref;if(r.aux)p.aux=r.aux; atual++; }
     else{ const code=r.code||genCode(); p={code,desc:r.desc,unit:r.unit,aux:r.aux,min:r.min,max:r.max,custo:r.custo,preco:r.preco,ref:r.ref}; state.products.push(p); novos++; }
     if(r.qty>0){ addSaldo(obra,p.code,r.qty); pushMov({ts:Date.now(),tipo:'entrada',obra,code:p.code,desc:p.desc,qty:r.qty,valorUnit:p.custo||0,valorTotal:r.qty*(p.custo||0),doc:'Carga inicial (planilha)',saldo:saldoOf(obra,p.code)}); } });
   save('Importação de planilha em '+obraName(obra)+' · '+novos+' novo(s), '+atual+' atualizado(s)'); importRows=[]; toast(`Importado em ${esc(obraName(obra))} · ${novos} novo(s), ${atual} atualizado(s).`,'ok'); go('produtos'); }
