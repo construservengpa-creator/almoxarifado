@@ -476,7 +476,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-07T11:00:00-03:00';
+const APP_VERSION='2026-10-07T12:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -502,10 +502,10 @@ async function checkAppVersion(){
     const text=await res.text();
     const m=text.match(/const APP_VERSION=['"]([^'"]+)['"]/);
     if(tag)_verTag=tag; /* só memoriza o cabeçalho depois de conferir o arquivo — se o download falhar, tenta de novo na próxima */
-    if(m&&m[1]&&m[1]!==APP_VERSION)showVersionBanner();
+    if(m&&m[1]&&m[1]!==APP_VERSION)showVersionBanner(m[1]);
   }catch(e){ /* falha de rede não é motivo pra avisar nada */ }
 }
-function showVersionBanner(){
+function showVersionBanner(novaVersao){
   if(_versionBannerShown)return; _versionBannerShown=true;
   const b=document.createElement('div');
   b.id='versionBanner';
@@ -514,8 +514,18 @@ function showVersionBanner(){
   b.innerHTML='<div style="font-size:34px">🔄</div><div><b>Existe uma versão mais nova do sistema.</b><br><span style="font-size:13.5px;opacity:.85">Esta aba está desatualizada e foi bloqueada. Atualize para continuar.</span></div><button id="versionReloadBtn" style="background:#f5a623;color:#1a1206;border:none;border-radius:8px;padding:11px 26px;font-weight:700;font-size:14px;cursor:pointer">Atualizar agora</button>';
   try{ if(typeof stopNotifPolling==='function')stopNotifPolling(); }catch(e){}
   document.body.appendChild(b);
-  $('#versionReloadBtn').onclick=()=>location.reload();
+  $('#versionReloadBtn').onclick=()=>atualizarParaVersaoNova();
 }
+/* Recarregar "normal" podia trazer de volta o HTML antigo (cache do navegador/GitHub Pages ou o service worker
+   da Contagem, que controlava esta página) — e o aviso reaparecia logo em seguida. Abrir o endereço com um
+   parâmetro único fura qualquer cache; ao carregar, o parâmetro é retirado da barra de endereço. */
+async function atualizarParaVersaoNova(){
+  try{ if(navigator.serviceWorker){ const regs=await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=>r.update().catch(()=>{}))); } }catch(e){}
+  location.replace(location.pathname+'?atualizado='+Date.now()+location.hash);
+}
+(function limparParametroAtualizacao(){
+  try{ const u=new URL(location.href); if(u.searchParams.has('atualizado')){ u.searchParams.delete('atualizado'); history.replaceState(null,'',u.pathname+(u.search||'')+u.hash); } }catch(e){}
+})();
 const Store={
   async get(k){ try{ const {data,error}=await sb.from('app_kv').select('value').eq('key',k).maybeSingle(); if(error)throw error; return data?data.value:null; }catch(e){ console.warn('Store.get sem rede, usando cache:',e); return undefined; } },
   /* Cada gravação envia o documento inteiro. Antes, várias alterações seguidas (ex.: mín/máx de vários produtos)
