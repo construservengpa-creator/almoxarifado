@@ -476,7 +476,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-07T10:00:00-03:00';
+const APP_VERSION='2026-10-07T11:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -1470,7 +1470,7 @@ function renderEntrada(){
       <p class="desc" style="margin:0 0 8px">Dados enviados ao Controle de Notas junto com a entrada. O XML preenche o que tiver (vencimento, forma de pagamento, pedido, frete); confira e complete.</p>
       ${ctrlCamposHtml('nf')}
     </div>
-    ${_nfRepos?'':`<div style="margin-top:14px;padding-top:12px;border-top:1px dashed #e4dfd4">
+    ${_nfRepos||!isAlmoxarife()?'':`<div style="margin-top:14px;padding-top:12px;border-top:1px dashed #e4dfd4">
       <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-weight:600;margin:0"><input type="checkbox" id="nfApd" style="width:auto" onchange="onNfApdChange()"> 🔧 Aplicação direta — gerar a requisição automaticamente até "Aguardando retirada"</label>
       <div id="nfApdBox" style="display:none;margin-top:10px">
         <p class="desc" style="margin:0 0 8px">Logo após a entrada, o sistema cria a requisição com todos os itens da nota, aprova, separa (baixa do estoque) e deixa como <b>Retirada no balcão — compra p/ aplicação direta</b>, aguardando retirada.</p>
@@ -1861,7 +1861,8 @@ function nfApdDados(){ const c=$('#nfApd'); if(!c||!c.checked)return null;
   const os=($('#nfApdOS').value||'').trim(); if(!os){ toast('Aplicação direta: informe o número da Ordem de Serviço.','err'); $('#nfApdOS').focus(); return false; }
   const obra=$('#nfObra').value;
   if(!isOnline){ toast('Aplicação direta precisa de conexão — a requisição é gerada na hora.','err'); return false; }
-  if(!podeAprovarObra(obra)||!isAlmoxarife()){ toast('Aplicação direta: seu usuário precisa poder aprovar requisições desta obra e separar no almoxarifado.','err'); return false; }
+  /* qualquer usuário do almoxarifado (operador, encarregado) ou admin: a aprovação é automática por ser compra já destinada à OS */
+  if(!isAlmoxarife()){ toast('Aplicação direta: disponível para o almoxarifado (operador ou encarregado) e administradores.','err'); return false; }
   return {aplic,os}; }
 async function requisicaoAplicacaoDireta({obra,itens,numero,forn,aplic,os}){
   const quem=profile.nome||profile.email;
@@ -1880,8 +1881,8 @@ async function requisicaoAplicacaoDireta({obra,itens,numero,forn,aplic,os}){
   // 2) aprovação (tudo disponível — o saldo acabou de entrar)
   const {error:e2}=await sb.from('requisicao_itens_status').upsert(lista.map(i=>({requisicao_id:reqId,code:i.code,descricao:i.desc,unidade:i.unit,quantidade_solicitada:i.qty,quantidade_disponivel:i.qty,status:'disponivel'})),{onConflict:'requisicao_id,code'});
   if(e2)return etapa('erro ao gravar os itens da aprovação ('+e2.message+')',reqN);
-  const {error:e3}=await updReq(reqId,{status:'em_separacao',decidido_por:session.user.id,decidido_por_nome:quem,decidido_em:new Date().toISOString()});
-  if(e3)return etapa('aprovação recusada ('+e3.message+')',reqN);
+  const {error:e3}=await updReq(reqId,{status:'em_separacao',decidido_por:session.user.id,decidido_por_nome:quem+' (automática — aplicação direta)',decidido_em:new Date().toISOString()});
+  if(e3)return etapa('a aprovação automática foi recusada pelo banco ('+e3.message+') — a requisição ficou aguardando aprovação de um encarregado',reqN);
   // 3) separação item a item (mesma reserva + baixa da tela de Separação)
   for(const i of lista){
     const {data:claim,error:eC}=await sb.from('requisicao_itens_status').update({quantidade_disponivel:0,quantidade_separada:i.qty,status:'separado',atualizado_em:new Date().toISOString()})
