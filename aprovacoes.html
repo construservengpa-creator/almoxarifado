@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1E2024">
+<title>Aprovações · AMETA</title>
+<link rel="manifest" href="aprovacoes.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Aprovações">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&family=Oswald:wght@500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --bg:#1E2024; --s1:#272A30; --s2:#30343B; --line:#3B4048; --tx:#ECEDEF; --mu:#9AA1AC;
+  --ac:#F5C433; --ac-ink:#1E2024; --ok:#62C48F; --bad:#F26D5B; --info:#7DB4E8; --warn:#F2A65A;
+  --f-head:'Oswald','Arial Narrow',sans-serif;
+  --f-body:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --f-mono:'JetBrains Mono',ui-monospace,Consolas,monospace;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.45 var(--f-body)}
+body{min-height:100dvh;padding-bottom:calc(16px + env(safe-area-inset-bottom))}
+button,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+[hidden]{display:none!important}
+:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+
+.top{position:sticky;top:0;z-index:20;background:var(--bg);border-bottom:1px solid var(--line);
+  padding:calc(10px + env(safe-area-inset-top)) 16px 10px;display:flex;align-items:center;gap:10px}
+.top h1{font:600 19px/1.1 var(--f-head);letter-spacing:.3px;margin:0;flex:1;text-transform:uppercase}
+.top h1 small{display:block;font:500 11.5px/1.3 var(--f-body);color:var(--mu);text-transform:none;letter-spacing:0;margin-top:2px}
+.icon-btn{background:var(--s1);border:1px solid var(--line);border-radius:10px;width:40px;height:40px;display:grid;place-items:center;font-size:17px}
+
+.tabs{display:flex;gap:6px;padding:12px 16px 4px}
+.tabs button{flex:1;background:var(--s1);border:1px solid var(--line);border-radius:10px;padding:9px 8px;font-weight:600;font-size:13.5px;color:var(--mu)}
+.tabs button.on{background:var(--ac);border-color:var(--ac);color:var(--ac-ink)}
+.tabs .n{display:inline-block;min-width:20px;padding:0 6px;border-radius:10px;background:var(--bad);color:#fff;font-size:11.5px;margin-left:4px}
+.tabs button.on .n{background:var(--ac-ink);color:var(--ac)}
+
+main{padding:8px 16px 0;max-width:640px;margin:0 auto}
+.info{color:var(--mu);font-size:12.5px;margin:6px 2px 10px}
+.empty{text-align:center;color:var(--mu);padding:46px 16px}
+.empty b{display:block;color:var(--tx);font-size:16px;margin-bottom:4px}
+
+.card{background:var(--s1);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.card-hd{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.req{font:500 13px var(--f-mono);color:var(--ac)}
+.when{color:var(--mu);font-size:12px;white-space:nowrap}
+.obra{font-weight:600;font-size:15.5px;margin:4px 0 2px}
+.meta{color:var(--mu);font-size:12.5px}
+.meta b{color:var(--tx);font-weight:500}
+.tag{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;margin:6px 4px 0 0}
+.tag.mutuo{background:rgba(125,180,232,.15);color:var(--info)}
+.tag.falta{background:rgba(242,166,90,.15);color:var(--warn)}
+.tag.ok{background:rgba(98,196,143,.15);color:var(--ok)}
+.tag.rej{background:rgba(242,109,91,.15);color:var(--bad)}
+.obs{background:var(--s2);border-radius:10px;padding:8px 10px;font-size:13px;margin-top:8px;white-space:pre-wrap}
+.itens{list-style:none;margin:10px 0 0;padding:0;border-top:1px solid var(--line)}
+.itens li{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+.itens li:last-child{border-bottom:0}
+.itens .q{font-family:var(--f-mono);white-space:nowrap;text-align:right}
+.itens .q small{display:block;font-family:var(--f-body);font-size:11px;color:var(--mu)}
+.itens .q small.falta{color:var(--warn)}
+.acts{display:flex;gap:8px;margin-top:12px}
+.btn{flex:1;border:0;border-radius:11px;padding:12px;font-weight:600;font-size:15px}
+.btn.ok{background:var(--ok);color:#10261a}
+.btn.no{background:transparent;border:1px solid var(--bad);color:var(--bad)}
+.btn.pri{background:var(--ac);color:var(--ac-ink)}
+.btn.ghost{background:var(--s2);color:var(--tx)}
+.btn:disabled{opacity:.55}
+
+.login{max-width:380px;margin:0 auto;padding:calc(48px + env(safe-area-inset-top)) 20px 20px}
+.login h2{font:600 26px var(--f-head);text-transform:uppercase;margin:0 0 4px}
+.login p{color:var(--mu);margin:0 0 22px;font-size:13.5px}
+label.f{display:block;font-size:12px;color:var(--mu);margin:12px 0 5px;text-transform:uppercase;letter-spacing:.5px}
+input.f,textarea.f{width:100%;background:var(--s1);border:1px solid var(--line);border-radius:10px;padding:12px;font-size:16px}
+textarea.f{min-height:96px;resize:vertical}
+.err{color:var(--bad);font-size:13px;min-height:18px;margin-top:10px}
+
+.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:50;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--bg);border-top:1px solid var(--line);border-radius:18px 18px 0 0;width:100%;max-width:640px;padding:18px 16px calc(16px + env(safe-area-inset-bottom))}
+.sheet h3{font:600 18px var(--f-head);text-transform:uppercase;margin:0 0 4px}
+.sheet p{color:var(--mu);font-size:13px;margin:0 0 6px}
+
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:60;
+  background:var(--s2);border:1px solid var(--line);border-radius:12px;padding:11px 16px;font-size:14px;max-width:92vw;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.toast.ok{border-color:var(--ok)} .toast.err{border-color:var(--bad)} .toast.warn{border-color:var(--warn)}
+</style>
+</head>
+<body>
+
+<section id="vLogin" class="login" hidden>
+  <h2>Aprovações</h2>
+  <p>Aprovação de requisições de material · AMETA. Entre com o mesmo usuário do sistema de estoque.</p>
+  <form id="fLogin">
+    <label class="f" for="lgE">E-mail</label>
+    <input class="f" id="lgE" type="email" autocomplete="username" required>
+    <label class="f" for="lgS">Senha</label>
+    <input class="f" id="lgS" type="password" autocomplete="current-password" required>
+    <div class="err" id="lgErr"></div>
+    <button class="btn pri" style="width:100%;margin-top:6px" id="lgBtn">Entrar</button>
+  </form>
+</section>
+
+<section id="vApp" hidden>
+  <header class="top">
+    <h1>Aprovações<small id="who"></small></h1>
+    <button class="icon-btn" id="bRefresh" aria-label="Atualizar">⟳</button>
+    <button class="icon-btn" id="bSair" aria-label="Sair" style="width:auto;padding:0 12px;font-size:13px;font-weight:600">Sair</button>
+  </header>
+  <nav class="tabs">
+    <button id="tPend" class="on">Pendentes <span class="n" id="nPend" hidden>0</span></button>
+    <button id="tHist">Decididas</button>
+  </nav>
+  <main>
+    <div class="info" id="escopo"></div>
+    <div id="lista"><div class="empty">Carregando…</div></div>
+  </main>
+</section>
+
+<script>
+/* App de celular para aprovar/rejeitar requisições de material.
+   Mesmas regras da tela Aprovações do sistema (index.html → aprovarRequisicao / rejeitarRequisicao):
+   - quem aprova: admin e encarregados; encarregado só das obras vinculadas a ele (admin e encarregado do
+     almoxarifado aprovam de qualquer obra);
+   - ao aprovar, confere o saldo item a item na obra de onde o material sai (no mútuo, a obra de estoque),
+     descontando o que está bloqueado por devolução em aberto; o que faltar vira compra pendente e a
+     requisição vai para "aguardando compra" — senão vai direto para separação. */
+const SUPABASE_URL='https://qjmqburjyqlgwjihvlgp.supabase.co';
+const SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqbXFidXJqeXFsZ3dqaWh2bGdwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4NzU0NzIsImV4cCI6MjEwNDQ1MTQ3Mn0.cOdmVw3W0HCilACqZIVFMCwsr6zxA0g_3CreKIuk9kw';
+const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const numf=n=>(Number(n)||0).toLocaleString('pt-BR',{maximumFractionDigits:3});
+const reqN=id=>'REQ-'+String(id).padStart(5,'0');
+const quando=iso=>{ if(!iso)return''; const d=new Date(iso); return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); };
+function toast(msg,tipo='ok'){ const t=document.createElement('div'); t.className='toast '+tipo; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(),3600); }
+
+let user=null, profile=null, aba='pend', pendentes=[], canal=null;
+
+/* ---------- permissões (iguais às do sistema) ---------- */
+const isAdmin=()=>!!profile&&profile.papel==='admin'&&profile.ativo;
+const isEncarregado=()=>!!profile&&(profile.papel==='admin'||profile.papel==='encarregado')&&profile.ativo;
+const isEncAlmox=()=>!!profile&&profile.papel==='encarregado'&&profile.setor==='almoxarifado'&&profile.ativo;
+const veTodas=()=>isAdmin()||isEncAlmox();
+const vinculadas=()=>Array.isArray(profile&&profile.obras_vinculadas)?profile.obras_vinculadas:[];
+const podeAprovarObra=obraId=>veTodas()||(isEncarregado()&&vinculadas().includes(obraId));
+const obraEstoque=r=>r.mutuo_estoque_obra_id?r.mutuo_estoque_obra_id:r.obra_id;
+
+/* ---------- login ---------- */
+async function carregarPerfil(){
+  const {data,error}=await sb.from('profiles').select('id,nome,email,papel,ativo,setor,obras_vinculadas').eq('id',user.id).maybeSingle();
+  if(error||!data)throw new Error('Não foi possível carregar o seu perfil.');
+  if(!data.ativo)throw new Error('Seu usuário ainda não foi liberado pelo administrador.');
+  if(!(data.papel==='admin'||data.papel==='encarregado'))throw new Error('Este aplicativo é para quem aprova requisições (encarregados e administradores).');
+  profile=data;
+}
+async function iniciar(){
+  const {data}=await sb.auth.getSession();
+  if(!data.session){ mostrarLogin(); return; }
+  user=data.session.user;
+  try{ await carregarPerfil(); }catch(e){ await sb.auth.signOut(); mostrarLogin(e.message); return; }
+  mostrarApp();
+}
+function mostrarLogin(msg){ $('#vApp').hidden=true; $('#vLogin').hidden=false; $('#lgErr').textContent=msg||''; if(canal){ sb.removeChannel(canal); canal=null; } }
+$('#fLogin').addEventListener('submit',async ev=>{
+  ev.preventDefault(); const b=$('#lgBtn'); b.disabled=true; $('#lgErr').textContent='';
+  try{
+    const {data,error}=await sb.auth.signInWithPassword({email:$('#lgE').value.trim().toLowerCase(),password:$('#lgS').value});
+    if(error)throw new Error('E-mail ou senha inválidos.');
+    user=data.user; await carregarPerfil(); mostrarApp();
+  }catch(e){ await sb.auth.signOut().catch(()=>{}); $('#lgErr').textContent=e.message; }
+  finally{ b.disabled=false; }
+});
+$('#bSair').onclick=async()=>{ await sb.auth.signOut(); user=null; profile=null; mostrarLogin(); };
+
+/* ---------- app ---------- */
+function mostrarApp(){
+  $('#vLogin').hidden=true; $('#vApp').hidden=false;
+  $('#who').textContent=(profile.nome||profile.email)+(isAdmin()?' · Admin':isEncAlmox()?' · Encarregado do almoxarifado':' · Encarregado');
+  $('#escopo').textContent=veTodas()?'Requisições de todas as obras.':(vinculadas().length?'Somente das obras (centros de custo) vinculadas a você.':'Você ainda não tem obra vinculada — peça ao administrador.');
+  if(!canal){
+    canal=sb.channel('app_aprovacoes').on('postgres_changes',{event:'*',schema:'public',table:'requisicoes'},()=>{ clearTimeout(window._rt); window._rt=setTimeout(atualizar,600); }).subscribe();
+  }
+  atualizar();
+}
+$('#tPend').onclick=()=>{ aba='pend'; $('#tPend').classList.add('on'); $('#tHist').classList.remove('on'); atualizar(); };
+$('#tHist').onclick=()=>{ aba='hist'; $('#tHist').classList.add('on'); $('#tPend').classList.remove('on'); atualizar(); };
+$('#bRefresh').onclick=()=>{ atualizar(); toast('Atualizado.'); };
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&profile)atualizar(); });
+
+function filtroObras(q){ if(veTodas())return q; const v=vinculadas(); return v.length?q.in('obra_id',v):null; }
+
+async function atualizar(){
+  if(!profile)return;
+  if(aba==='pend')await desenharPendentes(); else await desenharHistorico();
+}
+
+/* saldo disponível = saldo da obra − bloqueado por devolução ao fornecedor em aberto */
+async function saldosPara(reqs){
+  const obras=[...new Set(reqs.map(obraEstoque))]; const codes=[...new Set(reqs.flatMap(r=>(r.itens||[]).map(i=>String(i.code))))];
+  const saldo={};
+  if(!obras.length||!codes.length)return saldo;
+  const [s,d]=await Promise.all([
+    sb.from('saldos_estoque').select('obra_id,code,saldo').in('obra_id',obras).in('code',codes),
+    sb.from('devolucoes').select('obra_id,itens').in('status',['aguardando_nota','em_envio']).in('obra_id',obras)
+  ]);
+  if(s.error)throw s.error;
+  (s.data||[]).forEach(x=>{ saldo[x.obra_id+'|'+x.code]=Number(x.saldo)||0; });
+  (d.data||[]).forEach(dv=>(dv.itens||[]).forEach(it=>{ const k=dv.obra_id+'|'+it.code; if(k in saldo)saldo[k]-=Number(it.qty)||0; }));
+  Object.keys(saldo).forEach(k=>{ if(saldo[k]<0)saldo[k]=0; });
+  return saldo;
+}
+
+async function desenharPendentes(){
+  const box=$('#lista');
+  let q=filtroObras(sb.from('requisicoes').select('*').eq('status','pendente').order('criado_em',{ascending:true}));
+  if(!q){ pendentes=[]; contar(); box.innerHTML='<div class="empty"><b>Nenhuma obra vinculada</b>Peça ao administrador para vincular suas obras.</div>'; return; }
+  const {data,error}=await q;
+  if(error){ box.innerHTML='<div class="empty"><b>Erro ao carregar</b>'+esc(error.message)+'</div>'; return; }
+  pendentes=data||[]; contar();
+  if(!pendentes.length){ box.innerHTML='<div class="empty"><b>Tudo em dia ✓</b>Nenhuma requisição aguardando aprovação.</div>'; return; }
+  let saldo={}; try{ saldo=await saldosPara(pendentes); }catch(e){ toast('Não foi possível conferir o saldo agora.','warn'); }
+  box.innerHTML=pendentes.map(r=>{
+    const ob=obraEstoque(r);
+    const itens=(r.itens||[]).map(i=>{ const disp=saldo[ob+'|'+i.code]; const falta=disp!=null?Math.max((Number(i.qty)||0)-disp,0):null;
+      return `<li><span>${esc(i.desc||i.code)}</span><span class="q">${numf(i.qty)} ${esc(i.unit||'')}${disp==null?'<small>saldo —</small>':falta>0?`<small class="falta">falta ${numf(falta)} · disp. ${numf(disp)}</small>`:`<small>disp. ${numf(disp)}</small>`}</span></li>`; }).join('');
+    const nFalta=(r.itens||[]).filter(i=>{ const disp=saldo[ob+'|'+i.code]; return disp!=null&&(Number(i.qty)||0)>disp; }).length;
+    return `<article class="card" id="r${r.id}">
+      <div class="card-hd"><span class="req">${reqN(r.id)}</span><span class="when">${quando(r.criado_em)}</span></div>
+      <div class="obra">${esc(r.obra_nome)}</div>
+      <div class="meta">${r.ordem_servico?'OS <b>'+esc(r.ordem_servico)+'</b> · ':''}${esc(r.aplicacao_nome||'Sem aplicação')}</div>
+      <div class="meta">Solicitante: <b>${esc(r.solicitante_nome||'—')}</b></div>
+      ${r.mutuo_estoque_obra_id?`<span class="tag mutuo">💱 Mútuo — sai do estoque de outra empresa</span>`:''}
+      ${nFalta?`<span class="tag falta">${nFalta} item(ns) sem saldo suficiente → vira compra</span>`:'<span class="tag ok">Saldo suficiente</span>'}
+      ${r.observacao?`<div class="obs">${esc(r.observacao)}</div>`:''}
+      <ul class="itens">${itens}</ul>
+      ${podeAprovarObra(r.obra_id)?`<div class="acts"><button class="btn no" onclick="rejeitar(${r.id})">Rejeitar</button><button class="btn ok" onclick="aprovar(${r.id},this)">Aprovar</button></div>`:'<div class="meta" style="margin-top:10px">Você não está vinculado a esta obra.</div>'}
+    </article>`; }).join('');
+}
+function contar(){ const n=pendentes.length, b=$('#nPend'); b.hidden=!n; b.textContent=n; document.title=(n?'('+n+') ':'')+'Aprovações · AMETA';
+  try{ if(navigator.setAppBadge){ n?navigator.setAppBadge(n):navigator.clearAppBadge(); } }catch(e){} }
+
+async function desenharHistorico(){
+  const box=$('#lista');
+  let q=filtroObras(sb.from('requisicoes').select('id,obra_nome,ordem_servico,aplicacao_nome,solicitante_nome,status,decidido_por_nome,decidido_em,motivo_rejeicao').neq('status','pendente').not('decidido_em','is',null).order('decidido_em',{ascending:false}).limit(30));
+  if(!q){ box.innerHTML='<div class="empty"><b>Nenhuma obra vinculada</b></div>'; return; }
+  const {data,error}=await q;
+  if(error){ box.innerHTML='<div class="empty"><b>Erro ao carregar</b>'+esc(error.message)+'</div>'; return; }
+  if(!(data||[]).length){ box.innerHTML='<div class="empty"><b>Nada por aqui</b>Nenhuma requisição decidida ainda.</div>'; return; }
+  box.innerHTML=data.map(r=>`<article class="card">
+      <div class="card-hd"><span class="req">${reqN(r.id)}</span><span class="when">${quando(r.decidido_em)}</span></div>
+      <div class="obra">${esc(r.obra_nome)}</div>
+      <div class="meta">${r.ordem_servico?'OS <b>'+esc(r.ordem_servico)+'</b> · ':''}${esc(r.aplicacao_nome||'')} · ${esc(r.solicitante_nome||'')}</div>
+      <span class="tag ${r.status==='rejeitada'?'rej':r.status==='cancelada'?'falta':'ok'}">${r.status==='rejeitada'?'Rejeitada':r.status==='cancelada'?'Cancelada':'Aprovada'}</span>
+      <div class="meta" style="margin-top:6px">por ${esc(r.decidido_por_nome||'—')}</div>
+      ${r.motivo_rejeicao?`<div class="obs">${esc(r.motivo_rejeicao)}</div>`:''}
+    </article>`).join('');
+}
+
+/* ---------- aprovar (mesma lógica de aprovarRequisicao do sistema) ---------- */
+async function aprovar(id,btn){
+  btn.disabled=true; btn.textContent='Aprovando…';
+  try{
+    const {data:r,error:e1}=await sb.from('requisicoes').select('*').eq('id',id).maybeSingle();
+    if(e1||!r)throw new Error('Requisição não encontrada.');
+    if(r.status!=='pendente'){ toast(reqN(id)+' já foi decidida por outra pessoa.','warn'); atualizar(); return; }
+    if(!podeAprovarObra(r.obra_id))throw new Error('Você não está vinculado à obra desta requisição.');
+    const ob=obraEstoque(r); const saldo=await saldosPara([r]);
+    const avaliados=(r.itens||[]).map(i=>{ const disponivel=Math.max(Math.min(saldo[ob+'|'+i.code]||0,Number(i.qty)||0),0);
+      return {code:i.code,desc:i.desc,unit:i.unit||'',qty:Number(i.qty)||0,disponivel,faltante:Math.max((Number(i.qty)||0)-disponivel,0)}; });
+    const {error:e2}=await sb.from('requisicao_itens_status').upsert(avaliados.map(i=>({requisicao_id:r.id,code:i.code,descricao:i.desc,unidade:i.unit,
+      quantidade_solicitada:i.qty,quantidade_disponivel:i.disponivel,status:i.faltante>0?'faltante':'disponivel'})),{onConflict:'requisicao_id,code'});
+    if(e2)throw new Error('Erro ao gravar a verificação de estoque: '+e2.message);
+    const faltantes=avaliados.filter(i=>i.faltante>0);
+    if(faltantes.length){
+      const {error:e3}=await sb.from('compras_pendentes').insert(faltantes.map(i=>({requisicao_id:r.id,code:i.code,descricao:i.desc,quantidade:i.faltante,status:'pendente'})));
+      if(e3)throw new Error('Verificação salva, mas houve erro ao gerar a compra pendente: '+e3.message);
+    }
+    const {data:upd,error:e4}=await sb.from('requisicoes').update({status:faltantes.length?'aguardando_compra':'em_separacao',decidido_por:user.id,decidido_por_nome:profile.nome||profile.email,decidido_em:new Date().toISOString()})
+      .eq('id',id).eq('status','pendente').select('id');
+    if(e4)throw new Error('Erro ao atualizar a requisição: '+e4.message);
+    if(!upd||!upd.length)throw new Error('A aprovação não foi gravada — a requisição mudou ou seu usuário não tem permissão.');
+    toast(faltantes.length?reqN(id)+' aprovada — faltantes enviados para compras.':reqN(id)+' aprovada — pronta para separação.','ok');
+  }catch(e){ toast(e.message,'err'); }
+  atualizar();
+}
+
+/* ---------- rejeitar ---------- */
+function rejeitar(id){
+  const bg=document.createElement('div'); bg.className='sheet-bg';
+  bg.innerHTML=`<div class="sheet"><h3>Rejeitar ${reqN(id)}</h3><p>Informe o motivo — o solicitante vai ver.</p>
+    <textarea class="f" id="rjM" placeholder="Motivo da rejeição"></textarea><div class="err" id="rjErr"></div>
+    <div class="acts"><button class="btn ghost" id="rjC">Cancelar</button><button class="btn no" id="rjOk">Rejeitar</button></div></div>`;
+  document.body.appendChild(bg); setTimeout(()=>$('#rjM').focus(),50);
+  const fechar=()=>bg.remove();
+  bg.addEventListener('click',ev=>{ if(ev.target===bg)fechar(); });
+  $('#rjC').onclick=fechar;
+  $('#rjOk').onclick=async()=>{
+    const motivo=$('#rjM').value.trim(); if(!motivo){ $('#rjErr').textContent='Informe o motivo.'; return; }
+    $('#rjOk').disabled=true;
+    const {data:r}=await sb.from('requisicoes').select('obra_id,status').eq('id',id).maybeSingle();
+    if(!r||r.status!=='pendente'){ fechar(); toast(reqN(id)+' já foi decidida por outra pessoa.','warn'); atualizar(); return; }
+    if(!podeAprovarObra(r.obra_id)){ $('#rjErr').textContent='Você não está vinculado à obra desta requisição.'; $('#rjOk').disabled=false; return; }
+    const {data:upd,error}=await sb.from('requisicoes').update({status:'rejeitada',motivo_rejeicao:motivo,decidido_por:user.id,decidido_por_nome:profile.nome||profile.email,decidido_em:new Date().toISOString()})
+      .eq('id',id).eq('status','pendente').select('id');
+    if(error||!upd||!upd.length){ $('#rjErr').textContent='Não foi possível rejeitar: '+(error?error.message:'a requisição mudou ou seu usuário não tem permissão.'); $('#rjOk').disabled=false; return; }
+    fechar(); toast(reqN(id)+' rejeitada.','warn'); atualizar();
+  };
+}
+
+iniciar();
+</script>
+</body>
+</html>

@@ -476,7 +476,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-07T12:00:00-03:00';
+const APP_VERSION='2026-10-07T15:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -2624,7 +2624,8 @@ async function renderAprovacoes(){
   const vinc=Array.isArray(profile.obras_vinculadas)?profile.obras_vinculadas:[];
   const aviso=(!isAdminOuEncAlmox()&&!vinc.length)?`<div class="empty" style="padding:14px 18px;margin-bottom:18px;text-align:left;background:#fff3da;border-radius:10px">⚠ Você ainda não tem nenhuma obra (centro de custo) vinculada. Peça a um administrador para vincular suas obras em Administração → Usuários.</div>`:
     (!isAdminOuEncAlmox()?`<div class="muted" style="font-size:12px;margin-bottom:14px">Mostrando apenas requisições das obras vinculadas a você: ${vinc.map(id=>esc(obraName(id))).join(', ')}.</div>`:'');
-  $('#view').innerHTML=aviso+`<div class="sechead"><h3>Pendentes de aprovação</h3></div><div class="tbl-wrap" id="aprovPend" style="margin-bottom:26px"><div class="empty">Carregando...</div></div>
+  const appUrl=new URL('aprovacoes.html',location.href).href;
+  $('#view').innerHTML=aviso+`<div class="muted" style="font-size:12.5px;margin-bottom:14px">📱 Aprove pelo celular: abra <a href="${esc(appUrl)}" target="_blank" rel="noopener" style="color:#7a5100;font-weight:600">${esc(appUrl)}</a> e use "Adicionar à tela inicial".</div><div class="sechead"><h3>Pendentes de aprovação</h3></div><div class="tbl-wrap" id="aprovPend" style="margin-bottom:26px"><div class="empty">Carregando...</div></div>
   <div class="sechead"><h3>Decididas recentemente</h3></div><div class="tbl-wrap" id="aprovHist"><div class="empty">Carregando...</div></div>`;
   await drawAprovPend(); await drawAprovHist();
 }
