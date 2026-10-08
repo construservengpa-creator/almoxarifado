@@ -319,7 +319,13 @@ const S = {
 const FILA_K = 'contagem_fila_v1', ERROS_K = 'contagem_erros_v1';
 const filaRegs = () => Fila.ler().filter(f => !f.tipo || f.tipo === 'registro');
 const filaExtras = () => Fila.ler().filter(f => f.tipo === 'extra');
-const Fila = { ler: () => LS.get(FILA_K, []), gravar(v){ if (!LS.set(FILA_K, v)) toast('Sem espaço no aparelho para guardar contagens. Envie a fila.', 'bad'); } };
+/* A fila (com as fotos em base64) fica em memória: antes cada leitura relia e convertia o localStorage inteiro, e isso
+   acontecia várias vezes por linha da tela (miniaturas, estados, topo) — lento com fotos ou listas grandes.
+   Outra aba que mudar a fila invalida a cópia pelo evento "storage". */
+let _filaMem = null;
+const Fila = { ler: () => (_filaMem ??= LS.get(FILA_K, [])),
+  gravar(v){ _filaMem = v; if (!LS.set(FILA_K, v)) toast('Sem espaço no aparelho para guardar contagens. Envie a fila.', 'bad'); } };
+window.addEventListener('storage', e => { if (e.key === FILA_K || e.key === null) _filaMem = null; });
 const cacheK = k => `contagem_cache_v1:${S.user ? S.user.id : 'anon'}:${k}`;
 const cacheSet = (k, v) => LS.set(cacheK(k), v);
 const cacheGet = k => LS.get(cacheK(k));
@@ -467,14 +473,15 @@ async function abrirCiclo(id){
 async function carregarItens(){
   const id = S.ciclo && S.ciclo.id; if (!id) return;
   try {
-    const itens = await buscarTudo(() => sb.from('contagem_itens_cego').select('*').eq('ciclo_id', id).order('code'));
-    const meus  = await buscarTudo(() => sb.from('contagem_registros').select('code,quantidade,rodada,criado_em')
-                    .eq('ciclo_id', id).eq('contador', S.user.id).order('criado_em').order('id'));
-    let extras = [];
-    try { extras = await buscarTudo(() => sb.from('contagem_extras').select('id,code_lido,descricao,unidade,quantidade,obs,status,criado_em')
-                    .eq('ciclo_id', id).eq('contador', S.user.id).order('criado_em').order('id')); } catch { extras = S.extras || []; }
+    const [itens, meus, extras] = await Promise.all([
+      buscarTudo(() => sb.from('contagem_itens_cego').select('*').eq('ciclo_id', id).order('code')),
+      buscarTudo(() => sb.from('contagem_registros').select('code,quantidade,rodada,criado_em')
+                    .eq('ciclo_id', id).eq('contador', S.user.id).order('criado_em').order('id')),
+      buscarTudo(() => sb.from('contagem_extras').select('id,code_lido,descricao,unidade,quantidade,obs,status,criado_em')
+                    .eq('ciclo_id', id).eq('contador', S.user.id).order('criado_em').order('id')).catch(() => S.extras || [])
+    ]);
     if (!S.ciclo || S.ciclo.id !== id) return;
-    await carregarFotosExtra();
+    await carregarFotosExtra(extras.map(x => x.id));
     S.itens = itens; S.meus = meus; S.extras = extras;
     cacheSet('itens:' + id, itens); cacheSet('meus:' + id, meus); cacheSet('extras:' + id, extras);
   } catch (e) {
@@ -535,10 +542,11 @@ function renderListaCiclo(){
   if (!abas.find(a => a[0] === S.aba)) S.aba = abas[0][0];
   $('#abas').innerHTML = abas.map(([k, l, n]) => `<button class="aba" role="tab" aria-selected="${S.aba === k}" data-act="aba" data-aba="${k}">${l} (${n})</button>`).join('');
   if (S.aba === 'extras') {
-    $('#lista').innerHTML = X.length ? `<div class="rows">${X.map(x => `<div class="row ${x.noFila ? 'tap' : ''}" data-act="extra-editar" data-id="${esc(x.id)}">
+    const MAXX = 150, Xv = X.slice(0, MAXX);
+    $('#lista').innerHTML = X.length ? `<div class="rows">${Xv.map(x => `<div class="row ${x.noFila ? 'tap' : ''}" data-act="extra-editar" data-id="${esc(x.id)}">
       ${miniFotoExtra(x.id)}<div class="rmain"><div class="rdesc"><b>${esc(x.descricao)}</b></div>
       <div class="sub">${x.code_lido ? 'Código lido: ' + esc(x.code_lido) : 'Sem código'}${x.obs ? ' · ' + esc(x.obs) : ''}</div></div>
-      <div class="rside"><span class="qtd">${fmt(x.quantidade)} <small class="mu" style="font:400 12px var(--f-body)">${esc(x.unidade || '')}</small></span>${chipEx(x.status)}</div></div>`).join('')}</div>`
+      <div class="rside"><span class="qtd">${fmt(x.quantidade)} <small class="mu" style="font:400 12px var(--f-body)">${esc(x.unidade || '')}</small></span>${chipEx(x.status)}</div></div>`).join('')}</div>${X.length > MAXX ? `<div class="vazio">Mostrando os ${MAXX} mais recentes de ${X.length}.</div>` : ''}`
       : `<div class="vazio">Nenhum item fora da lista registrado. Escaneie um código que não está na lista, ou toque em <b>Item fora da lista</b>.</div>`;
     return;
   }
@@ -663,7 +671,7 @@ function confirmarFolha(){
      "produtos" do Supabase e o banco guarda só o endereço. No máximo 4 fotos por produto.
    Sem o script fabricante_e_fotos.sql instalado, os botões simplesmente não aparecem. */
 const MAX_FOTOS = 4, MAX_FOTOS_EXTRA = 3, FOTO_LADO = 520, FOTO_ALVO = 45 * 1024;
-const VERSAO_APP = '06/10/2026 b · foto na contagem';   // aparece no menu do usuário: serve para conferir se o aparelho já pegou a versão nova
+const VERSAO_APP = '08/10/2026 · mais rápida, saldo pela tabela';   // aparece no menu do usuário: serve para conferir se o aparelho já pegou a versão nova
 const semRecurso = e => !!e && (['PGRST202', 'PGRST205', '42P01', '42883'].includes(e.code) || /schema cache|does not exist/i.test(e.message || ''));
 function montarFab(lista){
   const map = {}, de = {};
@@ -777,12 +785,17 @@ async function enviarDaFila(f){
    Ela aparece nesta folha, na aba Fora da lista e na Revisão do encarregado; quando o item é lançado no
    estoque, o sistema de estoque passa a foto para o produto. */
 const urlFoto = path => sb.storage.from('produtos').getPublicUrl(path).data.publicUrl;
-async function carregarFotosExtra(){
+async function carregarFotosExtra(ids){
   if (!S.fotoOk || !navigator.onLine || !sb) return;
+  ids = [...new Set(ids || (S.extras || []).concat(S.rev.extras || []).map(x => x.id))].filter(Boolean);
   try {
-    const rows = await buscarTudo(() => sb.from('produto_fotos').select('code,path').like('code', 'extra:%').order('code').order('id'));
-    const m = {}; for (const r of rows) (m[r.code.slice(6)] ??= []).push(urlFoto(r.path));
-    S.fotosExtra = m;
+    const m = {};
+    for (let i = 0; i < ids.length; i += 100) {
+      const lote = ids.slice(i, i + 100).map(id => 'extra:' + id);
+      const rows = await buscarTudo(() => sb.from('produto_fotos').select('code,path').in('code', lote).order('code').order('id'));
+      for (const r of rows) (m[r.code.slice(6)] ??= []).push(urlFoto(r.path));
+    }
+    for (const id of ids) { if (m[id]) S.fotosExtra[id] = m[id]; else delete S.fotosExtra[id]; }
   } catch {}
 }
 /* fotos de um item fora da lista: já enviadas (endereço) + na fila do aparelho + tiradas na folha aberta */
@@ -1108,7 +1121,7 @@ async function aoLer(txt){
 let sincronizando = false;
 async function sync(){
   if (sincronizando || !navigator.onLine || !S.user || !sb) return;
-  const fila = Fila.ler(); if (!fila.length) return;
+  const fila = Fila.ler().slice(); if (!fila.length) return;
   sincronizando = true;
   const feitos = new Set(); const novosErros = []; let enviados = 0, nFotos = 0, nFab = 0;
   for (const f of fila) {
@@ -1165,6 +1178,42 @@ function popUser(){
 /* =====================================================================
    GESTOR · NOVA LISTA
    ===================================================================== */
+/* Saldos da obra. O sistema de estoque passou a guardar os saldos na tabela saldos_estoque; o "estoque" que ainda
+   existe dentro do app_kv ficou parado no tempo. Ler de lá dava saldo do sistema desatualizado nas listas novas e na
+   Revisão. Se a tabela não puder ser lida, usa o app_kv como antes. */
+const _saldos = {};
+async function carregarSaldos(obraId){
+  try {
+    const rows = await buscarTudo(() => sb.from('saldos_estoque').select('code,saldo').eq('obra_id', obraId).order('code'));
+    const m = new Map(); for (const r of rows) m.set(String(r.code), Number(r.saldo) || 0);
+    _saldos[obraId] = m;
+  } catch { delete _saldos[obraId]; }
+}
+/* número; null se a obra não tem esse item */
+function saldoDe(obraId, code){
+  const m = _saldos[obraId];
+  if (m) return m.has(String(code)) ? m.get(String(code)) : null;
+  return S.blob ? lerSaldo(S.blob, obraId, code) : null;
+}
+/* produtos do cadastro lidos uma vez por download do app_kv, com índice por código e por código lido
+   (código, auxiliar ou código do fabricante). Antes a Revisão convertia o cadastro inteiro de novo para cada
+   item fora da lista, a cada redesenho da tela. */
+let _prodsDe = null, _prods = [], _prodPorCode = new Map(), _prodPorLido = new Map();
+function prodsBlob(){
+  if (_prodsDe !== S.blob) {
+    _prodsDe = S.blob; _prods = S.blob ? lerProdutos(S.blob) : [];
+    _prodPorCode = new Map(); _prodPorLido = new Map();
+    const por = (k, p) => { if (k && !_prodPorLido.has(k)) _prodPorLido.set(k, p); };
+    for (const p of _prods) {
+      if (!_prodPorCode.has(p.code)) _prodPorCode.set(p.code, p);
+      por(normC(p.code), p); if (p.aux) por(normC(p.aux), p);
+      if (p.fab) for (const c of p.fab.split(/[\s,;]+/).map(normC)) por(c, p);
+    }
+  }
+  return _prods;
+}
+const prodSugerido = codeLido => { const k = normC(codeLido); if (!k) return null; prodsBlob(); return _prodPorLido.get(k) || null; };
+const prodDoCodigo = code => { prodsBlob(); return _prodPorCode.get(code) || null; };
 async function carregarBlob(){
   const { data, error } = await sb.from('app_kv').select('value').eq('key', APP_KV_KEY).maybeSingle();
   if (error) throw error;
@@ -1264,9 +1313,9 @@ async function gerarPrevia(){
   const qtd = Math.max(1, Math.min(500, parseInt(n.qtd) || 20));
   n.estado = 'gerando'; render();
   try {
-    await carregarBlob(); n.produtos = lerProdutos(S.blob);
-    let cand = n.produtos.map(p => ({ ...p, saldo: lerSaldo(S.blob, obra.id, p.code) }));
-    if (cand.length && cand.every(c => c.saldo === null)) {
+    await Promise.all([carregarBlob(), carregarSaldos(obra.id)]); n.produtos = lerProdutos(S.blob);
+    let cand = n.produtos.map(p => ({ ...p, saldo: saldoDe(obra.id, p.code) }));
+    if (cand.length && cand.every(c => c.saldo === null) && !_saldos[obra.id]) {
       n.estado = 'erro'; n.erro = 'Não consegui ler os saldos no estado do almoxarifado (formato de "estoque" não reconhecido). Use o diagnóstico abaixo para ajustar o adaptador.';
       return render();
     }
@@ -1351,10 +1400,15 @@ async function carregarRevItens(){
   const r = S.rev; r.carregando = true;
   if (!r.id) { r.itens = []; r.extras = []; r.carregando = false; return render(); }
   try {
-    r.itens = await buscarTudo(() => sb.from('contagem_itens').select('*').eq('ciclo_id', r.id).order('code'));
-    try { r.extras = await buscarTudo(() => sb.from('contagem_extras').select('*').eq('ciclo_id', r.id).order('criado_em').order('id')); } catch { r.extras = []; }
-    try { await carregarBlob(); } catch { S.blob = null; }
-    await carregarFotosExtra();
+    const c = cicloRev();
+    const [itens, extras] = await Promise.all([
+      buscarTudo(() => sb.from('contagem_itens').select('*').eq('ciclo_id', r.id).order('code')),
+      buscarTudo(() => sb.from('contagem_extras').select('*').eq('ciclo_id', r.id).order('criado_em').order('id')).catch(() => []),
+      carregarBlob().catch(() => { S.blob = null; }),
+      c ? carregarSaldos(c.obra_id) : null
+    ]);
+    r.itens = itens; r.extras = extras;
+    await carregarFotosExtra(extras.map(x => x.id));
     const cont = r.itens.reduce((a, i) => (a[i.status] = (a[i.status] || 0) + 1, a), {});
     if (!r._filtroManual) r.filtro = cont.em_analise ? 'em_analise' : 'todos';
   } catch (e) { toast('Erro ao carregar itens: ' + (e.message || e), 'bad'); }
@@ -1404,18 +1458,16 @@ function htmlRevisao(){
   </div>`;
 }
 const normC = x => String(x ?? '').trim().toUpperCase();
-const temFab = (p, k) => !!p.fab && p.fab.split(/[\s,;]+/).map(normC).includes(k);
 function formEx(x){
   const f = S.rev.form;
   if (!f[x.id]) {
-    const prods = S.blob ? lerProdutos(S.blob) : [], k = normC(x.code_lido);
-    const sug = k ? prods.find(p => normC(p.code) === k || (p.aux && normC(p.aux) === k) || temFab(p, k)) : null;
+    const sug = prodSugerido(x.code_lido);
     f[x.id] = { decisao: sug ? 'vincular' : '', code: sug ? sug.code : '', modo: '', busca: '', ccode: x.code_lido || '', desc: x.descricao, unid: x.unidade || 'UN', custo: '', motivo: '' };
     if (sug) f[x.id].modo = saldoNaObra(sug.code) > 0 ? '' : 'definir';
   }
   return f[x.id];
 }
-const saldoNaObra = code => { const c = cicloRev(); const v = S.blob && c ? lerSaldo(S.blob, c.obra_id, code) : null; return v === null ? 0 : v; };
+const saldoNaObra = code => { const c = cicloRev(); const v = c ? saldoDe(c.obra_id, code) : null; return v === null ? 0 : v; };
 function htmlRevExtras(){
   const ex = S.rev.extras || [];
   if (!ex.length) return '';
@@ -1430,9 +1482,9 @@ function htmlRevExtra(x){
   if (x.status === 'aprovado' || x.status === 'ajustado')
     return `<div class="rv">${cab}<div class="mu sm" style="margin-top:8px">${x.decisao === 'cadastrar' ? 'Novo produto' : 'Vinculado a'} <b>${esc(x.code_final || 'código gerado no lançamento')}</b> · ${esc(x.desc_final || '')} · ${x.modo === 'somar' ? 'soma ao saldo' : 'define o saldo'}${x.custo != null ? ' · custo ' + fmt(x.custo) : ''}</div></div>`;
   if (x.status === 'rejeitado') return `<div class="rv">${cab}<div class="mu sm" style="margin-top:8px">Rejeitado: ${esc(x.motivo || '')}</div></div>`;
-  const f = formEx(x), prods = S.blob ? lerProdutos(S.blob) : [], id = esc(x.id);
-  const k = normC(x.code_lido), sug = k ? prods.find(p => normC(p.code) === k || (p.aux && normC(p.aux) === k) || temFab(p, k)) : null;
-  const escolhido = f.code ? prods.find(p => p.code === f.code) : null;
+  const f = formEx(x), id = esc(x.id);
+  const sug = prodSugerido(x.code_lido);
+  const escolhido = f.code ? prodDoCodigo(f.code) : null;
   let corpo = '';
   if (f.decisao === 'vincular') {
     const sa = escolhido ? saldoNaObra(escolhido.code) : 0;
@@ -1472,7 +1524,7 @@ function htmlRevExtra(x){
 function htmlRevItem(i, aberta){
   const ref = i.status === 'aprovado' || i.status === 'ajustado' ? i.qtd_final : i.qtd_contada;
   const dif = ref === null || ref === undefined ? null : Number(ref) - Number(i.saldo_sistema);
-  const atual = S.blob ? lerSaldo(S.blob, cicloRev().obra_id, i.code) : null;
+  const atual = saldoDe(cicloRev().obra_id, i.code);
   const mudou = atual !== null && Math.abs(atual - Number(i.saldo_sistema)) > 1e-9;
   return `<div class="rv">
     <div class="rv-h"><span class="rcode">${esc(i.code)}</span>${chipSt(i.status)}
@@ -1548,7 +1600,7 @@ const ACT = {
   'nova-add'(el){
     const n = S.nova, p = n.produtos.find(x => x.code === el.dataset.code), obra = n.obras.find(o => o.id === n.obraId);
     if (!p || !obra) return;
-    const s = lerSaldo(S.blob, obra.id, p.code);
+    const s = saldoDe(obra.id, p.code);
     n.previa.push({ ...p, saldo: s === null ? 0 : s, ultima: null, sel: true }); n.busca = ''; render();
   },
   'nova-criar'(){ criarLista(); },
@@ -1596,12 +1648,12 @@ const ACT = {
   },
   async 'ex-ok'(el){
     const x = (S.rev.extras || []).find(e => e.id === el.dataset.id); if (!x) return;
-    const f = formEx(x), prods = S.blob ? lerProdutos(S.blob) : [];
+    const f = formEx(x), prods = prodsBlob();
     const base = { analisado_por: S.user.id, analisado_em: new Date().toISOString() };
     let patch;
     if (f.decisao !== 'rejeitar' && !S.blob) return toast('Não consegui ler o cadastro do estoque. Toque em Atualizar e tente de novo.', 'bad');
     if (f.decisao === 'vincular') {
-      const pr = prods.find(q => q.code === f.code); if (!pr) return toast('Escolha o produto do cadastro.', 'bad');
+      const pr = prodDoCodigo(f.code); if (!pr) return toast('Escolha o produto do cadastro.', 'bad');
       if (!f.modo) return toast('Escolha como lançar: definir o saldo ou somar ao saldo atual.', 'bad');
       patch = { status: 'aprovado', decisao: 'vincular', code_final: pr.code, desc_final: pr.desc, unid_final: pr.unit, modo: f.modo, ...base };
     } else if (f.decisao === 'cadastrar') {
@@ -1617,9 +1669,11 @@ const ACT = {
     } else return toast('Escolha o que fazer com o item.', 'bad');
     const { data, error } = await sb.from('contagem_extras').update(patch).eq('id', x.id).eq('status', 'pendente').select('id');
     if (error) return toast('Erro: ' + error.message, 'bad');
-    if (!data.length) toast('Nada foi alterado (o item mudou de estado ou você não tem permissão).', 'bad');
-    else toast(patch.status === 'rejeitado' ? 'Item rejeitado' : 'Aprovado. Falta autorizar o lançamento no sistema de estoque.', 'ok');
-    delete S.rev.form[x.id]; await carregarRevItens();
+    delete S.rev.form[x.id];
+    if (!data.length) { toast('Nada foi alterado (o item mudou de estado ou você não tem permissão).', 'bad'); return carregarRevItens(); }
+    toast(patch.status === 'rejeitado' ? 'Item rejeitado' : 'Aprovado. Falta autorizar o lançamento no sistema de estoque.', 'ok');
+    /* atualiza só este item na tela; antes baixava de novo todos os itens, o cadastro inteiro e as fotos a cada aprovação */
+    Object.assign(x, patch); render();
   },
   async 'rev-encerrar'(){
     const abertos = S.rev.itens.filter(i => ['pendente', 'recontagem'].includes(i.status)).length;
@@ -1656,7 +1710,7 @@ document.addEventListener('input', e => {
   if (el.id === 'fx-unid') return atualizarPrev();
   if (el.dataset.exid) {
     const id = el.dataset.exid, f = S.rev.form[id]; if (!f) return; f.busca = el.value;
-    const q = el.value.trim().toLowerCase(), prods = S.blob ? lerProdutos(S.blob) : [];
+    const q = el.value.trim().toLowerCase(), prods = prodsBlob();
     const ach = q.length >= 2 ? prods.filter(p => [p.code, p.desc, p.aux, p.fab].some(v => String(v || '').toLowerCase().includes(q))).slice(0, 6) : [];
     $('#exr-' + id).innerHTML = ach.map(p => `<div class="pickrow" data-act="ex-pick" data-id="${esc(id)}" data-code="${esc(p.code)}">
       <div><span class="rcode">${esc(p.code)}</span><div class="sm">${esc(p.desc)}</div></div><span class="chip ac">Escolher</span></div>`).join('');
