@@ -476,7 +476,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-08T20:00:00-03:00';
+const APP_VERSION='2026-10-08T22:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -2046,7 +2046,7 @@ function editProductModal(code){ const p=findProduct(code); if(!p)return;
     <datalist id="localListE">${locais.map(l=>`<option value="${esc(l)}">`).join('')}</datalist>
     <div class="field"><label>Referências / Aplicação</label><textarea id="epRef" rows="3" placeholder="Ex.: usado na escavadeira CAT 320 · filtro hidráulico">${esc(p.ref||'')}</textarea></div>
     <div style="font-size:11.5px;color:#8a8377;margin-bottom:14px">Saldo por obra — ${saldos}</div>
-    <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Fechar</button><button class="btn primary" onclick="saveEditProduct('${esc(code)}')">Salvar</button></div>`);
+    <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">${podeUnificar()?`<button class="btn ghost" style="margin-right:auto" onclick="unificarModal(['${esc(code)}'])">⇄ Unificar com outro produto</button>`:''}<button class="btn ghost" onclick="closeModal()">Fechar</button><button class="btn primary" onclick="saveEditProduct('${esc(code)}')">Salvar</button></div>`);
   renderEpGallery(code); loadFotosExt().then(mudou=>{ if(mudou&&document.getElementById('epPhoto'))renderEpGallery(code); });
   const qrBox=$('#epQR'); if(qrBox){ qrBox.innerHTML=''; try{
     const qr=qrcode(0,'M'); qr.addData(qrPayloadFor(p)); qr.make();
@@ -5115,10 +5115,10 @@ function setRelTipo(t){ relTipo=t; [['aplicacao','rtAplic'],['tipo','rtTipo'],['
    custo usado e valor. Usa De/Até, Obra, Grupo, Localização e Produto; Tipo de aplicação, Aplicação e OS
    não se aplicam (ajuste não tem aplicação). */
 let _relAjOrigem='', _relAjSentido='';
-function relAjOrigemDe(m){ const d=String(m.doc||''); if(m.invId||/^Ajuste de invent/i.test(d))return /item fora da lista/i.test(d)?'extra':'inv'; return 'manual'; }
+function relAjOrigemDe(m){ const d=String(m.doc||''); if(/^Unifica[çc][ãa]o/i.test(d))return 'unif'; if(m.invId||/^Ajuste de invent/i.test(d))return /item fora da lista/i.test(d)?'extra':'inv'; return 'manual'; }
 function relAjDetalhe(m){ return String(m.doc||'').replace(/^Ajuste de invent[aá]rio:\s*/i,'').replace(/^Ajuste:\s*/i,'').replace(/\s*·\s*item fora da lista/i,'')||'—'; }
 function drawRelAjustes(f,t,fobra,isAll,gf,lf,pf){ const box=$('#relView'); if(!box)return;
-  const OR={inv:'Inventário',extra:'Inventário · item fora da lista',manual:'Ajuste de saldo (manual)'};
+  const OR={inv:'Inventário',extra:'Inventário · item fora da lista',manual:'Ajuste de saldo (manual)',unif:'Unificação de produtos'};
   let base=state.movements.filter(m=>m.tipo==='ajuste'&&m.ts>=f&&m.ts<=t&&(isAll||m.obra===fobra));
   if(gf)base=base.filter(m=>produtoGrupo(m.code)===gf);
   if(lf)base=base.filter(m=>produtoLocal(m.code)===lf);
@@ -5143,9 +5143,9 @@ function drawRelAjustes(f,t,fobra,isAll,gf,lf,pf){ const box=$('#relView'); if(!
     foot:['Total',lista.length+' lançamento(s)','','',nProd+' insumo(s)','','','','','','',money(vPos-vNeg)]};
   const opt=(cur,v,l)=>`<option value="${v}" ${cur===v?'selected':''}>${l}</option>`;
   const ss='style="width:auto;font-size:12.5px;padding:6px 8px"', td='style="font-size:12.5px"';
-  const pill=o=>o==='manual'?'<span class="pill high" style="white-space:nowrap">Ajuste manual</span>':o==='extra'?'<span class="pill tr" style="white-space:nowrap">Inventário · fora da lista</span>':'<span class="pill in" style="white-space:nowrap">Inventário</span>';
+  const pill=o=>o==='unif'?'<span class="pill tr" style="white-space:nowrap">Unificação</span>':o==='manual'?'<span class="pill high" style="white-space:nowrap">Ajuste manual</span>':o==='extra'?'<span class="pill tr" style="white-space:nowrap">Inventário · fora da lista</span>':'<span class="pill in" style="white-space:nowrap">Inventário</span>';
   box.innerHTML=`<div class="sechead" style="flex-wrap:wrap;gap:8px"><h3>${esc(titulo)}</h3><span style="font-size:12px;color:#8a8377">${esc(sub)}</span>
-      <select ${ss} onchange="_relAjOrigem=this.value;drawRelatorio()">${opt(_relAjOrigem,'','Todas as origens')}${opt(_relAjOrigem,'invtodos','Inventário (todos)')}${opt(_relAjOrigem,'inv','Inventário · itens da lista')}${opt(_relAjOrigem,'extra','Inventário · itens fora da lista')}${opt(_relAjOrigem,'manual','Ajuste de saldo (manual)')}</select>
+      <select ${ss} onchange="_relAjOrigem=this.value;drawRelatorio()">${opt(_relAjOrigem,'','Todas as origens')}${opt(_relAjOrigem,'invtodos','Inventário (todos)')}${opt(_relAjOrigem,'inv','Inventário · itens da lista')}${opt(_relAjOrigem,'extra','Inventário · itens fora da lista')}${opt(_relAjOrigem,'manual','Ajuste de saldo (manual)')}${opt(_relAjOrigem,'unif','Unificação de produtos')}</select>
       <select ${ss} onchange="_relAjSentido=this.value;drawRelatorio()">${opt(_relAjSentido,'','Entradas e saídas')}${opt(_relAjSentido,'pos','Só entradas (+)')}${opt(_relAjSentido,'neg','Só saídas (−)')}</select></div>
     <div class="cards" style="margin-bottom:16px">
       <div class="card ok"><div class="stripe"></div><div class="lbl">Entradas por ajuste (+)</div><div class="val">${money(vPos)}</div><div class="sub">${pos.length} lançamento(s)</div></div>
@@ -5397,12 +5397,111 @@ function drawRelDuplicidades(){ const box=$('#relView'); if(!box)return; relIdxO
     ${grupos.length?grupos.map((gr,gi)=>{ const ch=dupChave(gr), ig=ign.has(ch);
       return `<div class="panel" style="padding:0;overflow:hidden;margin-bottom:12px${ig?';opacity:.6':''}"><div style="padding:10px 14px;border-bottom:1px solid #e4dfd4;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <b>Grupo ${gi+1}</b>${pill(gr.nivel)}<span class="muted" style="font-size:12px;flex:1">${esc(gr.motivos.join(' · '))}</span>
+        ${podeUnificar()?`<button class="btn primary sm" onclick="unificarModal(${esc(JSON.stringify(gr.itens.map(p=>String(p.code))))})">⇄ Unificar…</button>`:''}
         <button class="btn ghost sm" onclick="dupIgnorar('${esc(ch)}',${ig?'false':'true'})">${ig?'Voltar a mostrar':'Não é duplicidade'}</button></div>
         <div class="tbl-wrap" style="border:none;border-radius:0"><table><thead><tr><th>Código</th><th>Cód. auxiliar</th><th>Descrição</th><th>Unid.</th><th>Grupo / Localização</th><th class="num">Saldo</th></tr></thead><tbody>${
         gr.itens.map(p=>`<tr><td class="mono" style="font-size:12.5px"><a href="javascript:void 0" onclick="editProductModal('${esc(p.code)}')">${esc(p.code)}</a></td><td class="mono" style="font-size:12.5px">${esc(p.aux||'—')}</td><td>${esc(p.desc||'')}${p.fab?`<div class="muted" style="font-size:11px">Fabricante: ${esc(p.fab)}</div>`:''}</td><td>${esc(p.unit||'')}</td>
           <td style="font-size:12.5px">${esc(produtoGrupo(p.code))}<div class="muted" style="font-size:11px">${esc(produtoLocal(p.code))}</div></td><td class="num">${numf(sal(p.code))}</td></tr>`).join('')}</tbody></table></div></div>`; }).join('')
       :'<div class="empty" style="padding:24px">Nenhuma possível duplicidade encontrada com estes filtros.</div>'}`;
 }
+/* ===== Unificar produtos (duplicados no cadastro) =====
+   Escolhe o produto que FICA; dos outros, o saldo de cada obra passa para ele (dois movimentos de ajuste com
+   "Unificação: ..." no documento — saída do que sai, entrada no que fica), o custo médio é recalculado pelos saldos,
+   códigos auxiliar/fabricante e o próprio código antigo viram códigos de fabricante do que fica (etiqueta antiga
+   continua sendo lida na contagem), as fotos passam para ele, e o produto que sai é excluído do cadastro.
+   O histórico antigo continua no código antigo (a auditoria mostra os dois lados).
+   Bloqueia se o produto que sai está em requisição em andamento ou em devolução ao fornecedor aberta.
+   Mesma permissão do Ajuste de Saldo (mexe em saldo sem nota). */
+function podeUnificar(){ return isEncarregado()&&!isEncFrotas()&&podeFazerAjusteManual(); }
+let _unif=null;
+function unificarModal(codes){ if(!podeUnificar()){ toast('Unificar mexe no saldo: precisa da mesma liberação do Ajuste de Saldo.','err'); return; }
+  codes=[...new Set((codes||[]).map(String))].filter(c=>findProduct(c));
+  const tot=c=>state.obras.reduce((t,o)=>t+saldoTotalOf(o.id,c),0);
+  codes.sort((a,b)=>tot(b)-tot(a));
+  _unif={codes,fica:codes[0]||'',sai:new Set(codes.slice(1)),unOk:false};
+  unificarDraw(); }
+function unificarDraw(){ const u=_unif; if(!u)return;
+  const tot=c=>state.obras.reduce((t,o)=>t+saldoTotalOf(o.id,c),0);
+  const F=findProduct(u.fica), sai=[...u.sai].filter(c=>c!==u.fica&&findProduct(c));
+  const unDif=F&&sai.some(c=>String(findProduct(c).unit||'').trim().toUpperCase()!==String(F.unit||'').trim().toUpperCase());
+  const linhas=u.codes.map(c=>{ const p=findProduct(c); if(!p)return ''; const fica=c===u.fica;
+    return `<tr><td><input type="radio" name="unFica" ${fica?'checked':''} onchange="_unif.fica='${esc(c)}';_unif.sai.delete('${esc(c)}');_unif.codes.forEach(x=>{ if(x!=='${esc(c)}')_unif.sai.add(x); });unificarDraw()"></td>
+      <td>${fica?'<span class="pill in">Fica</span>':`<label style="display:flex;gap:6px;align-items:center;margin:0;text-transform:none;font-weight:600"><input type="checkbox" style="width:auto" ${u.sai.has(c)?'checked':''} onchange="this.checked?_unif.sai.add('${esc(c)}'):_unif.sai.delete('${esc(c)}');unificarDraw()"> Sai</label>`}</td>
+      <td class="mono" style="font-size:12.5px">${esc(c)}</td><td>${esc(p.desc)}${p.aux?`<div class="muted" style="font-size:11px">aux.: ${esc(p.aux)}</div>`:''}</td><td>${esc(p.unit||'')}</td><td class="num">${numf(tot(c))}</td><td class="num">${money(p.custo||0)}</td></tr>`; }).join('');
+  let prev='';
+  if(F&&sai.length){
+    const ob=state.obras.filter(o=>[u.fica,...sai].some(c=>saldoTotalOf(o.id,c)!==0));
+    prev=`<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Obra</th><th class="num">Fica hoje</th>${sai.map(c=>`<th class="num">${esc(c)}</th>`).join('')}<th class="num">Fica depois</th></tr></thead><tbody>${
+      ob.map(o=>{ const a=saldoTotalOf(o.id,u.fica), soma=sai.reduce((t,c)=>t+saldoTotalOf(o.id,c),0);
+        return `<tr><td>${esc(o.nome)}</td><td class="num">${numf(a)}</td>${sai.map(c=>`<td class="num">+${numf(saldoTotalOf(o.id,c))}</td>`).join('')}<td class="num"><b>${numf(a+soma)}</b></td></tr>`; }).join('')||`<tr><td colspan="${3+sai.length}" class="muted">Nenhum saldo para transferir — só unifica o cadastro.</td></tr>`}</tbody></table></div>
+      <p class="desc" style="margin:8px 0 0">Custo médio do que fica: ${money(F.custo||0)} → <b>${money(unifCusto(u.fica,sai))}</b></p>`;
+  }
+  modal(`<h3>⇄ Unificar produtos</h3><p class="mp">Escolha o produto que <b>fica</b>. O saldo dos marcados como <b>sai</b> passa para ele em cada obra e eles são excluídos do cadastro. Fica tudo registrado na auditoria e no relatório de Ajustes (origem "Unificação").</p>
+    <div class="tbl-wrap"><table><thead><tr><th>Fica</th><th></th><th>Código</th><th>Descrição</th><th>Unid.</th><th class="num">Saldo total</th><th class="num">Custo</th></tr></thead><tbody>${linhas}</tbody></table></div>
+    <div class="search" style="max-width:none;margin-top:10px"><span class="si">⌕</span><input id="unBusca" placeholder="Incluir outro produto (nome ou código)..." autocomplete="off"></div><div id="unAchados"></div>
+    ${prev}
+    ${unDif?`<div class="panel" style="border-left:5px solid #c98a1a;margin:10px 0 0;padding:10px 14px"><b>⚠ Unidades diferentes.</b> O saldo é somado sem conversão. <label style="display:flex;gap:6px;align-items:center;margin-top:6px;text-transform:none;font-weight:600"><input type="checkbox" style="width:auto" ${u.unOk?'checked':''} onchange="_unif.unOk=this.checked;unificarDraw()"> Confirmo que as unidades são equivalentes</label></div>`:''}
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="_unif=null;closeModal()">Cancelar</button>
+      <button class="btn danger" ${F&&sai.length&&(!unDif||u.unOk)?'':'disabled'} onclick="unificarConfirmar()">Unificar ${sai.length} produto(s) em ${esc(u.fica)}</button></div>`);
+  const bi=$('#unBusca'); if(bi)bi.oninput=()=>{ const q=bi.value; const l=q.trim().length>=2?searchProducts(q).filter(p=>!u.codes.includes(String(p.code))).slice(0,6):[];
+    $('#unAchados').innerHTML=l.map(p=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 4px;border-bottom:1px solid #eee"><span><span class="mono" style="font-size:12px">${esc(p.code)}</span> · ${esc(p.desc)}</span><button class="btn ghost sm" onclick="_unif.codes.push('${esc(p.code)}');_unif.sai.add('${esc(p.code)}');unificarDraw()">Incluir</button></div>`).join(''); };
+}
+/* custo médio ponderado pelos saldos positivos (sem saldo: mantém o do que fica, ou o primeiro com custo) */
+function unifCusto(fica,sai){ const pos=c=>state.obras.reduce((t,o)=>t+Math.max(saldoTotalOf(o.id,c),0),0);
+  let q=0,v=0; [fica,...sai].forEach(c=>{ const p=findProduct(c); const n=pos(c); q+=n; v+=n*(Number(p&&p.custo)||0); });
+  if(q>0)return v/q; const F=findProduct(fica); if(F&&F.custo)return F.custo; const o=sai.map(findProduct).find(p=>p&&p.custo); return o?o.custo:0; }
+async function unificarConfirmar(){ const u=_unif; if(!u)return;
+  const fica=u.fica, sai=[...u.sai].filter(c=>c!==fica&&findProduct(c)); if(!findProduct(fica)||!sai.length)return;
+  /* produto que sai em uso: requisição em andamento ou devolução aberta */
+  const bloq=[];
+  try{ await refreshDevolucoesBloqueio(); }catch(e){}
+  sai.forEach(c=>state.obras.forEach(o=>{ if(saldoBloqueadoOf(o.id,c)>0)bloq.push(c+': devolução ao fornecedor em aberto ('+o.nome+')'); }));
+  const {data:reqs,error}=await sb.from('requisicoes').select('id,status,itens').in('status',['pendente','aprovada','em_separacao','aguardando_compra','separado','embalado','romaneio_emitido','faturado','embarcado']);
+  if(error){ toast('Não consegui conferir as requisições em andamento: '+esc(error.message),'err'); return; }
+  (reqs||[]).forEach(r=>(r.itens||[]).forEach(i=>{ if(sai.includes(String(i.code)))bloq.push(i.code+': REQ-'+String(r.id).padStart(5,'0')+' ('+reqStatusLabel(r.status)+')'); }));
+  if(bloq.length){ toast('Não dá para unificar agora — produto em uso:<br>'+[...new Set(bloq)].slice(0,8).map(esc).join('<br>')+'<br>Conclua ou ajuste essas pendências antes.','err'); return; }
+  const F=findProduct(fica);
+  requireSupervisor('Unificar '+sai.length+' produto(s) em "'+F.desc+'" ('+fica+'): o saldo passa para ele e os outros são excluídos',()=>unificarExecutar(fica,sai));
+}
+async function unificarExecutar(fica,sai){
+  const F=findProduct(fica); if(!F)return; const custo=unifCusto(fica,sai); let mov=0;
+  toast('Unificando...','warn');
+  for(const c of sai){ const P=findProduct(c); if(!P)continue;
+    for(const o of state.obras){ const q=saldoTotalOf(o.id,c); if(!q)continue;
+      /* saldo direto na tabela, um passo por vez: se algo falhar, para sem deixar saldo pela metade */
+      let r=await sb.rpc('ajustar_saldo',{p_obra:o.id,p_code:c,p_delta:-q});
+      if(r.error){ toast('Erro ao tirar o saldo de '+esc(c)+' em '+esc(o.nome)+': '+esc(r.error.message)+'. A unificação parou aqui; abra de novo para continuar.','err'); await save('Unificação interrompida: '+c+' → '+fica); unifimDraw(); return; }
+      if(!state.estoque[o.id])state.estoque[o.id]={}; state.estoque[o.id][c]=(state.estoque[o.id][c]||0)-q;
+      r=await sb.rpc('ajustar_saldo',{p_obra:o.id,p_code:fica,p_delta:q});
+      if(r.error){ await sb.rpc('ajustar_saldo',{p_obra:o.id,p_code:c,p_delta:q}); state.estoque[o.id][c]+=q;
+        toast('Erro ao lançar o saldo em '+esc(fica)+' ('+esc(o.nome)+'): '+esc(r.error.message)+'. Nada foi perdido; a unificação parou aqui.','err'); await save('Unificação interrompida: '+c+' → '+fica); unifimDraw(); return; }
+      state.estoque[o.id][fica]=(state.estoque[o.id][fica]||0)+q;
+      const ts=Date.now(), cu=Number(P.custo)||custo;
+      pushMov({id:uid(),ts,tipo:'ajuste',obra:o.id,code:c,desc:P.desc,qty:-q,valorUnit:cu,valorTotal:-q*cu,doc:'Unificação: saldo passado para '+fica+' ('+F.desc+')',saldo:saldoTotalOf(o.id,c)});
+      pushMov({id:uid(),ts:ts+1,tipo:'ajuste',obra:o.id,code:fica,desc:F.desc,qty:q,valorUnit:custo,valorTotal:q*custo,doc:'Unificação: saldo recebido de '+c+' ('+P.desc+')',saldo:saldoTotalOf(o.id,fica)});
+      mov+=2; }
+    /* cadastro: códigos antigos continuam sendo lidos (etiqueta e código de barras) */
+    if(!F.aux&&P.aux)F.aux=P.aux;
+    const fabs=new Set(String(F.fab||'').split(/[\s,;]+/).filter(Boolean));
+    [c,P.aux,...String(P.fab||'').split(/[\s,;]+/)].forEach(x=>{ x=String(x||'').trim(); if(x&&x!==fica&&x!==F.aux)fabs.add(x); });
+    F.fab=[...fabs].join(', ');
+    if(!F.ref&&P.ref)F.ref=P.ref; if(!F.grupo&&P.grupo)F.grupo=P.grupo; if(!F.localizacao&&P.localizacao)F.localizacao=P.localizacao;
+    if(state.limitesObra)Object.values(state.limitesObra).forEach(m=>{ if(m&&m[c]){ if(!m[fica])m[fica]=m[c]; delete m[c]; } });
+    /* fotos */
+    if(fotosLocais(c).length){ photos[fica]=fotosLocais(fica).concat(fotosLocais(c)); delete photos[c]; savePhotos(); }
+    try{ await sb.from('produto_fotos').update({code:fica}).eq('code',c); }catch(e){}
+    state.products=state.products.filter(x=>String(x.code)!==String(c));
+    if(!state.config)state.config={supHash:null};
+    (state.config.unificacoes=state.config.unificacoes||[]).push({de:c,para:fica,desc:P.desc,em:Date.now(),por:profile.nome||profile.email});
+  }
+  F.custo=custo;
+  await aguardarMovs();
+  const err=await save('Unificação de produtos: '+sai.join(', ')+' → '+fica+' ('+F.desc+')');
+  await loadFotosExt(); _unif=null; closeModal();
+  if(err)toast('Saldos unificados, mas o cadastro não foi gravado: '+esc(err.message||'')+'. Abra o produto e confira.','err');
+  else toast('Unificado: '+sai.length+' produto(s) em '+esc(fica)+(mov?' · '+mov/2+' saldo(s) transferido(s)':'')+'.','ok');
+  if(activeTab==='relatorios')drawRelatorio(); else refreshTelaAtual(); }
+function unifimDraw(){ _unif=null; closeModal(); if(activeTab==='relatorios')drawRelatorio(); else refreshTelaAtual(); }
 /* CSV do relatório em tela (separador ; e BOM, abre direto no Excel) */
 function exportRelCsv(){ if(!_rel||!_rel.rows.length){ toast('Sem dados para exportar.','err'); return; }
   const c=v=>{ const t=String(v==null?'':v); return /[;"\n\r]/.test(t)?'"'+t.replace(/"/g,'""')+'"':t; };
