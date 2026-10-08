@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&family=Oswald:wght@500;600&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.1/dist/umd/supabase.min.js"></script>
 <style>
 :root{
   --bg:#1E2024; --s1:#272A30; --s2:#30343B; --line:#3B4048; --tx:#ECEDEF; --mu:#9AA1AC;
@@ -263,15 +263,15 @@ function setPath(path, val){
   o[p[p.length - 1]] = val;
 }
 function shuffle(a){ for (let i = a.length - 1; i > 0; i--) { const j = Math.random()*(i+1)|0; [a[i], a[j]] = [a[j], a[i]]; } return a; }
+/* primeira página sozinha; se vier cheia, as seguintes vão de 4 em 4 ao mesmo tempo */
 async function buscarTudo(mk){
-  const out = []; const step = 1000;
-  for (let from = 0; ; from += step) {
-    const { data, error } = await mk().range(from, from + step - 1);
-    if (error) throw error;
-    out.push(...data);
-    if (data.length < step) break;
+  const step = 1000;
+  const first = await mk().range(0, step - 1); if (first.error) throw first.error;
+  const out = first.data || []; if (out.length < step) return out;
+  for (let from = step; ; from += 4 * step) {
+    const rs = await Promise.all([0, 1, 2, 3].map(i => mk().range(from + i * step, from + (i + 1) * step - 1)));
+    for (const { data, error } of rs) { if (error) throw error; out.push(...data); if (data.length < step) return out; }
   }
-  return out;
 }
 let toastT;
 function toast(msg, tipo = ''){
@@ -671,7 +671,7 @@ function confirmarFolha(){
      "produtos" do Supabase e o banco guarda só o endereço. No máximo 4 fotos por produto.
    Sem o script fabricante_e_fotos.sql instalado, os botões simplesmente não aparecem. */
 const MAX_FOTOS = 4, MAX_FOTOS_EXTRA = 3, FOTO_LADO = 520, FOTO_ALVO = 45 * 1024;
-const VERSAO_APP = '08/10/2026 · mais rápida, saldo pela tabela';   // aparece no menu do usuário: serve para conferir se o aparelho já pegou a versão nova
+const VERSAO_APP = '08/10/2026 b · mais leve';   // aparece no menu do usuário: serve para conferir se o aparelho já pegou a versão nova
 const semRecurso = e => !!e && (['PGRST202', 'PGRST205', '42P01', '42883'].includes(e.code) || /schema cache|does not exist/i.test(e.message || ''));
 function montarFab(lista){
   const map = {}, de = {};

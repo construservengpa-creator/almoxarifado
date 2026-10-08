@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&family=Oswald:wght@500;600&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.1/dist/umd/supabase.min.js"></script>
 <style>
 :root{
   --bg:#1E2024; --s1:#272A30; --s2:#30343B; --line:#3B4048; --tx:#ECEDEF; --mu:#9AA1AC;
@@ -188,19 +188,34 @@ function mostrarApp(){
   $('#who').textContent=(profile.nome||profile.email)+(isAdmin()?' · Admin':isEncAlmox()?' · Encarregado do almoxarifado':' · Encarregado');
   $('#escopo').textContent=veTodas()?'Requisições de todas as obras.':(vinculadas().length?'Somente das obras (centros de custo) vinculadas a você.':'Você ainda não tem obra vinculada — peça ao administrador.');
   if(!canal){
-    canal=sb.channel('app_aprovacoes').on('postgres_changes',{event:'*',schema:'public',table:'requisicoes'},()=>{ clearTimeout(window._rt); window._rt=setTimeout(atualizar,600); }).subscribe();
+    /* Só recarrega quando a mudança interessa a esta tela: requisição pendente (nova ou alterada) ou uma das que estão
+       na lista saindo de pendente. Antes recarregava (requisições + saldos) a cada separação, embalagem, expedição etc.
+       de qualquer requisição do sistema. */
+    canal=sb.channel('app_aprovacoes').on('postgres_changes',{event:'*',schema:'public',table:'requisicoes'},pl=>{
+      const n=pl.new||{}, o=pl.old||{}, id=n.id??o.id;
+      const interessa=n.status==='pendente'||pendentes.some(r=>r.id===id)||(aba==='hist'&&n.decidido_em);
+      if(!interessa)return;
+      clearTimeout(window._rt); window._rt=setTimeout(atualizar,600); }).subscribe();
   }
   atualizar();
 }
 $('#tPend').onclick=()=>{ aba='pend'; $('#tPend').classList.add('on'); $('#tHist').classList.remove('on'); atualizar(); };
 $('#tHist').onclick=()=>{ aba='hist'; $('#tHist').classList.add('on'); $('#tPend').classList.remove('on'); atualizar(); };
 $('#bRefresh').onclick=()=>{ atualizar(); toast('Atualizado.'); };
-document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&profile)atualizar(); });
+/* ao voltar para o app: atualiza, mas não mais de uma vez a cada 20 s (o tempo real já mantém a lista em dia) */
+let _ultAtual=0;
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&profile&&Date.now()-_ultAtual>20000)atualizar(); });
 
 function filtroObras(q){ if(veTodas())return q; const v=vinculadas(); return v.length?q.in('obra_id',v):null; }
 
+let _atualizando=null, _deNovo=false;
 async function atualizar(){
   if(!profile)return;
+  if(_atualizando){ _deNovo=true; return _atualizando; }   /* chamadas em sequência viram uma só rodada a mais */
+  _atualizando=(async()=>{ do{ _deNovo=false; _ultAtual=Date.now(); await _atualizar(); }while(_deNovo); })();
+  try{ await _atualizando; } finally{ _atualizando=null; }
+}
+async function _atualizar(){
   if(aba==='pend')await desenharPendentes(); else await desenharHistorico();
 }
 
@@ -222,7 +237,7 @@ async function saldosPara(reqs){
 
 async function desenharPendentes(){
   const box=$('#lista');
-  let q=filtroObras(sb.from('requisicoes').select('*').eq('status','pendente').order('criado_em',{ascending:true}));
+  let q=filtroObras(sb.from('requisicoes').select('id,obra_id,obra_nome,ordem_servico,aplicacao_nome,solicitante_nome,observacao,itens,criado_em,status,mutuo_estoque_obra_id').eq('status','pendente').order('criado_em',{ascending:true}));
   if(!q){ pendentes=[]; contar(); box.innerHTML='<div class="empty"><b>Nenhuma obra vinculada</b>Peça ao administrador para vincular suas obras.</div>'; return; }
   const {data,error}=await q;
   if(error){ box.innerHTML='<div class="empty"><b>Erro ao carregar</b>'+esc(error.message)+'</div>'; return; }
@@ -270,7 +285,7 @@ async function desenharHistorico(){
 async function aprovar(id,btn){
   btn.disabled=true; btn.textContent='Aprovando…';
   try{
-    const {data:r,error:e1}=await sb.from('requisicoes').select('*').eq('id',id).maybeSingle();
+    const {data:r,error:e1}=await sb.from('requisicoes').select('id,obra_id,obra_nome,ordem_servico,aplicacao_nome,solicitante_nome,observacao,itens,criado_em,status,mutuo_estoque_obra_id').eq('id',id).maybeSingle();
     if(e1||!r)throw new Error('Requisição não encontrada.');
     if(r.status!=='pendente'){ toast(reqN(id)+' já foi decidida por outra pessoa.','warn'); atualizar(); return; }
     if(!podeAprovarObra(r.obra_id))throw new Error('Você não está vinculado à obra desta requisição.');
