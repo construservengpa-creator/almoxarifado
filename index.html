@@ -558,7 +558,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-09T00:30:00-03:00';
+const APP_VERSION='2026-10-09T01:30:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -1665,7 +1665,7 @@ function drawNfHist(){ const el=$('#nfHist'); if(!el)return; const list=filtraNo
     list.map(n=>`<tr><td class="mono">${esc(n.numero)}</td><td class="muted" style="font-size:12px">${n.dataEmissao?new Date(n.dataEmissao+'T00:00:00').toLocaleDateString('pt-BR'):fmtDate(n.ts)}</td><td>${esc(n.forn||'—')}</td><td>${esc(obraName(n.obra))}</td><td class="num">${n.itens.length}</td><td class="num"><b>${money(n.valor||0)}</b></td><td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="notaDetalhe('${n.id}')">Detalhes</button> <button class="btn danger sm" title="Excluir e estornar (supervisor)" onclick="deleteNotaId('${n.id}',true)">🗑</button></td></tr>`).join('')+`</tbody></table>`;
 }
 function notaDetalhe(id){ const n=state.notas.find(x=>x.id===id); if(!n)return;
-  const linhas=n.itens.map(it=>`<tr><td class="mono">${esc(it.code)}</td><td>${esc(it.desc)}${it.xmlDesc&&it.xmlDesc!==it.desc?`<div class="refline">NF: ${esc(it.xmlCod||'')} · ${esc(it.xmlDesc)}${it.fator&&it.fator!==1?` · fator ${numf(it.fator)}`:''}</div>`:''}</td><td class="num">${numf(it.qty)} ${esc(it.unit||'')}</td><td class="num">${money(it.custo)}</td><td class="num">${money(it.qty*it.custo)}</td></tr>`).join('');
+  const linhas=n.itens.map(it=>`<tr><td class="mono">${esc(it.code)}</td><td>${esc(it.desc)}${it.xmlDesc&&it.xmlDesc!==it.desc?`<div class="refline">NF: ${esc(it.xmlCod||'')} · ${esc(it.xmlDesc)}${it.fator&&it.fator!==1?` · fator ${numf(it.fator)}`:''}</div>`:''}${it.ncm||it.cst||it.frete>0?`<div class="refline">${[it.ncm?'NCM '+esc(it.ncm):'',it.cst?'CST '+esc(it.cst):'',it.frete>0?'frete '+money(it.frete)+' incluso no custo':''].filter(Boolean).join(' · ')}</div>`:''}</td><td class="num">${numf(it.qty)} ${esc(it.unit||'')}</td><td class="num">${money(it.custo)}</td><td class="num">${money(it.qty*it.custo)}</td></tr>`).join('');
   modal(`<h3>Nota ${esc(n.numero)}</h3><p class="mp">Emissão: ${n.dataEmissao?new Date(n.dataEmissao+'T00:00:00').toLocaleDateString('pt-BR'):'—'} · ${esc(n.forn||'sem fornecedor')} · Obra: ${esc(obraName(n.obra))}</p>
   <div class="tbl-wrap"><table><thead><tr><th>Código</th><th>Descrição</th><th class="num">Qtd</th><th class="num">Custo un.</th><th class="num">Total</th></tr></thead><tbody>${linhas}</tbody></table></div>
   <div style="text-align:right;margin-top:12px;font-size:14px">Total da nota: <b class="mono">${money(n.valor||0)}</b></div>
@@ -1710,15 +1710,28 @@ function importXml(content){
     const emitCnpjX=emit?txt(emit,'CNPJ')||txt(emit,'CPF'):'';
     let add=0, auto=0;
     nfItems=nfItems.filter(i=>!i.reposPre); /* o XML substitui os itens pré-carregados da solicitação */
-    dets.forEach(det=>{ const prod=tagsOf(det,'prod')[0]; if(!prod)return;
+    /* Frete destacado na nota: usa o vFrete de cada item quando o emitente já rateou; senão rateia o vFrete total
+       (ICMSTot) proporcionalmente ao valor dos produtos. O frete compõe o custo unitário de entrada. */
+    const detsP=dets.map(det=>({det,prod:tagsOf(det,'prod')[0]})).filter(d=>d.prod);
+    const vProdOf=d=>parseFloat(txt(d.prod,'vProd'))||0;
+    const totX=tagsOf(doc,'ICMSTot')[0]; const freteTot=totX?parseFloat(txt(totX,'vFrete'))||0:0;
+    const freteItens=detsP.map(d=>parseFloat(txt(d.prod,'vFrete'))||0); const somaFreteItens=freteItens.reduce((a,b)=>a+b,0);
+    const somaVProd=detsP.reduce((t,d)=>t+vProdOf(d),0);
+    let freteRat=freteItens;
+    if(!(somaFreteItens>0) && freteTot>0){ freteRat=detsP.map(d=>somaVProd>0?+(freteTot*vProdOf(d)/somaVProd).toFixed(2):+(freteTot/detsP.length).toFixed(2));
+      const dif=+(freteTot-freteRat.reduce((a,b)=>a+b,0)).toFixed(2); if(dif&&freteRat.length){ const iMax=freteRat.indexOf(Math.max(...freteRat)); freteRat[iMax]=+(freteRat[iMax]+dif).toFixed(2); } } /* centavos que sobram do arredondamento vão para o maior item */
+    const freteTotal=freteRat.reduce((a,b)=>a+b,0);
+    detsP.forEach(({det,prod},di)=>{
       const cEAN=txt(prod,'cEAN'); const cProd=txt(prod,'cProd');
       const eanOk=/^\d{8,14}$/.test(cEAN);
       const code=eanOk?cEAN:(cProd||genCode());
       const qty=parseFloat(txt(prod,'qCom'))||parseFloat(txt(prod,'qTrib'))||0;
-      const custo=parseFloat(txt(prod,'vUnCom'))||parseFloat(txt(prod,'vUnTrib'))||0;
+      const custoNF=parseFloat(txt(prod,'vUnCom'))||parseFloat(txt(prod,'vUnTrib'))||0;
+      const frete=freteRat[di]||0; const custo=frete>0&&qty>0?+(custoNF+frete/qty).toFixed(6):custoNF;
       const xProd=txt(prod,'xProd'); const uCom=(txt(prod,'uCom')||'UN').toUpperCase();
+      const ncm=onlyDigits(txt(prod,'NCM')); const cst=cstIcmsDoDet(det);
       const it={code, desc:xProd, unit:uCom, qty, custo, preco:0,
-        xml:{cProd, cEAN:eanOk?cEAN:'', xProd, uCom, qty, custo, cnpj:onlyDigits(emitCnpjX)}, link:null, fator:1, lembrar:true};
+        xml:{cProd, cEAN:eanOk?cEAN:'', xProd, uCom, qty, custo, custoNF, frete, ncm, cst, cnpj:onlyDigits(emitCnpjX)}, link:null, fator:1, lembrar:true};
       autoVincular(it); if(it.link)auto++;
       nfItems.push(it); add++; });
     if(nNF&&$('#nfNum'))$('#nfNum').value=String(nNF).replace(/\D/g,''); if(forn&&$('#nfForn'))$('#nfForn').value=forn;
@@ -1730,9 +1743,12 @@ function importXml(content){
     ctrlPreencherDoXml(doc);
     const dest=tagsOf(doc,'dest')[0]; const destDoc=dest?(txt(dest,'CNPJ')||txt(dest,'CPF')):''; if(destDoc&&$('#nfCnpjTom'))$('#nfCnpjTom').value=destDoc;
     if($('#xmlText'))$('#xmlText').value='';
-    drawNfItems(); toast(`XML lido · ${add} item(ns) carregado(s)`+(auto?` · ${auto} vinculado(s) automaticamente`:'')+(add-auto?` · ${add-auto} sem vínculo`:'')+'.','ok');
+    drawNfItems(); toast(`XML lido · ${add} item(ns) carregado(s)`+(auto?` · ${auto} vinculado(s) automaticamente`:'')+(add-auto?` · ${add-auto} sem vínculo`:'')+(freteTotal>0?` · frete de ${money(freteTotal)} rateado no custo dos itens`:'')+'.','ok');
   }catch(e){ toast('Erro ao ler XML: '+e.message,'err'); }
 }
+/* CST do ICMS do item: origem + CST (ex.: 000, 060) ou origem + CSOSN no Simples Nacional (ex.: 0102) */
+function cstIcmsDoDet(det){ const icms=tagsOf(det,'ICMS')[0]; if(!icms)return ''; const g=[...icms.children][0]||icms;
+  const cst=txt(g,'CST')||txt(g,'CSOSN'); return cst?txt(g,'orig')+cst:''; }
 /* ===== VÍNCULO DE INSUMOS DA NOTA COM PRODUTOS EXISTENTES ===== */
 function onlyDigits(s){ return String(s||'').replace(/\D/g,''); }
 function vincKey(cnpj,cProd){ return (onlyDigits(cnpj)||'semcnpj')+'|'+String(cProd||'').trim().toUpperCase(); }
@@ -1755,7 +1771,7 @@ function autoVincular(it){ const x=it.xml;
   it.link=null; }
 const VINC_ORIG={memoria:'vínculo salvo',ean:'mesmo EAN',codigo:'mesmo código',manual:'manual'};
 function vincCellHTML(it,i){ const x=it.xml;
-  const orig=`<div class="refline">NF: <span class="mono">${esc(x.cProd||'—')}</span> · ${esc(x.xProd)} · ${numf(x.qty)} ${esc(x.uCom)} × ${money(x.custo)}</div>`;
+  const orig=`<div class="refline">NF: <span class="mono">${esc(x.cProd||'—')}</span> · ${esc(x.xProd)} · ${numf(x.qty)} ${esc(x.uCom)} × ${money(x.custoNF!=null?x.custoNF:x.custo)}${x.frete>0?` + frete ${money(x.frete)}`:''}${x.ncm?` · NCM <span class="mono">${esc(x.ncm)}</span>`:''}${x.cst?` · CST <span class="mono">${esc(x.cst)}</span>`:''}</div>`;
   if(it.link){ return orig+`<div style="margin-top:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="pill good" style="font-size:10px">🔗 vinculado · ${VINC_ORIG[it.origem]||'manual'}</span>${it.fator!==1?`<span class="pill tr" style="font-size:10px">1 ${esc(x.uCom)} = ${numf(it.fator)} ${esc(it.unit)}</span>`:''}<button class="btn ghost sm" style="padding:2px 8px;font-size:11px" onclick="vincModal(${i})">Alterar</button></div>`; }
   const sug=sugestoesVinc(it,1)[0];
   return orig+`<div style="margin-top:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="pill high" style="font-size:10px">+ será cadastrado como novo</span><button class="btn dark sm" style="padding:2px 8px;font-size:11px" onclick="vincModal(${i})">🔗 Vincular a insumo existente</button>${sug?`<span class="muted" style="font-size:11px">sugestão: ${esc(sug.p.desc)}</span>`:''}</div>`; }
@@ -1853,13 +1869,14 @@ function processNf(force){
   nfItems.forEach(it=>{ let p=it.code?findProduct(it.code):null;
     if(!p){ const code=it.code||genCode(); p={code,desc:it.desc,unit:it.unit,aux:'',min:0,max:0,custo:0,preco:it.preco||0,ref:it.ref||''}; state.products.push(p); }
     else if(it.ref && !p.ref){ p.ref=it.ref; }
+    if(it.xml){ if(it.xml.ncm)p.ncm=it.xml.ncm; if(it.xml.cst)p.cst=it.xml.cst; } /* NCM e CST da última nota recebida */
     const qAnt=totalSaldo(p.code);
     if(it.custo>0){ const novo=qAnt+it.qty; p.custo=novo>0?((qAnt*(p.custo||0))+(it.qty*it.custo))/novo:it.custo; }
     if(it.preco>0)p.preco=it.preco; if(!it.xml && it.desc&&p.desc!==it.desc)p.desc=it.desc; /* item de XML não renomeia o cadastro com a descrição do fornecedor */
     if(it.xml && it.lembrar!==false && it.xml.cProd){ const k=vincKey(it.xml.cnpj,it.xml.cProd); if(!state.vinculosNF)state.vinculosNF={};
       state.vinculosNF[k]={code:p.code,fator:it.fator||1,xProd:it.xml.xProd,uCom:it.xml.uCom,forn,ts}; }
     addSaldo(obra,p.code,it.qty); total+=it.qty*it.custo;
-    notaItens.push(Object.assign({code:p.code,desc:p.desc,qty:it.qty,custo:it.custo,unit:p.unit}, it.xml?{xmlCod:it.xml.cProd,xmlDesc:it.xml.xProd,xmlUnit:it.xml.uCom,xmlQty:it.xml.qty,fator:it.fator||1}:{}));
+    notaItens.push(Object.assign({code:p.code,desc:p.desc,qty:it.qty,custo:it.custo,unit:p.unit}, it.xml?{xmlCod:it.xml.cProd,xmlDesc:it.xml.xProd,xmlUnit:it.xml.uCom,xmlQty:it.xml.qty,fator:it.fator||1,ncm:it.xml.ncm||'',cst:it.xml.cst||'',frete:it.xml.frete||0}:{}));
     movsNota.push(pushMov({id:uid(),ts,tipo:'entrada',obra,notaId,code:p.code,desc:p.desc,qty:it.qty,valorUnit:it.custo,valorTotal:it.qty*it.custo,doc,saldo:saldoOf(obra,p.code)}));
     { const Lm=limDe(p,obra); if(!Lm.off&&Lm.max>0&&saldoOf(obra,p.code)>Lm.max)alerts.push(`${p.desc}: ${numf(saldoOf(obra,p.code))} acima do máximo`); }
   });
@@ -2108,6 +2125,7 @@ function qrPayloadFor(p){
     'CUSTO: '+money(p.custo||0),
     p.preco?('VENDA: '+money(p.preco)):null,
     p.grupo?('GRUPO: '+p.grupo):null,
+    p.ncm?('NCM: '+p.ncm):null,
     (p.localizacao||p.endereco)?('LOCAL: '+[p.localizacao,p.endereco].filter(Boolean).join(' · ')):null,
     p.ref?('REFERÊNCIA: '+p.ref):null
   ].filter(Boolean);
@@ -2131,6 +2149,7 @@ function editProductModal(code){ const p=findProduct(code); if(!p)return;
       <div class="field" style="margin:0"><label>Estoque (Localização)</label><input id="epLocal" list="localListE" value="${esc(p.localizacao||'')}" placeholder="Ex.: Almoxarifado Central"></div>
       <div class="field" style="margin:0"><label>Endereço</label><input id="epEndereco" value="${esc(p.endereco||'')}" placeholder="Ex.: Corredor B, Prateleira 3"></div>
     </div>
+    <div class="row c2"><div class="field" style="margin:10px 0 0"><label>NCM</label><input id="epNcm" class="mono" value="${esc(p.ncm||'')}" placeholder="8 dígitos" data-noupper></div><div class="field" style="margin:10px 0 0"><label>CST (ICMS)</label><input id="epCst" class="mono" value="${esc(p.cst||'')}" placeholder="Ex.: 000, 060" data-noupper></div></div>
     <datalist id="grupoListE">${grupos.map(g=>`<option value="${esc(g)}">`).join('')}</datalist>
     <datalist id="localListE">${locais.map(l=>`<option value="${esc(l)}">`).join('')}</datalist>
     <div class="field"><label>Referências / Aplicação</label><textarea id="epRef" rows="3" placeholder="Ex.: usado na escavadeira CAT 320 · filtro hidráulico">${esc(p.ref||'')}</textarea></div>
@@ -2147,6 +2166,7 @@ function saveEditProduct(code){ const p=findProduct(code); if(!p)return; const d
   if($('#epFab')){ const fl=fabNormalizar($('#epFab').value); const cf=fabConflito(fl,code); if(cf){ toast(esc(cf.msg),'err'); return; } if(fl.some(c=>c.length<4||c.length>60)){ toast('Código de barras do fabricante inválido (de 4 a 60 caracteres).','err'); return; } p.fab=fl.join(', '); }
   p.desc=d; p.unit=$('#epUnit').value.trim()||'UN'; p.aux=($('#epAux')?$('#epAux').value.trim():(p.aux||'')); if($('#epCusto'))p.custo=parseFloat($('#epCusto').value)||0; if($('#epPreco'))p.preco=parseFloat($('#epPreco').value)||0; p.ref=$('#epRef').value.trim();
   p.grupo=($('#epGrupo')?$('#epGrupo').value.trim():''); p.localizacao=($('#epLocal')?$('#epLocal').value.trim():''); p.endereco=($('#epEndereco')?$('#epEndereco').value.trim():'');
+  if($('#epNcm'))p.ncm=onlyDigits($('#epNcm').value); if($('#epCst'))p.cst=onlyDigits($('#epCst').value);
   save(); closeModal(); renderProdutos(); toast('Produto atualizado.','ok'); }
 function newProductModal(){ const grupos=[...new Set(state.products.map(p=>p.grupo).filter(Boolean))]; const locais=[...new Set(state.products.map(p=>p.localizacao).filter(Boolean))];
   modal(`<h3>Novo produto</h3><p class="mp">O código de barras é gerado se ficar em branco. Saldo entra na obra <b>${esc(obraName(curObra()==='__all'?state.obras[0].id:curObra()))}</b>.</p>
