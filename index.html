@@ -476,7 +476,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-08T17:00:00-03:00';
+const APP_VERSION='2026-10-08T18:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -937,8 +937,9 @@ function resizeImage(file,max,cb){ const r=new FileReader(); r.onload=e=>{ const
 let fotosExt={};
 function fotosLocais(code){ const v=photos[code]; return Array.isArray(v)?v:(v?[v]:[]); }
 function photoList(code){ const loc=fotosLocais(code), ex=fotosExt[code]; return ex&&ex.length?loc.concat(ex.map(x=>x.url)):loc; }
-async function loadFotosExt(){ try{ const {data,error}=await fetchAllRows(()=>sb.from('produto_fotos').select('id,code,path').order('criado_em').order('id')); if(error)return false;
-    const m={}; (data||[]).forEach(r=>{ (m[r.code]=m[r.code]||[]).push({id:r.id,path:r.path,url:sb.storage.from('produtos').getPublicUrl(r.path).data.publicUrl}); });
+async function loadFotosExt(){ try{ const {data,error}=await fetchAllRows(()=>sb.from('produto_fotos').select('id,code,path,origem').order('criado_em').order('id')); if(error)return false;
+    const m={}; (data||[]).forEach(r=>{ (m[r.code]=m[r.code]||[]).push({id:r.id,path:r.path,doc:r.origem==='documento',url:sb.storage.from('produtos').getPublicUrl(r.path).data.publicUrl}); });
+    Object.values(m).forEach(a=>a.sort((x,y)=>(y.doc?1:0)-(x.doc?1:0))); /* fotos do cadastro (migradas do documento) antes das tiradas na contagem; sort estável mantém a ordem dentro de cada grupo */
     const mudou=JSON.stringify(Object.keys(m).map(k=>[k,m[k].length]))!==JSON.stringify(Object.keys(fotosExt).map(k=>[k,fotosExt[k].length])); fotosExt=m; return mudou; }catch(e){ return false; } }
 /* Foto tirada na contagem de um item "fora da lista" fica ligada ao registro dele (code = "extra:<id>").
    Quando o item é lançado no estoque, ela passa para o produto. */
@@ -953,10 +954,48 @@ async function removeFotoExt(code,ex){ const {data,error}=await sb.from('produto
   try{ await sb.storage.from('produtos').remove([ex.path]); }catch(e){}
   fotosExt[code]=(fotosExt[code]||[]).filter(x=>x.id!==ex.id); if(!fotosExt[code].length)delete fotosExt[code];
   renderEpGallery(code); toast('Foto removida.','ok'); }
+/* ===== Fotos como arquivo =====
+   Antes as fotos do cadastro ficavam todas, em base64, num único registro (app_kv "...:fotos") baixado inteiro a cada
+   abertura do sistema. Agora cada foto vira um arquivo na pasta "produtos" do Supabase e a tabela produto_fotos guarda
+   só o endereço (o mesmo caminho das fotos da Contagem). Se o banco recusar (sem permissão, limite de fotos do
+   produto etc.), a foto fica no formato antigo e continua aparecendo. */
+async function _fotoId(code,dataUrl){ const b=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(code+'|'+dataUrl)));
+  const h=[...b.slice(0,16)].map(x=>x.toString(16).padStart(2,'0')).join('');
+  return h.slice(0,8)+'-'+h.slice(8,12)+'-4'+h.slice(13,16)+'-'+(8|(parseInt(h[16],16)&3)).toString(16)+h.slice(17,20)+'-'+h.slice(20,32); }
+function _dataUrlBlob(u){ const [cab,b64]=String(u).split(','); const bin=atob(b64); const a=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++)a[i]=bin.charCodeAt(i);
+  return new Blob([a],{type:(/data:([^;]+)/.exec(cab)||[])[1]||'image/jpeg'}); }
+/* envia uma foto (dataURL) para o armazenamento; id fixo pelo conteúdo: repetir não duplica. Devolve true se ficou lá. */
+async function fotoParaArquivo(code,dataUrl){
+  try{ const id=await _fotoId(code,dataUrl), blob=_dataUrlBlob(dataUrl);
+    const path='p/'+String(code).replace(/[^A-Za-z0-9._-]/g,'_')+'/'+id+'.jpg';
+    const up=await sb.storage.from('produtos').upload(path,blob,{contentType:blob.type,upsert:false,cacheControl:'31536000'});
+    if(up.error&&!/exist|duplicate/i.test(up.error.message||''))return false;
+    const ins=await sb.from('produto_fotos').insert({id,code,path,bytes:blob.size,origem:'documento',criado_por_nome:profile.nome||profile.email});
+    return !ins.error||ins.error.code==='23505';
+  }catch(e){ console.warn('fotoParaArquivo',e); return false; } }
+let _migrandoFotos=false;
+async function migrarFotosAntigas(){
+  if(_migrandoFotos||!isOnline||!profile||profile.papel!=='admin'||!profile.ativo)return;
+  if(_photosReady)await _photosReady; if(!_photosLoaded)return;
+  const codes=Object.keys(photos).filter(c=>fotosLocais(c).length); if(!codes.length)return;
+  _migrandoFotos=true; let ok=0, ficou=0;
+  try{
+    for(const code of codes){
+      const resta=[];
+      for(const u of fotosLocais(code)){ if(await fotoParaArquivo(code,u))ok++; else { resta.push(u); ficou++; } }
+      if(resta.length)photos[code]=resta; else delete photos[code];
+      if(ok&&ok%40===0){ await savePhotos(); await loadFotosExt(); } /* grava aos poucos: se a aba fechar no meio, o já enviado não volta */
+    }
+    if(ok){ await savePhotos(); await loadFotosExt(); if(!usuarioInteragindo())refreshTelaAtual();
+      toast(ok+' foto(s) antiga(s) passaram para arquivos — o sistema abre mais leve.'+(ficou?' '+ficou+' ficaram no formato antigo.':''),'ok'); }
+  } finally { _migrandoFotos=false; } }
 function uploadPhoto(code,inp){ if(!fotosProntas()){ inp.value=''; return; } const files=[...inp.files].filter(f=>f.type.startsWith('image/')); if(!files.length){toast('Selecione imagem(ns).','err');return;}
   if(!Array.isArray(photos[code]))photos[code]=photos[code]?[photos[code]]:[];
   let pending=files.length;
-  files.forEach(f=>resizeImage(f,680,src=>{ photos[code].push(src); if(--pending===0){ savePhotos(); renderEpGallery(code); toast('Foto(s) salva(s).','ok'); } }));
+  let antigas=0;
+  files.forEach(f=>resizeImage(f,680,async src=>{
+    if(!(await fotoParaArquivo(code,src))){ photos[code].push(src); antigas++; }
+    if(--pending===0){ if(!photos[code].length)delete photos[code]; if(antigas)savePhotos(); await loadFotosExt(); renderEpGallery(code); toast('Foto(s) salva(s).','ok'); } }));
   inp.value=''; }
 function removePhotoAt(code,idx){ const loc=fotosLocais(code);
   if(idx>=loc.length){ const ex=(fotosExt[code]||[])[idx-loc.length]; if(ex)removeFotoExt(code,ex); return; }
@@ -4973,7 +5012,7 @@ function onAuthReady(){
   const p=(async()=>{
     profile=await loadProfile();
     if(!profile||!profile.ativo){ showPending(); return; }
-    hideGate(); applyRoleNav(); initNavGrps(); const pDev=refreshDevolucoesBloqueio().catch(()=>{}); await load(); await pDev; loadPhotos().then(()=>refreshTelaAtual()); loadFotosExt().then(mudou=>{ if(mudou&&!usuarioInteragindo())refreshTelaAtual(); }); loadReposAbertas().then(()=>refreshTelaAtual()); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); checkEntregaParcial().then(()=>refreshRetiradasBadge()); _comprovOk=null; _comprovPend={confirmar:[],receber:[]}; _comprovUsers=null; refreshComprovPend().then(()=>{ refreshComprovBadge(); processarLinkRecebimento(); }); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge();
+    hideGate(); applyRoleNav(); initNavGrps(); const pDev=refreshDevolucoesBloqueio().catch(()=>{}); await load(); await pDev; loadPhotos().then(()=>{ refreshTelaAtual(); migrarFotosAntigas(); }); loadFotosExt().then(mudou=>{ if(mudou&&!usuarioInteragindo())refreshTelaAtual(); }); loadReposAbertas().then(()=>refreshTelaAtual()); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); checkEntregaParcial().then(()=>refreshRetiradasBadge()); _comprovOk=null; _comprovPend={confirmar:[],receber:[]}; _comprovUsers=null; refreshComprovPend().then(()=>{ refreshComprovBadge(); processarLinkRecebimento(); }); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge();
     _bootedUid=uid; go(abaInicial());
     if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); startVersionWatch(); }
   })();
