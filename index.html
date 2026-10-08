@@ -476,7 +476,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-08T18:00:00-03:00';
+const APP_VERSION='2026-10-08T20:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -2003,6 +2003,9 @@ function setField(code,f,v){ const p=findProduct(code); if(!p)return;
   p[f]=parseFloat(v)||0; save();
   if(f==='min'||f==='max'){ if(p.max>0&&p.min>p.max)toast('Mínimo maior que o máximo.','warn'); } refreshBadge(); }
 function delProduct(code){ const p=findProduct(code); if(!p)return;
+  /* o saldo vive na tabela saldos_estoque: excluir o cadastro com saldo deixava esse saldo "invisível" no banco */
+  const comSaldo=state.obras.filter(o=>saldoTotalOf(o.id,code)!==0);
+  if(comSaldo.length){ toast('Este produto ainda tem saldo em '+comSaldo.map(o=>o.nome+' ('+numf(saldoTotalOf(o.id,code))+')').join(', ')+'. Zere o saldo (Ajuste de saldo) ou transfira antes de excluir.','err'); return; }
   requireSupervisor(`Excluir produto "${p.desc}"`,()=>{ state.products=state.products.filter(x=>String(x.code)!==String(code));
     state.obras.forEach(o=>{ if(state.estoque[o.id])delete state.estoque[o.id][code]; }); delete photos[code]; savePhotos(); { const exs=fotosExt[code]||[]; if(exs.length){ delete fotosExt[code]; sb.from('produto_fotos').delete().eq('code',code).then(()=>sb.storage.from('produtos').remove(exs.map(x=>x.path))).catch(()=>{}); } } save('Produto excluído: '+p.desc+' ('+code+')'); renderProdutos(); toast('Produto excluído.','ok'); }); }
 function qrPayloadFor(p){
@@ -2607,7 +2610,9 @@ async function invCarregarOrfaos(){
   if(error)throw error;
   const porCode={};
   (data||[]).forEach(m=>{ if(!m.code||findProduct(m.code)||porCode[m.code])return; porCode[m.code]=m; }); /* mais recente primeiro */
-  const lst=Object.values(porCode); if(!lst.length)return [];
+  const ign=new Set((state.config&&state.config.invOrfaosIgnorados)||[]);
+  /* produto excluído de propósito (sem saldo, ou dispensado aqui) não é "sem cadastro" */
+  const lst=Object.values(porCode).filter(m=>!ign.has(String(m.code))&&state.obras.some(o=>saldoTotalOf(o.id,m.code)!==0)); if(!lst.length)return [];
   const exIds=[...new Set(lst.map(m=>/^inv:extra:(.+)$/.exec(m.inv_id)).filter(Boolean).map(x=>x[1]))], ex={};
   for(let i=0;i<exIds.length;i+=100){ const r=await sb.from('contagem_extras').select('id,descricao,desc_final,unidade,unid_final,custo,ciclo_id').in('id',exIds.slice(i,i+100)); if(r.error)throw r.error; r.data.forEach(x=>ex[x.id]=x); }
   return lst.map(m=>{ const x=ex[(/^inv:extra:(.+)$/.exec(m.inv_id)||[])[1]]||{};
@@ -2617,9 +2622,14 @@ function invOrfaosHTML(){ if(!invOrfaos.length)return '';
   const mono="font-family:'IBM Plex Mono',monospace";
   return '<div class="panel" style="border-left:5px solid #c98a1a"><h3>⚠ '+invOrfaos.length+' item(ns) lançado(s) pela contagem sem cadastro</h3><p class="desc">Estes itens já tiveram o saldo lançado pelo inventário, mas o cadastro do produto não foi gravado — por isso <b>não aparecem no estoque</b>. Recadastrar cria os produtos com a descrição, unidade e custo da contagem; o saldo já lançado volta a aparecer (nenhuma quantidade é lançada de novo).</p>'
     +'<button class="btn primary" onclick="invRecadastrarOrfaos()">Recadastrar '+invOrfaos.length+' produto(s)</button>'
-    +'<details style="margin-top:10px"><summary style="cursor:pointer;color:var(--muted);font-size:12.5px">Ver itens</summary><div class="tbl-wrap" style="margin-top:8px"><table><thead><tr><th>Código</th><th>Descrição</th><th>Unid.</th><th class="num">Saldo no banco</th><th class="num">Custo</th></tr></thead><tbody>'
-    +invOrfaos.map(o=>'<tr><td style="'+mono+'">'+esc(o.code)+'</td><td>'+esc(o.desc)+'</td><td>'+esc(o.unit)+'</td><td class="num">'+numf(o.saldo)+'</td><td class="num">'+money(o.custo)+'</td></tr>').join('')
+    +'<details style="margin-top:10px"><summary style="cursor:pointer;color:var(--muted);font-size:12.5px">Ver itens</summary><p class="desc" style="margin:8px 0 0">Se o produto foi <b>excluído de propósito</b> (ex.: era duplicado), use <b>Dispensar</b>: ele sai deste aviso e não é recadastrado. Lembre de zerar ou transferir o saldo que ainda ficou para ele.</p><div class="tbl-wrap" style="margin-top:8px"><table><thead><tr><th>Código</th><th>Descrição</th><th>Unid.</th><th class="num">Saldo no banco</th><th class="num">Custo</th><th></th></tr></thead><tbody>'
+    +invOrfaos.map(o=>'<tr><td style="'+mono+'">'+esc(o.code)+'</td><td>'+esc(o.desc)+'</td><td>'+esc(o.unit)+'</td><td class="num">'+numf(o.saldo)+'</td><td class="num">'+money(o.custo)+'</td><td><button class="btn ghost sm" onclick="invDispensarOrfao(\''+esc(o.code)+'\')">Dispensar</button></td></tr>').join('')
     +'</tbody></table></div></details></div>'; }
+async function invDispensarOrfao(code){
+  if(!state.config)state.config={supHash:null};
+  const l=new Set(state.config.invOrfaosIgnorados||[]); l.add(String(code)); state.config.invOrfaosIgnorados=[...l];
+  await save('Inventário: produto excluído dispensado do aviso de "sem cadastro" ('+code+')');
+  invOrfaos=invOrfaos.filter(o=>String(o.code)!==String(code)); invDraw(); }
 function invRecadastrarOrfaos(){
   if(!invOrfaos.length)return;
   requireSupervisor('Recadastrar '+invOrfaos.length+' produto(s) lançados pela contagem sem cadastro',async()=>{
@@ -5088,6 +5098,7 @@ function renderRelatorios(){ if(needObra())return;
       <button id="rtCons" onclick="setRelTipo('consorcio')">P/ Consórcio (débito)</button>
       <button id="rtARet" onclick="setRelTipo('aretirar')">Retiradas / a retirar</button>
       <button id="rtAjInv" onclick="setRelTipo('ajustes')">Ajustes de inventário</button>
+      <button id="rtDup" onclick="setRelTipo('duplicidades')">Possíveis duplicidades</button>
     </div>
   </div>
   <div id="relView"></div>`;
@@ -5098,7 +5109,7 @@ function renderRelatorios(){ if(needObra())return;
   ['relProdutoTxt','relOSTxt'].forEach(id=>{ const el=$('#'+id); if(el){ el.oninput=()=>relAgendar(300); el.onkeydown=e=>{ if(e.key==='Enter')relAgendar(0); }; } });
   ['relFrom','relTo'].forEach(id=>{ const el=$('#'+id); if(el){ el.onchange=()=>relAgendar(700); el.onkeydown=e=>{ if(e.key==='Enter')relAgendar(0); }; } });
 }
-function setRelTipo(t){ relTipo=t; [['aplicacao','rtAplic'],['tipo','rtTipo'],['obra','rtObra'],['produto','rtProd'],['grupo','rtGrupo'],['os','rtOS'],['consorcio','rtCons'],['aretirar','rtARet'],['ajustes','rtAjInv']].forEach(([k,id])=>{const b=$('#'+id); if(b)b.classList.toggle('on',k===t);}); drawRelatorio(); }
+function setRelTipo(t){ relTipo=t; [['aplicacao','rtAplic'],['tipo','rtTipo'],['obra','rtObra'],['produto','rtProd'],['grupo','rtGrupo'],['os','rtOS'],['consorcio','rtCons'],['aretirar','rtARet'],['ajustes','rtAjInv'],['duplicidades','rtDup']].forEach(([k,id])=>{const b=$('#'+id); if(b)b.classList.toggle('on',k===t);}); drawRelatorio(); }
 /* ===== Relatório: insumos lançados por Inventário / Ajuste de Saldo (movimentos 'ajuste') =====
    Um item por linha, para avaliar o que entrou (ou saiu) do estoque sem nota fiscal: saldo antes/depois,
    custo usado e valor. Usa De/Até, Obra, Grupo, Localização e Produto; Tipo de aplicação, Aplicação e OS
@@ -5303,10 +5314,107 @@ async function drawRelAtendidas(){ const box=$('#relView'); if(!box)return;
     }</tbody>${arr.length?`<tfoot><tr><td></td><td><b>Total</b></td><td><b>${arr.length} saída(s)</b></td><td colspan="6"></td><td class="num"><b>${totItens}</b></td><td class="num"><b>${money(totValor)}</b></td></tr></tfoot>`:''}</table></div>
     <p class="muted" style="font-size:11.5px;margin-top:8px">Considera requisições retiradas no balcão ou despachadas no período (De/Até), pela data da saída. Entregas parciais no balcão aparecem uma por linha, marcadas "(parcial)", só com os itens daquela entrega. "Retirado por" é o colaborador informado na retirada; em despachos, a transportadora. Valor = quantidade separada × custo cadastrado do produto.</p>`;
 }
+/* ===== Relatório: possíveis duplicidades no cadastro de produtos =====
+   Não depende do período. Junta em grupos os produtos que parecem ser o mesmo item, pelos critérios:
+     Alta  · descrição igual (sem acento, pontuação, espaços e maiúsc./minúsc.)
+           · mesmo código auxiliar, código de fabricante (código de barras) ou referência em produtos diferentes
+     Média · mesmo código de peça escrito na descrição (ex.: "5280585", "7W-5495" = "7W5495", "132-8876" = "1328876")
+     Baixa · descrições muito parecidas (pelo menos 75% das palavras em comum)
+   Usa Obra (saldo mostrado), Grupo, Localização e Produto. "Não é duplicidade" guarda o grupo em
+   state.config.dupIgnorados (vale para todos) e ele deixa de aparecer, a não ser que se peça para mostrar. */
+let _relDupConf='media', _relDupIgn=false;
+const _DUP_STOP=new Set(['DE','DA','DO','DAS','DOS','E','EM','NA','NO','COM','SEM','PARA','P','C','A','O','AS','OS','UN','PC','PCS','CX','KG','LT','L','M','MM','CM','ORIGINAL','GENUINO','CAT','CATERPILLAR','TIPO','REF','COD','MOD','MODELO']);
+function dupNorm(x){ return String(x==null?'':x).normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase(); }
+function dupPecas(desc){ const out=new Set(); (dupNorm(desc).match(/[A-Z0-9][A-Z0-9.\-\/]*[A-Z0-9]/g)||[]).forEach(t=>{ const k=t.replace(/[.\-\/]/g,'');
+    if(k.length>=4&&(k.match(/\d/g)||[]).length>=4)out.add(k); }); return out; }
+function dupGrupos(prods){
+  const n=prods.length, pai=prods.map((_,i)=>i), motivos=new Map();
+  const raiz=i=>{ while(pai[i]!==i){ pai[i]=pai[pai[i]]; i=pai[i]; } return i; };
+  const par=(i,j,nivel,txt)=>{ if(i===j)return; const a=Math.min(i,j), b=Math.max(i,j), k=a+'|'+b;
+    const m=motivos.get(k)||{nivel:0,txt:new Set()}; m.nivel=Math.max(m.nivel,nivel); m.txt.add(txt); motivos.set(k,m); pai[raiz(a)]=raiz(b); };
+  const porChave=(chaveDe,nivel,rotulo,maxGrupo)=>{ const idx=new Map();
+    prods.forEach((p,i)=>chaveDe(p,i).forEach(k=>{ if(!k)return; if(!idx.has(k))idx.set(k,[]); idx.get(k).push(i); }));
+    idx.forEach((l,k)=>{ const u=[...new Set(l)]; if(u.length<2||(maxGrupo&&u.length>maxGrupo))return; for(let x=1;x<u.length;x++)par(u[0],u[x],nivel,rotulo(k)); }); return idx; };
+  const descKey=prods.map(p=>dupNorm(p.desc).replace(/[^A-Z0-9]/g,''));
+  porChave((p,i)=>[descKey[i]].filter(k=>k.length>=3),3,()=>'descrição igual');
+  const codigos=p=>{ const s=new Set(); [p.aux,p.ref].forEach(v=>{ const k=dupNorm(v).replace(/[^A-Z0-9]/g,''); if(k.length>=3)s.add(k); });
+    String(p.fab||'').split(/[\s,;]+/).forEach(v=>{ const k=dupNorm(v).replace(/[^A-Z0-9]/g,''); if(k.length>=4)s.add(k); }); return [...s]; };
+  porChave(codigos,3,k=>'mesmo cód. auxiliar/fabricante/referência ('+k+')');
+  porChave(p=>[...dupPecas(p.desc)],2,k=>'mesmo código de peça na descrição ('+k+')',8);
+  /* descrições parecidas: compara só produtos que têm alguma palavra pouco comum em comum */
+  const palavras=prods.map(p=>new Set(dupNorm(p.desc).split(/[^A-Z0-9]+/).filter(w=>w.length>=2&&!_DUP_STOP.has(w))));
+  const freq=new Map(); palavras.forEach(ws=>ws.forEach(w=>freq.set(w,(freq.get(w)||0)+1)));
+  const blocos=new Map(); palavras.forEach((ws,i)=>ws.forEach(w=>{ if(freq.get(w)<=40){ if(!blocos.has(w))blocos.set(w,[]); blocos.get(w).push(i); } }));
+  const visto=new Set();
+  blocos.forEach(l=>{ for(let x=0;x<l.length;x++)for(let y=x+1;y<l.length;y++){ const i=l[x], j=l[y], k=i+'|'+j; if(visto.has(k))continue; visto.add(k);
+    const A=palavras[i], B=palavras[j]; if(A.size<2||B.size<2)continue; let c=0; A.forEach(w=>{ if(B.has(w))c++; });
+    const jac=c/(A.size+B.size-c); if(jac>=0.75)par(i,j,1,'descrição parecida ('+Math.round(jac*100)+'%)'); } });
+  /* monta os grupos com o nível mais alto entre os pares de cada um */
+  const g=new Map(); prods.forEach((_,i)=>{ const r=raiz(i); if(!g.has(r))g.set(r,{itens:[],nivel:0,motivos:new Set()}); g.get(r).itens.push(i); });
+  motivos.forEach((m,k)=>{ const gr=g.get(raiz(+k.split('|')[0])); gr.nivel=Math.max(gr.nivel,m.nivel); m.txt.forEach(t=>gr.motivos.add(t)); });
+  return [...g.values()].filter(x=>x.itens.length>1).map(x=>({nivel:x.nivel,motivos:[...x.motivos],itens:x.itens.map(i=>prods[i])})); }
+function dupChave(gr){ return gr.itens.map(p=>String(p.code)).sort().join('|'); }
+async function dupIgnorar(chave,ign){ if(!state.config)state.config={supHash:null}; const l=new Set(state.config.dupIgnorados||[]);
+  if(ign)l.add(chave); else l.delete(chave); state.config.dupIgnorados=[...l];
+  await save((ign?'Marcado como não duplicidade: ':'Volta a aparecer em duplicidades: ')+chave.split('|').join(', ')); drawRelatorio(); }
+function drawRelDuplicidades(){ const box=$('#relView'); if(!box)return; relIdxOn();
+  const fobra=$('#relObra')?$('#relObra').value:'__all', isAll=fobra==='__all';
+  const gf=$('#relGrupo')?$('#relGrupo').value:'', lf=$('#relLocal')?$('#relLocal').value:'';
+  const pf=($('#relProdutoTxt')?$('#relProdutoTxt').value:'').toLowerCase().trim();
+  const sal=code=>isAll?totalSaldo(code):saldoOf(fobra,code);
+  const NIV={3:'Alta',2:'Média',1:'Baixa'}, minN={alta:3,media:2,baixa:1}[_relDupConf]||2;
+  const ign=new Set((state.config&&state.config.dupIgnorados)||[]);
+  let grupos=dupGrupos(state.products.filter(p=>p&&p.code!=null));
+  /* filtros: o grupo aparece se ALGUM produto dele atende (para não esconder o par do item filtrado) */
+  if(gf)grupos=grupos.filter(gr=>gr.itens.some(p=>produtoGrupo(p.code)===gf));
+  if(lf)grupos=grupos.filter(gr=>gr.itens.some(p=>produtoLocal(p.code)===lf));
+  if(pf)grupos=grupos.filter(gr=>gr.itens.some(p=>[p.code,p.desc,p.aux,p.fab,p.ref].some(v=>String(v||'').toLowerCase().includes(pf))));
+  const nIgn=grupos.filter(gr=>ign.has(dupChave(gr))).length;
+  grupos=grupos.filter(gr=>gr.nivel>=minN&&(_relDupIgn||!ign.has(dupChave(gr))));
+  grupos.forEach(gr=>{ gr.itens.sort((a,b)=>sal(b.code)-sal(a.code)||String(a.code).localeCompare(String(b.code),'pt-BR',{numeric:true})); gr.saldo=gr.itens.reduce((t,p)=>t+sal(p.code),0); });
+  grupos.sort((a,b)=>b.nivel-a.nivel||b.itens.length-a.itens.length||String(a.itens[0].desc).localeCompare(String(b.itens[0].desc),'pt-BR'));
+  const nProd=grupos.reduce((t,gr)=>t+gr.itens.length,0), cont=k=>grupos.filter(gr=>gr.nivel===k).length;
+  const titulo='Possíveis duplicidades no cadastro de produtos';
+  const sub=(isAll?'saldo de todas as obras':'saldo em '+obraName(fobra))+(gf?' · grupo: '+gf:'')+(lf?' · local: '+lf:'')+(pf?' · produto: '+pf:'')+' · confiança: '+({alta:'só alta',media:'média ou alta',baixa:'todas'}[_relDupConf]);
+  _rel={titulo,sub:sub+' · '+grupos.length+' grupo(s), '+nProd+' produto(s)',view:'duplicidades',align:'lllllllr',
+    headers:['Grupo','Confiança','Código','Cód. auxiliar','Descrição','Unid.','Grupo / Localização','Saldo'],
+    rows:grupos.flatMap((gr,gi)=>gr.itens.map((p,k)=>[k?'':String(gi+1),k?'':NIV[gr.nivel]+': '+gr.motivos.join('; '),String(p.code),p.aux||'—',p.desc||'',p.unit||'',produtoGrupo(p.code)+' / '+produtoLocal(p.code),numf(sal(p.code))])),
+    foot:['Total',grupos.length+' grupo(s)','',nProd+' produto(s)','','','','']};
+  const opt=(cur,v,l)=>`<option value="${v}" ${cur===v?'selected':''}>${l}</option>`;
+  const ss='style="width:auto;font-size:12.5px;padding:6px 8px"';
+  const pill=nv=>nv===3?'<span class="pill low" style="white-space:nowrap">Alta</span>':nv===2?'<span class="pill high" style="white-space:nowrap">Média</span>':'<span class="pill tr" style="white-space:nowrap">Baixa</span>';
+  box.innerHTML=`<div class="sechead" style="flex-wrap:wrap;gap:8px"><h3>${esc(titulo)}</h3><span style="font-size:12px;color:#8a8377">${esc(sub)}</span>
+      <select ${ss} onchange="_relDupConf=this.value;drawRelatorio()">${opt(_relDupConf,'alta','Só confiança alta')}${opt(_relDupConf,'media','Confiança média ou alta')}${opt(_relDupConf,'baixa','Todas (inclui descrições parecidas)')}</select>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;text-transform:none;font-weight:600;margin:0"><input type="checkbox" style="width:auto" ${_relDupIgn?'checked':''} onchange="_relDupIgn=this.checked;drawRelatorio()"> Mostrar os marcados como "não é duplicidade"${nIgn?' ('+nIgn+')':''}</label>
+      <button class="btn ghost sm" onclick="exportRelCsv()">⬇ Exportar CSV</button></div>
+    <div class="cards" style="margin-bottom:16px">
+      <div class="card ${cont(3)?'alert':'neutral'}"><div class="stripe"></div><div class="lbl">Confiança alta</div><div class="val">${cont(3)}</div><div class="sub">descrição ou código igual</div></div>
+      <div class="card ${cont(2)?'warn':'neutral'}"><div class="stripe"></div><div class="lbl">Confiança média</div><div class="val">${cont(2)}</div><div class="sub">mesmo código de peça na descrição</div></div>
+      <div class="card neutral"><div class="stripe"></div><div class="lbl">Confiança baixa</div><div class="val">${_relDupConf==='baixa'?cont(1):'—'}</div><div class="sub">${_relDupConf==='baixa'?'descrições parecidas':'escolha "Todas" para ver'}</div></div>
+      <div class="card neutral"><div class="stripe"></div><div class="lbl">Produtos envolvidos</div><div class="val">${nProd}</div><div class="sub">de ${state.products.length} no cadastro</div></div>
+    </div>
+    <p class="desc" style="margin:0 0 12px">Cada grupo reúne produtos que <b>podem</b> ser o mesmo item. Confira antes de unificar: o produto com mais saldo aparece primeiro. Clique no código para abrir o cadastro.</p>
+    ${grupos.length?grupos.map((gr,gi)=>{ const ch=dupChave(gr), ig=ign.has(ch);
+      return `<div class="panel" style="padding:0;overflow:hidden;margin-bottom:12px${ig?';opacity:.6':''}"><div style="padding:10px 14px;border-bottom:1px solid #e4dfd4;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <b>Grupo ${gi+1}</b>${pill(gr.nivel)}<span class="muted" style="font-size:12px;flex:1">${esc(gr.motivos.join(' · '))}</span>
+        <button class="btn ghost sm" onclick="dupIgnorar('${esc(ch)}',${ig?'false':'true'})">${ig?'Voltar a mostrar':'Não é duplicidade'}</button></div>
+        <div class="tbl-wrap" style="border:none;border-radius:0"><table><thead><tr><th>Código</th><th>Cód. auxiliar</th><th>Descrição</th><th>Unid.</th><th>Grupo / Localização</th><th class="num">Saldo</th></tr></thead><tbody>${
+        gr.itens.map(p=>`<tr><td class="mono" style="font-size:12.5px"><a href="javascript:void 0" onclick="editProductModal('${esc(p.code)}')">${esc(p.code)}</a></td><td class="mono" style="font-size:12.5px">${esc(p.aux||'—')}</td><td>${esc(p.desc||'')}${p.fab?`<div class="muted" style="font-size:11px">Fabricante: ${esc(p.fab)}</div>`:''}</td><td>${esc(p.unit||'')}</td>
+          <td style="font-size:12.5px">${esc(produtoGrupo(p.code))}<div class="muted" style="font-size:11px">${esc(produtoLocal(p.code))}</div></td><td class="num">${numf(sal(p.code))}</td></tr>`).join('')}</tbody></table></div></div>`; }).join('')
+      :'<div class="empty" style="padding:24px">Nenhuma possível duplicidade encontrada com estes filtros.</div>'}`;
+}
+/* CSV do relatório em tela (separador ; e BOM, abre direto no Excel) */
+function exportRelCsv(){ if(!_rel||!_rel.rows.length){ toast('Sem dados para exportar.','err'); return; }
+  const c=v=>{ const t=String(v==null?'':v); return /[;"\n\r]/.test(t)?'"'+t.replace(/"/g,'""')+'"':t; };
+  const txt='﻿'+[_rel.headers].concat(_rel.rows).map(r=>r.map(c).join(';')).join('\r\n');
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([txt],{type:'text/csv;charset=utf-8'}));
+  a.download=(_rel.view||'relatorio')+'_'+new Date().toISOString().slice(0,10)+'.csv'; document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1000); }
 function drawRelatorio(){ const box=$('#relView'); if(!box)return;
   clearTimeout(_relDrawTimer); _relDrawTimer=null;
   if(!relDataOk($('#relFrom')&&$('#relFrom').value)||!relDataOk($('#relTo')&&$('#relTo').value)){ _rel=null; box.innerHTML='<div class="empty" style="padding:24px">Informe as datas De/Até completas (ano com 4 dígitos) para gerar o relatório.</div>'; return; }
   if(relTipo==='aretirar'){ drawRelARetirar(); return; }
+  if(relTipo==='duplicidades'){ drawRelDuplicidades(); return; }
   const [f,t]=relPeriod();
   if(precisaHistorico(f)){ box.innerHTML='<div class="empty" style="padding:24px">Carregando histórico do período...</div>';
     ensureMovsSince(f).then(ok=>{ if(activeTab!=='relatorios'||!$('#relView'))return;
