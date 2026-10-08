@@ -135,6 +135,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   .thumb.ph{display:flex;align-items:center;justify-content:center;background:#faf8f3;color:#c9c2b3;font-size:18px}
   .editphoto{width:120px;height:120px;border-radius:10px;object-fit:cover;border:1px solid #e4dfd4;display:block}
   .editphoto.ph{display:flex;align-items:center;justify-content:center;background:#faf8f3;color:#a09a8d;font-size:12px;text-align:center}
+  .comp-custo td.num,.comp-custo th{white-space:nowrap}
   .refline{font-size:11px;color:#8a7a55;margin-top:4px;line-height:1.4}
   /* Tabelas de produtos com largura padrão: colunas fixas, especificação limitada a 2 linhas (clique expande) */
   table.fixa{table-layout:fixed;width:100%;min-width:1080px}
@@ -558,7 +559,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-09T01:30:00-03:00';
+const APP_VERSION='2026-10-09T02:30:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -1870,13 +1871,14 @@ function processNf(force){
     if(!p){ const code=it.code||genCode(); p={code,desc:it.desc,unit:it.unit,aux:'',min:0,max:0,custo:0,preco:it.preco||0,ref:it.ref||''}; state.products.push(p); }
     else if(it.ref && !p.ref){ p.ref=it.ref; }
     if(it.xml){ if(it.xml.ncm)p.ncm=it.xml.ncm; if(it.xml.cst)p.cst=it.xml.cst; } /* NCM e CST da última nota recebida */
-    const qAnt=totalSaldo(p.code);
+    const qAnt=totalSaldo(p.code); const custoAnt=p.custo||0;
     if(it.custo>0){ const novo=qAnt+it.qty; p.custo=novo>0?((qAnt*(p.custo||0))+(it.qty*it.custo))/novo:it.custo; }
     if(it.preco>0)p.preco=it.preco; if(!it.xml && it.desc&&p.desc!==it.desc)p.desc=it.desc; /* item de XML não renomeia o cadastro com a descrição do fornecedor */
     if(it.xml && it.lembrar!==false && it.xml.cProd){ const k=vincKey(it.xml.cnpj,it.xml.cProd); if(!state.vinculosNF)state.vinculosNF={};
       state.vinculosNF[k]={code:p.code,fator:it.fator||1,xProd:it.xml.xProd,uCom:it.xml.uCom,forn,ts}; }
     addSaldo(obra,p.code,it.qty); total+=it.qty*it.custo;
-    notaItens.push(Object.assign({code:p.code,desc:p.desc,qty:it.qty,custo:it.custo,unit:p.unit}, it.xml?{xmlCod:it.xml.cProd,xmlDesc:it.xml.xProd,xmlUnit:it.xml.uCom,xmlQty:it.xml.qty,fator:it.fator||1,ncm:it.xml.ncm||'',cst:it.xml.cst||'',frete:it.xml.frete||0}:{}));
+    notaItens.push(Object.assign({code:p.code,desc:p.desc,qty:it.qty,custo:it.custo,unit:p.unit}, it.xml?{xmlCod:it.xml.cProd,xmlDesc:it.xml.xProd,xmlUnit:it.xml.uCom,xmlQty:it.xml.qty,fator:it.fator||1,ncm:it.xml.ncm||'',cst:it.xml.cst||'',frete:it.xml.frete||0,custoNF:+((it.xml.custoNF!=null?it.xml.custoNF:it.xml.custo)/(it.fator||1)).toFixed(6)}:{},
+      {qAnt,custoAnt,custoMedio:p.custo||0})); /* composição do custo: saldo e custo médio antes da entrada e o custo médio resultante */
     movsNota.push(pushMov({id:uid(),ts,tipo:'entrada',obra,notaId,code:p.code,desc:p.desc,qty:it.qty,valorUnit:it.custo,valorTotal:it.qty*it.custo,doc,saldo:saldoOf(obra,p.code)}));
     { const Lm=limDe(p,obra); if(!Lm.off&&Lm.max>0&&saldoOf(obra,p.code)>Lm.max)alerts.push(`${p.desc}: ${numf(saldoOf(obra,p.code))} acima do máximo`); }
   });
@@ -2135,6 +2137,8 @@ function editProductModal(code){ const p=findProduct(code); if(!p)return;
   let saldos=state.obras.map(o=>`${esc(o.nome)}: <b>${numf(saldoOf(o.id,code))}</b>`).join(' · ')||'sem obras';
   const grupos=[...new Set(state.products.map(x=>x.grupo).filter(Boolean))]; const locais=[...new Set(state.products.map(x=>x.localizacao).filter(Boolean))];
   modal(`<h3>Editar produto</h3><p class="mp mono">${esc(p.code)}</p>
+    <div class="tabs"><button id="epTabCad" class="on" onclick="epTab('cad')">Cadastro</button><button id="epTabFis" onclick="epTab('fis')">Fiscal e composição do custo</button></div>
+    <div id="epPaneCad">
     <div style="display:flex;gap:18px;align-items:flex-start;margin-bottom:14px;flex-wrap:wrap">
       <div style="text-align:center;min-width:180px"><div id="epPhoto" style="display:flex;flex-wrap:wrap;justify-content:center;gap:6px"></div>
       <input type="file" id="epFile" accept="image/*" multiple capture="environment" style="display:none" onchange="uploadPhoto('${esc(code)}',this)">
@@ -2149,11 +2153,16 @@ function editProductModal(code){ const p=findProduct(code); if(!p)return;
       <div class="field" style="margin:0"><label>Estoque (Localização)</label><input id="epLocal" list="localListE" value="${esc(p.localizacao||'')}" placeholder="Ex.: Almoxarifado Central"></div>
       <div class="field" style="margin:0"><label>Endereço</label><input id="epEndereco" value="${esc(p.endereco||'')}" placeholder="Ex.: Corredor B, Prateleira 3"></div>
     </div>
-    <div class="row c2"><div class="field" style="margin:10px 0 0"><label>NCM</label><input id="epNcm" class="mono" value="${esc(p.ncm||'')}" placeholder="8 dígitos" data-noupper></div><div class="field" style="margin:10px 0 0"><label>CST (ICMS)</label><input id="epCst" class="mono" value="${esc(p.cst||'')}" placeholder="Ex.: 000, 060" data-noupper></div></div>
     <datalist id="grupoListE">${grupos.map(g=>`<option value="${esc(g)}">`).join('')}</datalist>
     <datalist id="localListE">${locais.map(l=>`<option value="${esc(l)}">`).join('')}</datalist>
     <div class="field"><label>Referências / Aplicação</label><textarea id="epRef" rows="3" placeholder="Ex.: usado na escavadeira CAT 320 · filtro hidráulico">${esc(p.ref||'')}</textarea></div>
     <div style="font-size:11.5px;color:#8a8377;margin-bottom:14px">Saldo por obra — ${saldos}</div>
+    </div>
+    <div id="epPaneFis" style="display:none">
+      <div class="row c2"><div class="field"><label>NCM</label><input id="epNcm" class="mono" value="${esc(p.ncm||'')}" placeholder="8 dígitos" data-noupper></div><div class="field"><label>CST (ICMS)</label><input id="epCst" class="mono" value="${esc(p.cst||'')}" placeholder="Ex.: 000, 060, 0102" data-noupper></div></div>
+      <p class="muted" style="font-size:11.5px;margin:-6px 0 14px">Preenchidos automaticamente pelo XML da última nota recebida. CST = origem + CST do ICMS (ou CSOSN no Simples Nacional).</p>
+      ${composicaoCustoHTML(p)}
+    </div>
     <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">${podeUnificar()?`<button class="btn ghost" style="margin-right:auto" onclick="unificarModal(['${esc(code)}'])">⇄ Unificar com outro produto</button>`:''}<button class="btn ghost" onclick="closeModal()">Fechar</button><button class="btn primary" onclick="saveEditProduct('${esc(code)}')">Salvar</button></div>`);
   renderEpGallery(code); loadFotosExt().then(mudou=>{ if(mudou&&document.getElementById('epPhoto'))renderEpGallery(code); });
   const qrBox=$('#epQR'); if(qrBox){ qrBox.innerHTML=''; try{
@@ -2161,6 +2170,35 @@ function editProductModal(code){ const p=findProduct(code); if(!p)return;
     qrBox.innerHTML=qr.createSvgTag({cellSize:4,margin:4});
     const svg=qrBox.querySelector('svg'); if(svg){svg.style.maxWidth='140px';svg.style.width='100%';svg.style.height='auto';}
   }catch(e){ qrBox.innerHTML='<span class="muted" style="font-size:10.5px;color:#b03030">Erro: '+esc(e&&e.message||String(e))+'</span>'; toast('QR: '+(e&&e.message||e),'err'); } }
+}
+function epTab(t){ ['cad','fis'].forEach(k=>{ const b=$('#epTab'+(k==='cad'?'Cad':'Fis')), pn=$('#epPane'+(k==='cad'?'Cad':'Fis')); if(b)b.classList.toggle('on',k===t); if(pn)pn.style.display=k===t?'':'none'; }); }
+/* Composição do custo: a partir das notas de entrada do produto (mais recente primeiro), mostra valor unitário da NF,
+   frete rateado, custo de entrada e como o custo médio ponderado foi recalculado (saldo anterior × custo anterior + entrada). */
+function composicaoCustoHTML(p){ const u=esc(p.unit||'UN');
+  const ents=[]; state.notas.forEach(n=>(n.itens||[]).forEach(it=>{ if(it.code===p.code)ents.push({n,it}); }));
+  ents.sort((a,b)=>(b.n.ts||0)-(a.n.ts||0));
+  const head=`<div class="sechead" style="margin:4px 0 8px"><h3 style="margin:0;font-size:14px">Composição do custo</h3><span class="muted" style="font-size:12px">Custo médio atual: <b>${money(p.custo||0)}</b> / ${u}</span></div>`;
+  if(!ents.length)return head+`<div class="tbl-wrap"><div class="empty" style="padding:18px">Nenhuma nota de entrada registrada para este produto. O custo atual veio do cadastro, de importação ou de ajuste manual.</div></div>`;
+  const un=it=>it.custoNF!=null?it.custoNF:(it.custo||0)-(it.frete>0&&it.qty>0?it.frete/it.qty:0);
+  const dt=n=>n.dataEmissao?new Date(n.dataEmissao+'T00:00:00').toLocaleDateString('pt-BR'):fmtDate(n.ts);
+  const {n:n0,it:i0}=ents[0]; const fr0=i0.frete>0&&i0.qty>0?i0.frete/i0.qty:0;
+  let det=`<div style="border:1px solid #e4dfd4;border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:13px;line-height:1.7;background:#fbf9f4">
+    <div style="font-size:11px;color:#8a8377;text-transform:uppercase;letter-spacing:.5px;font-weight:700;margin-bottom:4px">Última entrada · NF ${esc(n0.numero)} · ${esc(n0.forn||'sem fornecedor')} · ${dt(n0)}</div>
+    ${i0.xmlUnit&&i0.fator&&i0.fator!==1?`<div class="muted" style="font-size:12px">Na nota: ${numf(i0.xmlQty)} ${esc(i0.xmlUnit)} · 1 ${esc(i0.xmlUnit)} = ${numf(i0.fator)} ${u} → ${numf(i0.qty)} ${u}</div>`:''}
+    <div style="display:grid;grid-template-columns:1fr auto;gap:0 16px;max-width:420px">
+      <span>Valor unitário na NF</span><span class="mono" style="text-align:right">${money(un(i0))}</span>
+      <span>+ Frete rateado (${money(i0.frete||0)} ÷ ${numf(i0.qty)} ${u})</span><span class="mono" style="text-align:right">${money(fr0)}</span>
+      <span style="border-top:1px solid #e4dfd4;font-weight:700">= Custo unitário de entrada</span><span class="mono" style="text-align:right;border-top:1px solid #e4dfd4;font-weight:700">${money(i0.custo||0)}</span>
+    </div>`;
+  if(i0.qAnt!=null){ const q=i0.qAnt;
+    det+=`<div style="margin-top:10px;padding-top:8px;border-top:1px dashed #e4dfd4">
+      <div><b>Custo médio ponderado</b> = (saldo anterior × custo anterior + qtd. entrada × custo de entrada) ÷ (saldo anterior + qtd. entrada)</div>
+      <div class="mono" style="font-size:12.5px">= (${numf(q)} × ${money(i0.custoAnt||0)} + ${numf(i0.qty)} × ${money(i0.custo||0)}) ÷ (${numf(q)} + ${numf(i0.qty)}) = <b>${money(i0.custoMedio||0)}</b></div>
+      ${Math.abs((i0.custoMedio||0)-(p.custo||0))>0.005?`<div class="muted" style="font-size:12px">O custo médio atual (${money(p.custo||0)}) foi alterado depois desta entrada (edição manual, unificação ou outra movimentação).</div>`:''}</div>`; }
+  else det+=`<div class="muted" style="font-size:12px;margin-top:8px">Entrada lançada antes do registro da composição: o cálculo do custo médio desta nota não foi guardado.</div>`;
+  det+=`</div>`;
+  const linhas=ents.slice(0,15).map(({n,it})=>`<tr><td style="white-space:nowrap">${dt(n)}</td><td><span class="mono">NF ${esc(n.numero)}</span><div class="muted" style="font-size:11px">${esc(n.forn||'—')}${it.ncm?' · NCM '+esc(it.ncm):''}${it.cst?' · CST '+esc(it.cst):''}</div></td><td class="num">${numf(it.qty)}</td><td class="num">${money(un(it))}</td><td class="num">${it.frete>0?money(it.frete/(it.qty||1)):'—'}</td><td class="num"><b>${money(it.custo||0)}</b></td><td class="num">${it.custoMedio!=null?money(it.custoMedio):'—'}</td></tr>`).join('');
+  return head+det+`<div class="tbl-wrap"><table class="comp-custo" style="font-size:12px"><thead><tr><th>Data</th><th>Nota</th><th class="num">Qtd (${u})</th><th class="num">Un. NF</th><th class="num">Frete un.</th><th class="num">Custo entrada</th><th class="num">Custo médio após</th></tr></thead><tbody>${linhas}</tbody></table></div>${ents.length>15?`<p class="muted" style="font-size:11.5px;margin-top:6px">Mostrando as 15 entradas mais recentes de ${ents.length}.</p>`:''}`;
 }
 function saveEditProduct(code){ const p=findProduct(code); if(!p)return; const d=$('#epDesc').value.trim(); if(!d){toast('Descrição obrigatória.','err');return;}
   if($('#epFab')){ const fl=fabNormalizar($('#epFab').value); const cf=fabConflito(fl,code); if(cf){ toast(esc(cf.msg),'err'); return; } if(fl.some(c=>c.length<4||c.length>60)){ toast('Código de barras do fabricante inválido (de 4 a 60 caracteres).','err'); return; } p.fab=fl.join(', '); }
