@@ -91,6 +91,10 @@ textarea.f{min-height:96px;resize:vertical}
 
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:60;
   background:var(--s2);border:1px solid var(--line);border-radius:12px;padding:11px 16px;font-size:14px;max-width:92vw;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.aviso{display:flex;align-items:center;gap:10px;background:var(--s1);border:1px solid var(--ac);border-radius:12px;padding:10px 12px;margin:6px 0 10px;font-size:13px}
+.aviso span{flex:1}
+.aviso .btn{flex:0 0 auto;padding:8px 12px;font-size:13px}
+.icon-btn.on{border-color:var(--ac)}
 .toast.ok{border-color:var(--ok)} .toast.err{border-color:var(--bad)} .toast.warn{border-color:var(--warn)}
 </style>
 </head>
@@ -112,6 +116,7 @@ textarea.f{min-height:96px;resize:vertical}
 <section id="vApp" hidden>
   <header class="top">
     <h1>Aprovações<small id="who"></small></h1>
+    <button class="icon-btn" id="bNotif" aria-label="Notificações" title="Notificações">🔕</button>
     <button class="icon-btn" id="bRefresh" aria-label="Atualizar">⟳</button>
     <button class="icon-btn" id="bSair" aria-label="Sair" style="width:auto;padding:0 12px;font-size:13px;font-weight:600">Sair</button>
   </header>
@@ -120,6 +125,7 @@ textarea.f{min-height:96px;resize:vertical}
     <button id="tHist">Decididas</button>
   </nav>
   <main>
+    <div class="aviso" id="avNotif" hidden><span>Receba um aviso no celular sempre que chegar requisição para aprovar.</span><button class="btn pri" id="bAtivar">Ativar</button></div>
     <div class="info" id="escopo"></div>
     <div id="lista"><div class="empty">Carregando…</div></div>
   </main>
@@ -180,7 +186,7 @@ $('#fLogin').addEventListener('submit',async ev=>{
   }catch(e){ await sb.auth.signOut().catch(()=>{}); $('#lgErr').textContent=e.message; }
   finally{ b.disabled=false; }
 });
-$('#bSair').onclick=async()=>{ await sb.auth.signOut(); user=null; profile=null; mostrarLogin(); };
+$('#bSair').onclick=async()=>{ await pushRemover(); await sb.auth.signOut(); user=null; profile=null; mostrarLogin(); };
 
 /* ---------- app ---------- */
 function mostrarApp(){
@@ -188,9 +194,9 @@ function mostrarApp(){
   $('#who').textContent=(profile.nome||profile.email)+(isAdmin()?' · Admin':isEncAlmox()?' · Encarregado do almoxarifado':' · Encarregado');
   $('#escopo').textContent=veTodas()?'Requisições de todas as obras.':(vinculadas().length?'Somente das obras (centros de custo) vinculadas a você.':'Você ainda não tem obra vinculada — peça ao administrador.');
   if(!canal){
-    canal=sb.channel('app_aprovacoes').on('postgres_changes',{event:'*',schema:'public',table:'requisicoes'},()=>{ clearTimeout(window._rt); window._rt=setTimeout(atualizar,600); }).subscribe();
+    canal=sb.channel('app_aprovacoes').on('postgres_changes',{event:'*',schema:'public',table:'requisicoes'},ev=>{ avisoLocal(ev); clearTimeout(window._rt); window._rt=setTimeout(atualizar,600); }).subscribe();
   }
-  atualizar();
+  atualizar(); estadoNotif(); pushSincronizar();
 }
 $('#tPend').onclick=()=>{ aba='pend'; $('#tPend').classList.add('on'); $('#tHist').classList.remove('on'); atualizar(); };
 $('#tHist').onclick=()=>{ aba='hist'; $('#tHist').classList.add('on'); $('#tPend').classList.remove('on'); atualizar(); };
@@ -245,6 +251,7 @@ async function desenharPendentes(){
       <ul class="itens">${itens}</ul>
       ${podeAprovarObra(r.obra_id)?`<div class="acts"><button class="btn no" onclick="rejeitar(${r.id})">Rejeitar</button><button class="btn ok" onclick="aprovar(${r.id},this)">Aprovar</button></div>`:'<div class="meta" style="margin-top:10px">Você não está vinculado a esta obra.</div>'}
     </article>`; }).join('');
+  irParaAlvo();
 }
 function contar(){ const n=pendentes.length, b=$('#nPend'); b.hidden=!n; b.textContent=n; document.title=(n?'('+n+') ':'')+'Aprovações · AMETA';
   try{ if(navigator.setAppBadge){ n?navigator.setAppBadge(n):navigator.clearAppBadge(); } }catch(e){} }
@@ -315,6 +322,70 @@ function rejeitar(id){
     if(error||!upd||!upd.length){ $('#rjErr').textContent='Não foi possível rejeitar: '+(error?error.message:'a requisição mudou ou seu usuário não tem permissão.'); $('#rjOk').disabled=false; return; }
     fechar(); toast(reqN(id)+' rejeitada.','warn'); atualizar();
   };
+}
+
+/* ---------- notificações ----------
+   Push (chega com o app fechado): o service worker sw.js recebe o aviso enviado pela Edge Function
+   notificar-aprovacao, disparada por um gatilho no banco quando uma requisição entra em "pendente"
+   (script supabase/push_aprovacoes.sql). Com o app aberto em segundo plano também há o aviso local, pelo
+   tempo real — os dois usam a mesma tag ("req-<id>"), então o celular mostra uma notificação só. */
+const PUSH_FN=SUPABASE_URL+'/functions/v1/notificar-aprovacao';
+const temNotif=()=>'Notification' in window&&'serviceWorker' in navigator;
+const temPush=()=>temNotif()&&'PushManager' in window;
+const swReg=temNotif()?navigator.serviceWorker.register('sw.js').catch(()=>null):Promise.resolve(null);
+if(temNotif())navigator.serviceWorker.addEventListener('message',ev=>{ if(ev.data&&ev.data.tipo==='atualizar'&&profile){ aba='pend'; $('#tPend').classList.add('on'); $('#tHist').classList.remove('on'); atualizar(); } });
+window.addEventListener('hashchange',irParaAlvo);
+function irParaAlvo(){ const m=location.hash.match(/^#r(\d+)$/); if(!m)return; const el=document.getElementById('r'+m[1]); if(el){ el.scrollIntoView({behavior:'smooth',block:'start'}); el.style.borderColor='var(--ac)'; history.replaceState(null,'',location.pathname+location.search); } }
+
+function estadoNotif(){
+  const b=$('#bNotif'), perm=temNotif()?Notification.permission:'indisponivel';
+  b.textContent=perm==='granted'?'🔔':'🔕'; b.classList.toggle('on',perm==='granted');
+  $('#avNotif').hidden=!(perm==='default');
+}
+const b64url=s=>{ const p='='.repeat((4-s.length%4)%4), b=atob((s+p).replace(/-/g,'+').replace(/_/g,'/')); return Uint8Array.from(b,c=>c.charCodeAt(0)); };
+
+/* Inscreve este aparelho no push e grava no banco em nome do usuário logado. Devolve true se ficou inscrito. */
+async function pushSincronizar(){
+  if(!temPush()||Notification.permission!=='granted'||!profile)return false;
+  try{
+    const reg=await swReg; if(!reg)return false; await navigator.serviceWorker.ready;
+    let sub=await reg.pushManager.getSubscription();
+    if(!sub){
+      const r=await fetch(PUSH_FN,{headers:{apikey:SUPABASE_ANON_KEY}}); if(!r.ok)return false;
+      const {publicKey}=await r.json(); if(!publicKey)return false;
+      sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64url(publicKey)});
+    }
+    const j=sub.toJSON();
+    const {error}=await sb.rpc('push_registrar',{p_endpoint:j.endpoint,p_p256dh:j.keys.p256dh,p_auth:j.keys.auth,p_user_agent:navigator.userAgent.slice(0,200)});
+    return !error;
+  }catch(e){ return false; }
+}
+async function pushRemover(){
+  try{ const reg=await swReg; const sub=reg&&await reg.pushManager.getSubscription(); if(sub)await sb.rpc('push_remover',{p_endpoint:sub.endpoint}); }catch(e){}
+}
+async function ativarNotificacoes(){
+  if(!temNotif()){ toast(/iPhone|iPad/.test(navigator.userAgent)?'No iPhone, adicione o app à Tela de Início (Compartilhar → Adicionar à Tela de Início) e abra por lá para ativar.':'Este navegador não suporta notificações.','warn'); return; }
+  if(Notification.permission==='denied'){ toast('As notificações estão bloqueadas. Libere em Configurações do celular → Apps → Aprovações (ou no cadeado do navegador) → Notificações.','warn'); return; }
+  const perm=Notification.permission==='granted'?'granted':await Notification.requestPermission();
+  estadoNotif();
+  if(perm!=='granted'){ toast('Notificações não autorizadas.','warn'); return; }
+  const ok=await pushSincronizar();
+  toast(ok?'Notificações ativadas — você será avisado a cada nova requisição para aprovar.':'Notificações ativadas com o app aberto. O aviso com o app fechado ainda não está configurado no servidor.',ok?'ok':'warn');
+}
+$('#bNotif').onclick=()=>{ if(temNotif()&&Notification.permission==='granted'){ pushSincronizar().then(ok=>toast(ok?'Notificações ativas neste celular.':'Notificações ativas com o app aberto (aviso com o app fechado indisponível).',ok?'ok':'warn')); } else ativarNotificacoes(); };
+$('#bAtivar').onclick=ativarNotificacoes;
+
+/* Aviso local pelo tempo real (app aberto ou em segundo plano). */
+async function avisoLocal(ev){
+  const r=ev&&ev.new; if(!r||r.status!=='pendente')return;
+  if(ev.eventType==='UPDATE'&&pendentes.some(p=>p.id===r.id))return; // já estava pendente (só foi editada)
+  if(!temNotif()||Notification.permission!=='granted'||!podeAprovarObra(r.obra_id)||r.solicitante_id===user.id)return;
+  if(!document.hidden){ toast('Nova requisição para aprovar: '+reqN(r.id)+' · '+(r.obra_nome||''),'ok'); return; }
+  try{ const reg=await swReg; if(!reg)return;
+    const n=Array.isArray(r.itens)?r.itens.length:0;
+    await reg.showNotification('Nova requisição · '+reqN(r.id),{body:[r.obra_nome,(r.solicitante_nome||'Solicitante')+' · '+n+(n===1?' item':' itens')].filter(Boolean).join('\n'),
+      tag:'req-'+r.id,icon:'../aprov-icon-192.png',badge:'../aprov-icon-96.png',data:{url:'./#r'+r.id}});
+  }catch(e){}
 }
 
 iniciar();
