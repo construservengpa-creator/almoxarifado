@@ -559,7 +559,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-09T03:30:00-03:00';
+const APP_VERSION='2026-10-09T05:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -1670,7 +1670,7 @@ function notaDetalhe(id){ const n=state.notas.find(x=>x.id===id); if(!n)return;
   modal(`<h3>Nota ${esc(n.numero)}</h3><p class="mp">Emissão: ${n.dataEmissao?new Date(n.dataEmissao+'T00:00:00').toLocaleDateString('pt-BR'):'—'} · ${esc(n.forn||'sem fornecedor')} · Obra: ${esc(obraName(n.obra))}</p>
   <div class="tbl-wrap"><table><thead><tr><th>Código</th><th>Descrição</th><th class="num">Qtd</th><th class="num">Custo un.</th><th class="num">Total</th></tr></thead><tbody>${linhas}</tbody></table></div>
   <div style="text-align:right;margin-top:12px;font-size:14px">Total da nota: <b class="mono">${money(n.valor||0)}</b></div>
-  <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="ctrlReenviarModal('${n.id}')">📤 Enviar ao Controle de Notas</button><button class="btn ghost" onclick="closeModal()">Fechar</button></div>`);
+  <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap">${isEncarregado()?`<button class="btn ghost" onclick="reprocXmlAbrir('${n.id}')">📄 Reprocessar XML</button>`:''}<button class="btn ghost" onclick="ctrlReenviarModal('${n.id}')">📤 Enviar ao Controle de Notas</button><button class="btn ghost" onclick="closeModal()">Fechar</button></div>`);
 }
 function setEntradaTab(t){ entradaTab=t; $('#tbXml').classList.toggle('on',t==='xml'); $('#tbMan').classList.toggle('on',t==='manual');
   const pane=$('#entradaPane');
@@ -1711,48 +1711,49 @@ function importXml(content){
     const emitCnpjX=emit?txt(emit,'CNPJ')||txt(emit,'CPF'):'';
     let add=0, auto=0;
     nfItems=nfItems.filter(i=>!i.reposPre); /* o XML substitui os itens pré-carregados da solicitação */
-    /* Custo de entrada = valor unitário da NF + frete, seguro, outras despesas, IPI e ICMS-ST do item − desconto.
-       Frete/seguro/outras/desconto: usa o valor de cada item quando o emitente já rateou; senão rateia o total da nota
-       (ICMSTot) proporcionalmente ao valor dos produtos. IPI e ICMS-ST (+ FCP-ST) vêm sempre por item. */
-    const detsP=dets.map(det=>({det,prod:tagsOf(det,'prod')[0]})).filter(d=>d.prod);
-    const vProdOf=d=>parseFloat(txt(d.prod,'vProd'))||0; const somaVProd=detsP.reduce((t,d)=>t+vProdOf(d),0);
-    const totX=tagsOf(doc,'ICMSTot')[0];
-    const ratear=tag=>{ const itens=detsP.map(d=>parseFloat(txt(d.prod,tag))||0); const tot=totX?parseFloat(txt(totX,tag))||0:0;
-      if(itens.some(v=>v>0)||!(tot>0))return itens;
-      const r=detsP.map(d=>somaVProd>0?+(tot*vProdOf(d)/somaVProd).toFixed(2):+(tot/detsP.length).toFixed(2));
-      const dif=+(tot-r.reduce((a,b)=>a+b,0)).toFixed(2); if(dif&&r.length){ const iMax=r.indexOf(Math.max(...r)); r[iMax]=+(r[iMax]+dif).toFixed(2); } /* centavos do arredondamento vão para o maior item */
-      return r; };
-    const rat={frete:ratear('vFrete'),seg:ratear('vSeg'),outro:ratear('vOutro'),descto:ratear('vDesc')};
-    let acresTotal=0;
-    detsP.forEach(({det,prod},di)=>{
-      const cEAN=txt(prod,'cEAN'); const cProd=txt(prod,'cProd');
-      const eanOk=/^\d{8,14}$/.test(cEAN);
+    const itensX=nfeItensCusto(doc); const acresTotal=itensX.reduce((t,x)=>t+x.acres,0);
+    itensX.forEach(x=>{ const {cProd,cEAN,qty,custo,custoNF,ex,xProd,uCom,ncm,cst}=x; const eanOk=!!cEAN;
       const code=eanOk?cEAN:(cProd||genCode());
-      const qty=parseFloat(txt(prod,'qCom'))||parseFloat(txt(prod,'qTrib'))||0;
-      const custoNF=parseFloat(txt(prod,'vUnCom'))||parseFloat(txt(prod,'vUnTrib'))||0;
-      const ipiG=tagsOf(det,'IPI')[0]; const ipi=ipiG?parseFloat(txt(ipiG,'vIPI'))||0:0;
-      const st=(parseFloat(txt(det,'vICMSST'))||0)+(parseFloat(txt(det,'vFCPST'))||0);
-      const ex={frete:rat.frete[di]||0,seg:rat.seg[di]||0,outro:rat.outro[di]||0,ipi,st,descto:rat.descto[di]||0};
-      const acres=ex.frete+ex.seg+ex.outro+ex.ipi+ex.st-ex.descto; acresTotal+=acres;
-      const custo=acres&&qty>0?Math.max(0,+(custoNF+acres/qty).toFixed(6)):custoNF;
-      const xProd=txt(prod,'xProd'); const uCom=(txt(prod,'uCom')||'UN').toUpperCase();
-      const ncm=onlyDigits(txt(prod,'NCM')); const cst=cstIcmsDoDet(det);
       const it={code, desc:xProd, unit:uCom, qty, custo, preco:0,
-        xml:Object.assign({cProd, cEAN:eanOk?cEAN:'', xProd, uCom, qty, custo, custoNF, ncm, cst, cnpj:onlyDigits(emitCnpjX)},ex), link:null, fator:1, lembrar:true};
+        xml:Object.assign({cProd, cEAN, xProd, uCom, qty, custo, custoNF, ncm, cst, cnpj:onlyDigits(emitCnpjX)},ex), link:null, fator:1, lembrar:true};
       autoVincular(it); if(it.link)auto++;
       nfItems.push(it); add++; });
     if(nNF&&$('#nfNum'))$('#nfNum').value=String(nNF).replace(/\D/g,''); if(forn&&$('#nfForn'))$('#nfForn').value=forn;
     const dhEmi=ide?(txt(ide,'dhEmi')||txt(ide,'dEmi')):''; if(dhEmi&&$('#nfData'))$('#nfData').value=dhEmi.slice(0,10);
     const emitCnpj=emit?txt(emit,'CNPJ'):''; if(emitCnpj&&$('#nfCnpjEmit'))$('#nfCnpjEmit').value=emitCnpj;
-    { const inf=tagsOf(doc,'infNFe')[0]; const ch=onlyDigits((inf&&inf.getAttribute('Id'))||txt(doc,'chNFe')||''); const dest=tagsOf(doc,'dest')[0];
+    { const dest=tagsOf(doc,'dest')[0];
       const tot=tagsOf(doc,'ICMSTot')[0]; const vNF=tot?parseFloat(txt(tot,'vNF'))||0:0;
-      _nfXmlExtra={chave:ch.length===44?ch:'',dest:dest?txt(dest,'xNome'):'',vNF}; }
+      _nfXmlExtra={chave:nfeChave(doc),dest:dest?txt(dest,'xNome'):'',vNF}; }
     ctrlPreencherDoXml(doc);
     const dest=tagsOf(doc,'dest')[0]; const destDoc=dest?(txt(dest,'CNPJ')||txt(dest,'CPF')):''; if(destDoc&&$('#nfCnpjTom'))$('#nfCnpjTom').value=destDoc;
     if($('#xmlText'))$('#xmlText').value='';
     drawNfItems(); toast(`XML lido · ${add} item(ns) carregado(s)`+(auto?` · ${auto} vinculado(s) automaticamente`:'')+(add-auto?` · ${add-auto} sem vínculo`:'')+(Math.abs(acresTotal)>=0.005?` · ${money(acresTotal)} de frete/impostos/despesas${acresTotal<0?' (líquido de desconto)':''} incluídos no custo dos itens`:'')+'.','ok');
   }catch(e){ toast('Erro ao ler XML: '+e.message,'err'); }
 }
+/* Itens da NF-e com o custo de entrada = valor unitário da NF + frete, seguro, outras despesas, IPI e ICMS-ST do item − desconto.
+   Frete/seguro/outras/desconto: usa o valor de cada item quando o emitente já rateou; senão rateia o total da nota
+   (ICMSTot) proporcionalmente ao valor dos produtos. IPI e ICMS-ST (+ FCP-ST) vêm sempre por item. */
+function nfeItensCusto(doc){
+  const detsP=[...tagsOf(doc,'det')].map(det=>({det,prod:tagsOf(det,'prod')[0]})).filter(d=>d.prod);
+  const vProdOf=d=>parseFloat(txt(d.prod,'vProd'))||0; const somaVProd=detsP.reduce((t,d)=>t+vProdOf(d),0);
+  const totX=tagsOf(doc,'ICMSTot')[0];
+  const ratear=tag=>{ const itens=detsP.map(d=>parseFloat(txt(d.prod,tag))||0); const tot=totX?parseFloat(txt(totX,tag))||0:0;
+    if(itens.some(v=>v>0)||!(tot>0))return itens;
+    const r=detsP.map(d=>somaVProd>0?+(tot*vProdOf(d)/somaVProd).toFixed(2):+(tot/detsP.length).toFixed(2));
+    const dif=+(tot-r.reduce((a,b)=>a+b,0)).toFixed(2); if(dif&&r.length){ const iMax=r.indexOf(Math.max(...r)); r[iMax]=+(r[iMax]+dif).toFixed(2); } /* centavos do arredondamento vão para o maior item */
+    return r; };
+  const rat={frete:ratear('vFrete'),seg:ratear('vSeg'),outro:ratear('vOutro'),descto:ratear('vDesc')};
+  return detsP.map(({det,prod},di)=>{
+    const cEANraw=txt(prod,'cEAN'); const cEAN=/^\d{8,14}$/.test(cEANraw)?cEANraw:''; const cProd=txt(prod,'cProd');
+    const qty=parseFloat(txt(prod,'qCom'))||parseFloat(txt(prod,'qTrib'))||0;
+    const custoNF=parseFloat(txt(prod,'vUnCom'))||parseFloat(txt(prod,'vUnTrib'))||0;
+    const ipiG=tagsOf(det,'IPI')[0]; const ipi=ipiG?parseFloat(txt(ipiG,'vIPI'))||0:0;
+    const st=(parseFloat(txt(det,'vICMSST'))||0)+(parseFloat(txt(det,'vFCPST'))||0);
+    const ex={frete:rat.frete[di]||0,seg:rat.seg[di]||0,outro:rat.outro[di]||0,ipi,st,descto:rat.descto[di]||0};
+    const acres=ex.frete+ex.seg+ex.outro+ex.ipi+ex.st-ex.descto;
+    const custo=acres&&qty>0?Math.max(0,+(custoNF+acres/qty).toFixed(6)):custoNF;
+    return {cProd,cEAN,qty,custoNF,custo,ex,acres,xProd:txt(prod,'xProd'),uCom:(txt(prod,'uCom')||'UN').toUpperCase(),ncm:onlyDigits(txt(prod,'NCM')),cst:cstIcmsDoDet(det)}; }); }
+function nfeChave(doc){ const inf=tagsOf(doc,'infNFe')[0]; const ch=onlyDigits((inf&&inf.getAttribute('Id'))||txt(doc,'chNFe')||''); return ch.length===44?ch:''; }
 /* Valores da NF-e que compõem o custo de entrada além do valor unitário (em R$ do item; desconto subtrai) */
 const NF_EXTRAS=[['frete','Frete'],['seg','Seguro'],['outro','Outras despesas'],['ipi','IPI'],['st','ICMS-ST'],['descto','Desconto']];
 function nfExtrasLista(o){ return NF_EXTRAS.filter(([k])=>Number(o&&o[k])>0).map(([k,l])=>({k,l,v:Number(o[k]),neg:k==='descto'})); }
@@ -2175,6 +2176,7 @@ function editProductModal(code){ const p=findProduct(code); if(!p)return;
       <div class="row c2"><div class="field"><label>NCM</label><input id="epNcm" class="mono" value="${esc(p.ncm||'')}" placeholder="8 dígitos" data-noupper></div><div class="field"><label>CST (ICMS)</label><input id="epCst" class="mono" value="${esc(p.cst||'')}" placeholder="Ex.: 000, 060, 0102" data-noupper></div></div>
       <p class="muted" style="font-size:11.5px;margin:-6px 0 14px">Preenchidos automaticamente pelo XML da última nota recebida. CST = origem + CST do ICMS (ou CSOSN no Simples Nacional).</p>
       ${composicaoCustoHTML(p)}
+      ${isEncarregado()?`<div style="margin:12px 0 4px"><button class="btn ghost sm" onclick="recalcAbrir(['${esc(code)}'])">🧮 Recalcular custo médio deste produto</button></div>`:''}
     </div>
     <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">${podeUnificar()?`<button class="btn ghost" style="margin-right:auto" onclick="unificarModal(['${esc(code)}'])">⇄ Unificar com outro produto</button>`:''}<button class="btn ghost" onclick="closeModal()">Fechar</button><button class="btn primary" onclick="saveEditProduct('${esc(code)}')">Salvar</button></div>`);
   renderEpGallery(code); loadFotosExt().then(mudou=>{ if(mudou&&document.getElementById('epPhoto'))renderEpGallery(code); });
@@ -2209,7 +2211,7 @@ function composicaoCustoHTML(p){ const u=esc(p.unit||'UN');
       <div><b>Custo médio ponderado</b> = (saldo anterior × custo anterior + qtd. entrada × custo de entrada) ÷ (saldo anterior + qtd. entrada)</div>
       <div class="mono" style="font-size:12.5px">= (${numf(q)} × ${money(i0.custoAnt||0)} + ${numf(i0.qty)} × ${money(i0.custo||0)}) ÷ (${numf(q)} + ${numf(i0.qty)}) = <b>${money(i0.custoMedio||0)}</b></div>
       ${Math.abs((i0.custoMedio||0)-(p.custo||0))>0.005?`<div class="muted" style="font-size:12px">O custo médio atual (${money(p.custo||0)}) foi alterado depois desta entrada (edição manual, unificação ou outra movimentação).</div>`:''}</div>`; }
-  else det+=`<div class="muted" style="font-size:12px;margin-top:8px">Entrada lançada antes do registro da composição: o cálculo do custo médio desta nota não foi guardado.</div>`;
+  else det+=`<div class="muted" style="font-size:12px;margin-top:8px">O cálculo do custo médio desta entrada não foi guardado (nota lançada antes desse registro ou com XML reprocessado). Use "Recalcular custo médio deste produto" abaixo.</div>`;
   det+=`</div>`;
   const linhas=ents.slice(0,15).map(({n,it})=>`<tr><td style="white-space:nowrap">${dt(n)}</td><td><span class="mono">NF ${esc(n.numero)}</span><div class="muted" style="font-size:11px">${esc(n.forn||'—')}${it.ncm?' · NCM '+esc(it.ncm):''}${it.cst?' · CST '+esc(it.cst):''}</div></td><td class="num">${numf(it.qty)}</td><td class="num">${money(un(it))}</td><td class="num">${acr(it)?money(acr(it)/(it.qty||1)):'—'}</td><td class="num"><b>${money(it.custo||0)}</b></td><td class="num">${it.custoMedio!=null?money(it.custoMedio):'—'}</td></tr>`).join('');
   return head+det+`<div class="tbl-wrap"><table class="comp-custo" style="font-size:12px"><thead><tr><th>Data</th><th>Nota</th><th class="num">Qtd (${u})</th><th class="num">Un. NF</th><th class="num" title="Frete, seguro, outras despesas, IPI e ICMS-ST, menos desconto, por unidade">Acrésc. un.</th><th class="num">Custo entrada</th><th class="num">Custo médio após</th></tr></thead><tbody>${linhas}</tbody></table></div>${ents.length>15?`<p class="muted" style="font-size:11.5px;margin-top:6px">Mostrando as 15 entradas mais recentes de ${ents.length}.</p>`:''}`;
@@ -5061,6 +5063,8 @@ async function renderAdmin(){
     <td class="num">${u.id===profile.id?'<span class="muted">você</span>':`<button class="btn primary sm" onclick="saveUserRole('${u.id}')">Salvar</button>`}</td></tr>`;}).join('');
   let html=`<div class="panel"><h3>👤 Usuários</h3><p class="desc">Cadastros novos ficam <b>inativos</b> até você aprovar. <b>Papel</b> define a permissão — operador (solicita e consulta), encarregado (aprova requisições, faz entradas/baixas), admin (tudo). <b>Setor</b> é independente do papel e define a função — almoxarifado (separa e embala), compras/frotas (aparecem pra atribuição de compra de faltantes). Um <b>encarregado</b> só vê e aprova requisições das <b>obras (centro de custo) vinculadas</b> a ele — sem nenhuma vinculada, não aprova nenhuma. Admin sempre aprova de qualquer obra.</p>
     <div class="tbl-wrap"><table><thead><tr><th>Usuário</th><th>Papel</th><th>Setor</th><th>Obras vinculadas</th><th class="num">Situação</th><th></th></tr></thead><tbody>${uRows||'<tr><td colspan="6" class="empty">Nenhum usuário.</td></tr>'}</tbody></table></div></div>
+  <div class="panel"><h3>🧮 Recalcular custo médio</h3><p class="desc">Refaz o custo médio de cada produto pelo histórico de movimentações, com as regras atuais: entradas pelo custo gravado na nota (com frete e impostos quando houver), base no saldo de todas as obras, saldo negativo conta como zero e notas excluídas não contam. Mostra <b>antes × depois</b> e só grava os produtos que você marcar. Para incluir frete e impostos de notas antigas, use antes <b>Reprocessar XML</b> no detalhe da nota.</p>
+    <button class="btn primary" onclick="recalcAbrir()">Calcular</button></div>
   <div class="panel"><h3>Excluir nota fiscal</h3><p class="desc">As entradas da nota são <b>estornadas do estoque</b> da obra correspondente.</p>
     <div class="search" style="max-width:none;margin-bottom:8px"><span class="si">⌕</span><input id="admNotaBusca" placeholder="Buscar nota por número ou fornecedor..." autocomplete="off" oninput="drawAdmNotas()"></div><div id="admNotas"></div>`;
   html+=`</div><div class="panel danger-zone"><h3>⚠ Zona de risco</h3><p class="desc" style="color:#a05050">Apaga <b>todos os produtos, saldos, movimentações, notas, fotos, requisições, itens de compra, caixas e embarques</b>. Obras e usuários são mantidos.</p><button class="btn danger" onclick="wipeAll()">🔒 Zerar todo o estoque</button></div>`;
@@ -5097,6 +5101,117 @@ function estornarCustoNota(n){ (n.itens||[]).slice().reverse().forEach(it=>{ con
   const S=Math.max(0,totalSaldo(p.code)), rest=S-it.qty;
   if(rest>0){ const c=(S*(p.custo||0)-it.qty*it.custo)/rest; if(c>=0)p.custo=c; else if(it.custoAnt!=null)p.custo=it.custoAnt; }
   else if(it.custoAnt!=null)p.custo=it.custoAnt; }); }
+/* ===== Recálculo do custo médio pelo histórico =====
+   Refaz a média ponderada de cada produto em ordem de data: entradas (custo do item da nota, que já inclui frete/impostos
+   quando houve) e ajustes positivos entram na média; saídas e ajustes negativos só baixam o saldo; transferências não mudam
+   o total. Base = saldo de todas as obras; saldo negativo conta como zero. Saldo que existe sem movimentação (importação ou
+   cadastro) entra no início com o custo da primeira entrada — esses produtos são marcados como "histórico incompleto". */
+let _recalc=null;
+function recalcEfeito(m){ const q=Number(m.qty)||0; if(m.tipo==='entrada'||m.tipo==='ajuste')return q; if(m.tipo==='baixa'||m.tipo==='devolucao')return -q; return 0; }
+async function recalcCalcular(codes){
+  const {data,error}=await fetchAllRows(()=>{ let q=sb.from('movimentos_estoque').select('id,ts,tipo,code,qty,valor_unit,nota_id,doc'); if(codes&&codes.length)q=q.in('code',codes.map(String)); return q.order('ts',{ascending:true}).order('id'); });
+  if(error)throw new Error(error.message);
+  const notaCusto=new Map(); state.notas.forEach(n=>(n.itens||[]).forEach(it=>{ if(!(it.qty>0))return; const k=n.id+'|'+it.code; const o=notaCusto.get(k)||{q:0,v:0,n}; o.q+=it.qty; o.v+=it.qty*(it.custo||0); notaCusto.set(k,o); }));
+  const porCod=new Map(); (data||[]).forEach(r=>{ const c=String(r.code); if(!porCod.has(c))porCod.set(c,[]); porCod.get(c).push(rowToMov(r)); });
+  const res=[];
+  (codes&&codes.length?codes.map(findProduct).filter(Boolean):state.products).forEach(p=>{
+    const movs=(porCod.get(String(p.code))||[]).sort((a,b)=>a.ts-b.ts||String(a.id).localeCompare(String(b.id)));
+    const atualS=totalSaldo(p.code); const s0=+(atualS-movs.reduce((t,m)=>t+recalcEfeito(m),0)).toFixed(6);
+    let S=s0, C=null; const passos=[];
+    movs.forEach(m=>{ const e=recalcEfeito(m); let vu=m.valorUnit||0, origem=m.tipo==='entrada'?'entrada':'ajuste';
+      if(m.tipo==='entrada'&&m.notaId){ const nc=notaCusto.get(m.notaId+'|'+m.code); if(nc&&nc.q>0){ vu=nc.v/nc.q; origem='nota'; } }
+      if(e>0&&vu>0&&(m.tipo==='entrada'||m.tipo==='ajuste')){ const base=Math.max(0,S), antes=C; C=C==null?vu:((base*C)+(e*vu))/(base+e); passos.push({m,base,e,vu,antes,C,origem}); }
+      S+=e; });
+    if(C==null)return;
+    res.push({p,novo:C,atual:p.custo||0,saldo:atualS,incompleto:Math.abs(s0)>1e-6,s0,passos}); });
+  return res; }
+async function recalcAbrir(codes){ if(!isEncarregado()){ toast('Recálculo restrito a encarregados/administradores.','err'); return; }
+  modal(`<h3>🧮 Recalcular custo médio</h3><p class="mp">Calculando pelo histórico de movimentações...</p>`);
+  let r; try{ r=await recalcCalcular(codes); }catch(e){ modal(`<h3>🧮 Recalcular custo médio</h3><p class="mp" style="color:#b03030">Erro ao ler o histórico: ${esc(e.message||String(e))}</p><div style="text-align:right"><button class="btn ghost" onclick="closeModal()">Fechar</button></div>`); return; }
+  const dif=r.filter(x=>Math.abs(x.novo-x.atual)>=0.005).sort((a,b)=>Math.abs((b.novo-b.atual)*b.saldo)-Math.abs((a.novo-a.atual)*a.saldo));
+  _recalc={todos:r,lista:dif,sel:new Set(dif.filter(x=>!x.incompleto).map(x=>x.p.code)),codes:codes||null,q:''};
+  recalcDraw(); }
+function recalcModalLargo(){ const m=document.querySelector('#modalRoot .modal'); if(m&&window.innerWidth>760)m.style.maxWidth='940px'; }
+function recalcDraw(){ const R=_recalc; if(!R)return;
+  const semHist=R.codes?R.codes.filter(c=>!R.todos.some(x=>String(x.p.code)===String(c))).length:0;
+  modal(`<h3>🧮 Recalcular custo médio</h3>
+    <p class="mp">${R.todos.length} produto(s) com histórico de entradas · <b>${R.lista.length}</b> com custo diferente do atual${semHist?` · ${semHist} sem entradas com valor no histórico (custo mantido)`:''}. Produtos com <span class="pill high" style="font-size:10px">histórico incompleto</span> têm saldo sem movimentação registrada (importação/cadastro) e vêm desmarcados: confira antes de aplicar.</p>
+    ${R.lista.length?`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+      ${R.lista.length>8?`<div class="search" style="flex:1;min-width:180px"><span class="si">⌕</span><input id="rcBusca" placeholder="Filtrar produto ou código..." value="${esc(R.q)}" oninput="_recalc.q=this.value;recalcTabela()" data-noupper></div>`:''}
+      <button class="btn ghost sm" onclick="recalcMarcar(true)">Marcar todos</button><button class="btn ghost sm" onclick="recalcMarcar(false)">Desmarcar todos</button></div>
+    <div class="tbl-wrap" style="max-height:52vh;overflow:auto"><table style="font-size:12.5px"><thead><tr><th></th><th>Produto</th><th class="num">Saldo</th><th class="num">Custo atual</th><th class="num">Recalculado</th><th class="num">Dif. em estoque</th><th></th></tr></thead><tbody id="rcBody"></tbody></table></div>
+    <div id="rcResumo" style="font-size:13px;margin-top:10px"></div>`:`<div class="tbl-wrap"><div class="empty" style="padding:22px">Nenhuma diferença: o custo médio atual já bate com o histórico.</div></div>`}
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="closeModal()">Fechar</button>${R.lista.length?`<button class="btn primary" onclick="recalcAplicar()">Aplicar nos marcados</button>`:''}</div>`);
+  recalcModalLargo(); recalcTabela(); }
+function recalcTabela(){ const R=_recalc, b=$('#rcBody'); if(!R||!b)return; const q=normTxt(R.q||'').trim();
+  const vis=R.lista.filter(x=>!q||normTxt(x.p.desc+' '+x.p.code+' '+(x.p.aux||'')).includes(q)).slice(0,400);
+  b.innerHTML=vis.map(x=>{ const c=esc(String(x.p.code)); const d=(x.novo-x.atual)*Math.max(0,x.saldo);
+    return `<tr><td><input type="checkbox" style="width:auto" ${R.sel.has(x.p.code)?'checked':''} onchange="recalcSel('${c}',this.checked)"></td><td><b>${esc(x.p.desc)}</b><div class="muted mono" style="font-size:11px">${c}</div>${x.incompleto?`<span class="pill high" style="font-size:9.5px" title="Saldo de ${numf(x.s0)} sem movimentação registrada">histórico incompleto</span>`:''}</td><td class="num">${numf(x.saldo)} ${esc(x.p.unit||'')}</td><td class="num">${money(x.atual)}</td><td class="num"><b>${money(x.novo)}</b></td><td class="num ${d<0?'neg':''}">${money(d)}</td><td class="num"><button class="btn ghost sm" onclick="recalcPassos('${c}')">Ver cálculo</button></td></tr>`; }).join('')||`<tr><td colspan="7" class="empty" style="padding:16px">Nada encontrado.</td></tr>`;
+  recalcResumo(); }
+function recalcResumo(){ const R=_recalc, el=$('#rcResumo'); if(!R||!el)return; const xs=R.lista.filter(x=>R.sel.has(x.p.code));
+  const d=xs.reduce((t,x)=>t+(x.novo-x.atual)*Math.max(0,x.saldo),0);
+  el.innerHTML=`<b>${xs.length}</b> produto(s) marcado(s) · variação no valor do estoque: <b class="${d<0?'neg':''}">${money(d)}</b>`; }
+function recalcSel(code,on){ const x=_recalc&&_recalc.lista.find(y=>String(y.p.code)===String(code)); if(!x)return; if(on)_recalc.sel.add(x.p.code); else _recalc.sel.delete(x.p.code); recalcResumo(); }
+function recalcMarcar(on){ const R=_recalc; if(!R)return; const q=normTxt(R.q||'').trim(); R.lista.forEach(x=>{ if(q&&!normTxt(x.p.desc+' '+x.p.code+' '+(x.p.aux||'')).includes(q))return; if(on)R.sel.add(x.p.code); else R.sel.delete(x.p.code); }); recalcTabela(); }
+function recalcPassos(code){ const R=_recalc; const x=R&&R.todos.find(y=>String(y.p.code)===String(code)); if(!x)return; const u=esc(x.p.unit||'UN');
+  const ORIG={nota:'Entrada (custo da nota)',entrada:'Entrada',ajuste:'Ajuste / unificação'};
+  const linhas=x.passos.slice(-60).map(s=>`<tr><td style="white-space:nowrap">${fmtDate(s.m.ts)}</td><td>${ORIG[s.origem]||s.origem}<div class="muted" style="font-size:11px">${esc(s.m.doc||'')}</div></td><td class="num mono" style="font-size:11.5px">${s.antes==null?`${money(s.vu)} (primeiro custo)`:`(${numf(s.base)} × ${money(s.antes)} + ${numf(s.e)} × ${money(s.vu)}) ÷ ${numf(s.base+s.e)}`}</td><td class="num"><b>${money(s.C)}</b></td></tr>`).join('');
+  modal(`<h3>Cálculo · ${esc(x.p.desc)}</h3><p class="mp">Custo médio = (saldo antes × custo médio antes + qtd. que entrou × custo da entrada) ÷ (saldo antes + qtd.). Saldo antes = todas as obras, negativo conta como zero; saídas só reduzem o saldo.${x.incompleto?` <b>Histórico incompleto:</b> ${numf(x.s0)} ${u} de saldo sem movimentação registrada, considerados com o custo da primeira entrada.`:''}</p>
+    <div class="tbl-wrap" style="max-height:55vh;overflow:auto"><table style="font-size:12.5px"><thead><tr><th>Data</th><th>Movimento</th><th class="num">Cálculo</th><th class="num">Custo médio</th></tr></thead><tbody>${linhas}</tbody></table></div>
+    ${x.passos.length>60?`<p class="muted" style="font-size:11.5px;margin-top:6px">Mostrando os 60 últimos de ${x.passos.length} passos.</p>`:''}
+    <div style="font-size:13px;margin-top:10px">Custo atual: <b>${money(x.atual)}</b> · recalculado: <b>${money(x.novo)}</b></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="recalcDraw()">← Voltar</button></div>`);
+  recalcModalLargo(); }
+function recalcAplicar(){ const R=_recalc; if(!R)return; const xs=R.lista.filter(x=>R.sel.has(x.p.code)); if(!xs.length){ toast('Marque ao menos um produto.','err'); return; }
+  requireSupervisor(`Aplicar o custo médio recalculado em ${xs.length} produto(s)`,async()=>{
+    xs.forEach(x=>{ const p=findProduct(x.p.code); if(p)p.custo=+x.novo.toFixed(6); });
+    await save('Recálculo do custo médio: '+xs.length+' produto(s)'); _recalc=null;
+    toast(`Custo médio recalculado em ${xs.length} produto(s).`,'ok'); if(typeof refreshTelaAtual==='function')refreshTelaAtual(); }); }
+/* ===== Reprocessar o XML de uma nota já lançada =====
+   Refaz o custo de entrada dos itens (frete, seguro, outras despesas, IPI, ICMS-ST, desconto) sem mexer no saldo.
+   Confere a chave de acesso (ou o número, em nota sem chave) e casa os itens pelo código do fornecedor. */
+let _reproc=null;
+function reprocXmlAbrir(id){ if(!isEncarregado()){ toast('Restrito a encarregados/administradores.','err'); return; } const n=state.notas.find(x=>x.id===id); if(!n)return;
+  modal(`<h3>📄 Reprocessar XML · NF ${esc(n.numero)}</h3><p class="mp">Carregue o XML desta nota para refazer o custo de entrada dos itens com frete, seguro, outras despesas, IPI, ICMS-ST e desconto. O saldo não muda; depois você confere o recálculo do custo médio dos produtos.</p>
+    <div class="filebox" onclick="document.getElementById('rxFile').click()"><div class="ico">↥</div><b>Selecionar o XML da NF-e</b><input type="file" id="rxFile" accept=".xml,text/xml" style="display:none"></div>
+    <div id="rxBox" style="margin-top:12px"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="notaDetalhe('${n.id}')">← Voltar</button><button class="btn primary" id="rxOk" style="display:none" onclick="reprocXmlAplicar()">Aplicar</button></div>`);
+  $('#rxFile').onchange=e=>{ const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=ev=>reprocXmlLer(id,ev.target.result); r.readAsText(f); }; }
+function reprocXmlLer(id,content){ const n=state.notas.find(x=>x.id===id); const box=$('#rxBox'); if(!n||!box)return; _reproc=null; $('#rxOk').style.display='none';
+  const erro=t=>{ box.innerHTML=`<div class="pill low" style="display:block;padding:10px 12px;font-size:12.5px;white-space:normal">${esc(t)}</div>`; };
+  let doc; try{ doc=new DOMParser().parseFromString(content,'text/xml'); }catch(e){ return erro('XML inválido.'); }
+  if(doc.getElementsByTagName('parsererror').length)return erro('XML inválido.');
+  const chave=nfeChave(doc); const ide=tagsOf(doc,'ide')[0]; const nNF=ide?onlyDigits(txt(ide,'nNF')):'';
+  if(n.chave&&chave&&n.chave!==chave)return erro('Este XML é de outra nota: a chave de acesso não confere.');
+  if(!n.chave&&nNF&&String(Number(nNF))!==String(Number(onlyDigits(n.numero))))return erro(`Este XML é da NF ${nNF}, não da NF ${n.numero}.`);
+  const xs=nfeItensCusto(doc); const usados=new Set();
+  const plano=(n.itens||[]).map((it,ii)=>{ if(!it.xmlCod)return {ii,it,erro:'item lançado sem XML (manual)'};
+    let k=xs.findIndex((x,xi)=>!usados.has(xi)&&x.cProd===it.xmlCod&&Math.abs(x.qty-(Number(it.xmlQty)||0))<1e-6);
+    if(k<0)k=xs.findIndex((x,xi)=>!usados.has(xi)&&x.cProd===it.xmlCod);
+    if(k<0)return {ii,it,erro:'não encontrado no XML'}; usados.add(k); const x=xs[k]; const f=Number(it.fator)||1;
+    return {ii,it,x,custo:+(x.custo/f).toFixed(6),custoNF:+(x.custoNF/f).toFixed(6)}; });
+  const tot=tagsOf(doc,'ICMSTot')[0]; const vNF=tot?parseFloat(txt(tot,'vNF'))||0:0;
+  _reproc={id,plano,vNF,chave};
+  const ok=plano.filter(pl=>pl.x); const novoTot=(n.itens||[]).reduce((t,it,ii)=>{ const pl=plano[ii]; return t+(it.qty||0)*(pl.x?pl.custo:(it.custo||0)); },0);
+  box.innerHTML=`<div class="tbl-wrap"><table style="font-size:12.5px"><thead><tr><th>Item</th><th class="num">Qtd</th><th class="num">Custo atual</th><th class="num">Novo custo</th></tr></thead><tbody>${plano.map(pl=>`<tr><td>${esc(pl.it.desc)}${pl.x?`<div class="refline">${money(pl.custoNF)} NF${nfExtrasLista(pl.x.ex).map(e=>` ${e.neg?'−':'+'} ${e.l.toLowerCase()} ${money(e.v)}`).join('')}</div>`:`<div class="refline" style="color:#b03030">${esc(pl.erro)} — mantido</div>`}</td><td class="num">${numf(pl.it.qty)} ${esc(pl.it.unit||'')}</td><td class="num">${money(pl.it.custo||0)}</td><td class="num"><b>${pl.x?money(pl.custo):'—'}</b></td></tr>`).join('')}</tbody></table></div>
+    <div style="text-align:right;margin-top:8px;font-size:13px">Total dos itens: ${money(n.valor||0)} → <b>${money(novoTot)}</b>${vNF?` · valor da NF no XML: ${money(vNF)}`:''}</div>`;
+  if(ok.length)$('#rxOk').style.display=''; else erro('Nenhum item da nota foi encontrado neste XML.'); }
+async function reprocXmlAplicar(){ const R=_reproc; if(!R)return; const n=state.notas.find(x=>x.id===R.id); if(!n)return;
+  requireSupervisor(`Reprocessar o XML da NF ${n.numero}`,async()=>{
+    const codes=new Set();
+    R.plano.forEach(pl=>{ if(!pl.x)return; const it=pl.it; Object.assign(it,{custo:pl.custo,custoNF:pl.custoNF,ncm:pl.x.ncm||it.ncm||'',cst:pl.x.cst||it.cst||''},pl.x.ex);
+      delete it.qAnt; delete it.custoAnt; delete it.custoMedio; it.reprocessado=Date.now(); codes.add(it.code); /* o custo médio daquela época deixa de valer: o recálculo refaz */
+      const p=findProduct(it.code); if(p){ if(pl.x.ncm&&!p.ncm)p.ncm=pl.x.ncm; if(pl.x.cst&&!p.cst)p.cst=pl.x.cst; } });
+    n.valor=+(n.itens||[]).reduce((t,it)=>t+(it.qty||0)*(it.custo||0),0).toFixed(2); if(R.vNF>0)n.valorNF=R.vNF; if(R.chave&&!n.chave)n.chave=R.chave;
+    await save('XML reprocessado: NF '+n.numero); _reproc=null;
+    /* Valor das movimentações da nota (relatórios): melhor esforço — o recálculo usa o custo gravado na nota */
+    try{ const {data:mv}=await sb.from('movimentos_estoque').select('id,code,qty').eq('nota_id',n.id);
+      for(const r of (mv||[])){ const its=(n.itens||[]).filter(it=>String(it.code)===String(r.code)); const q=its.reduce((t,it)=>t+(it.qty||0),0); if(!(q>0))continue;
+        const vu=its.reduce((t,it)=>t+(it.qty||0)*(it.custo||0),0)/q; const vt=(Number(r.qty)||0)*vu;
+        const {error}=await sb.from('movimentos_estoque').update({valor_unit:vu,valor_total:vt}).eq('id',r.id); if(error){ console.warn('valor da movimentação não atualizado:',error.message); continue; }
+        const lm=state.movements.find(m=>m.id===r.id); if(lm){ lm.valorUnit=vu; lm.valorTotal=vt; } } }catch(e){ console.warn('reprocXml movimentos:',e); }
+    toast('XML reprocessado. Confira o recálculo do custo médio.','ok');
+    recalcAbrir([...codes]); }); }
 function deleteNotaId(id,fromEntrada){ const n=state.notas.find(x=>x.id===id); if(!n)return; requireSupervisor(`Excluir NF ${n.numero}`,async()=>{
   const {data:mvNota,error:eN}=await sb.from('movimentos_estoque').select('*').eq('nota_id',id);
   if(eN){ toast('Erro ao buscar as movimentações da nota: '+eN.message,'err'); return; }
