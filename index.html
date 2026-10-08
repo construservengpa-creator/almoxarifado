@@ -558,7 +558,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-08T23:00:00-03:00';
+const APP_VERSION='2026-10-08T23:30:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -3899,7 +3899,7 @@ function fetchItensAguardandoRetirada(itemCols,reqCols){
     .select((itemCols||'*')+', requisicoes!inner('+reqCols+')')
     .gt('quantidade_separada',0).in('requisicoes.status',STATUS_AINDA_NAO_SAIU)
     .order('atualizado_em',{ascending:true}).order('id',{ascending:true})); }
-let _retiradasFiltro='';
+let _retiradasFiltro='', _retiradasBusca='', _retiradasCache=null;
 async function refreshRetiradasBadge(){ if(!podeVerRetiradas())return; const b=$('#navBadgeRetiradas'); if(!b)return;
   const {data,error}=await fetchItensAguardandoRetirada(_entParcialOk?'requisicao_id,quantidade_separada,quantidade_entregue':'requisicao_id','status');
   if(error)return;
@@ -3918,8 +3918,10 @@ function reqEquipHTML(r){ const a=r.aplicacao_id?state.aplicacoes.find(x=>x.id==
   return r.aplicacao_nome?` · ⚙ ${esc(r.aplicacao_nome)}`:''; }
 async function renderRetiradaPendente(){
   if(!podeVerRetiradas()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito ao almoxarifado, compras e encarregados/administradores.</div></div>'; return; }
-  $('#view').innerHTML=`<div class="panel" style="margin-bottom:14px"><div class="field" style="max-width:280px;margin:0"><label>Filtrar por tipo de envio</label>
-    <select id="retFiltro" onchange="_retiradasFiltro=this.value;drawRetiradaPendente()">
+  $('#view').innerHTML=`<div class="panel" style="margin-bottom:14px;display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end"><div class="field" style="flex:1 1 320px;margin:0"><label>Pesquisar</label>
+    <div class="search" style="max-width:none"><span class="si">⌕</span><input id="retBusca" placeholder="REQ, obra, OS, equipamento, item, status..." autocomplete="off" value="${esc(_retiradasBusca)}" oninput="_retiradasBusca=this.value;drawRetiradaPendente(true)"></div></div>
+    <div class="field" style="max-width:280px;margin:0"><label>Filtrar por tipo de envio</label>
+    <select id="retFiltro" onchange="_retiradasFiltro=this.value;drawRetiradaPendente(true)">
       <option value="" ${_retiradasFiltro===''?'selected':''}>Todos</option>
       <option value="despacho" ${_retiradasFiltro==='despacho'?'selected':''}>🚚 Despacho</option>
       <option value="interna" ${_retiradasFiltro==='interna'?'selected':''}>🤝 Retirada no balcão</option>
@@ -3929,8 +3931,14 @@ async function renderRetiradaPendente(){
     <div id="retList"><div class="empty">Carregando...</div></div>`;
   await drawRetiradaPendente();
 }
-async function drawRetiradaPendente(){ const box=$('#retList'); if(!box)return;
-  const {data,error}=await fetchItensAguardandoRetirada('*','id,obra_nome,ordem_servico,status,tipo_envio,criado_em,aplicacao_id,aplicacao_nome');
+/* Texto pesquisável de uma requisição aguardando retirada: tudo o que aparece no cartão (REQ, obra, OS, equipamento, status, envio, itens). */
+function retiradaBuscaTexto(g){ const r=g.r; const a=r.aplicacao_id?state.aplicacoes.find(x=>x.id===r.aplicacao_id):null;
+  return normTxt(['REQ-'+String(r.id).padStart(5,'0'),r.id,r.obra_nome,r.ordem_servico,r.ordem_servico?'OS '+r.ordem_servico:'',a&&a.tag,a&&a.nome,r.aplicacao_nome,
+    reqStatusLabel(r.status),envioTipoLabel(r.tipo_envio),...g.itens.map(i=>(i.descricao||'')+' '+(i.unidade||''))].filter(Boolean).join(' | ')); }
+/* soCache=true: só refiltra os dados já carregados (digitação na busca / troca de filtro), sem nova consulta. */
+async function drawRetiradaPendente(soCache){ const box=$('#retList'); if(!box)return;
+  if(!soCache||!_retiradasCache)_retiradasCache=await fetchItensAguardandoRetirada('*','id,obra_nome,ordem_servico,status,tipo_envio,criado_em,aplicacao_id,aplicacao_nome');
+  const {data,error}=_retiradasCache;
   if(error){box.innerHTML='<div class="tbl-wrap"><div class="empty">Erro: '+esc(error.message)+'</div></div>';return;}
   const itens=(data||[]).filter(i=>i.requisicoes&&STATUS_AINDA_NAO_SAIU.includes(i.requisicoes.status)&&pendEntrega(i)>0.0001); /* só o que ainda não foi entregue */
   const comEntrega=new Set((data||[]).filter(i=>qEntregue(i)>0).map(i=>String(i.requisicao_id)));
@@ -3940,8 +3948,10 @@ async function drawRetiradaPendente(){ const box=$('#retList'); if(!box)return;
   let lista=Object.values(grupos);
   if(_retiradasFiltro==='_indef')lista=lista.filter(g=>!g.r.tipo_envio);
   else if(_retiradasFiltro)lista=lista.filter(g=>g.r.tipo_envio===_retiradasFiltro);
+  const termos=normTxt(_retiradasBusca).split(/\s+/).filter(Boolean);
+  if(termos.length)lista=lista.filter(g=>{ const t=retiradaBuscaTexto(g); return termos.every(x=>t.includes(x)); });
   lista.sort((a,b)=>new Date(a.maisAntigo).getTime()-new Date(b.maisAntigo).getTime());
-  if(!lista.length){box.innerHTML='<div class="tbl-wrap"><div class="empty">Nenhum material separado aguardando retirada no momento.</div></div>';return;}
+  if(!lista.length){box.innerHTML='<div class="tbl-wrap"><div class="empty">'+(termos.length?'Nenhuma requisição encontrada para “'+esc(_retiradasBusca)+'”.':'Nenhum material separado aguardando retirada no momento.')+'</div></div>';return;}
   box.innerHTML=lista.map(g=>{ const r=g.r; const dias=diasParado(new Date(g.maisAntigo).getTime());
     const corDias=dias>=7?'low':dias>=3?'high':'good';
     const corEnvio=r.tipo_envio==='despacho'?'tr':ehBalcao(r.tipo_envio)?'good':'high';
