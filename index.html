@@ -476,7 +476,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-07T18:00:00-03:00';
+const APP_VERSION='2026-10-08T12:30:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -545,9 +545,10 @@ async function _drainSave(k){ const q=_saveQ[k]; q.busy=true;
       if(!error||!_saveTimeout(error)||q.next!==null)break; /* se já há estado mais novo na fila, ele substitui esta tentativa */
       await new Promise(r=>setTimeout(r,1500*(t+1)));
     }
-    if(error&&q.next===null){ console.error(error);
+    if(error&&q.next!==null){ q.waiters.push(...ws); continue; } /* o estado mais novo da fila inclui esta alteração: quem esperava recebe o resultado dele */
+    if(error){ console.error(error);
       toast(_saveTimeout(error)?'Não foi possível salvar: o servidor demorou demais para gravar. A alteração NÃO foi gravada no banco — refaça em instantes.':'Erro ao salvar: '+error.message,'err'); }
-    ws.forEach(r=>{ try{ r(); }catch(e){} });
+    ws.forEach(r=>{ try{ r(error||null); }catch(e){} });
   }
   q.busy=false; }
 let state={ obras:[], aplicacoes:[], products:[], estoque:{}, movements:[], notas:[], seq:{baixa:0,transfer:0}, config:{supHash:null}, currentObra:null };
@@ -570,7 +571,7 @@ function loadPhotos(){ _photosLoaded=false;
   return _photosReady; }
 function fotosProntas(){ if(_photosLoaded)return true; toast('Aguarde alguns segundos: as fotos ainda estão carregando.','warn'); return false; }
 async function savePhotos(){ if(_photosReady)await _photosReady; await Store.set(KEY+':fotos', photos, 'Fotos atualizadas'); cachePhotos(); }
-async function save(label){ const {movements,estoque,currentObra,...toPersist}=state; /* currentObra é escolha de cada usuário — não vai pro documento compartilhado */ await Store.set(KEY, toPersist, label); cacheState(); refreshBadge(); }
+async function save(label){ const {movements,estoque,currentObra,...toPersist}=state; /* currentObra é escolha de cada usuário — não vai pro documento compartilhado */ const err=await Store.set(KEY, toPersist, label); cacheState(); refreshBadge(); return err; }
 
 /* ===== Modo offline: cache local + fila de sincronização ===== */
 let isOnline=navigator.onLine;
@@ -2507,14 +2508,31 @@ function invCalcLote(rows){
   const run={};
   return rows.map(r=>{ const o=invCalcUma(r,run); if(!o.erro&&invSel[r.key]!==false&&!o.jaLancado)run[o.rk]=o.novo; return o; });
 }
-/* aplica as linhas no state em memória (mesma regra do aplicarAjuste); devolve o que precisa ser marcado */
+/* Etapa 1 do lançamento: cadastra os produtos que ainda não existem (itens novos da contagem / lista livre).
+   O cadastro vive no documento compartilhado (app_kv); saldo e movimento vivem em tabelas próprias e são gravados
+   na hora por addSaldo/pushMov. Por isso o cadastro é gravado ANTES: se ele falhar, nada é lançado. Antes era tudo
+   junto — o saldo ia para o banco, a gravação do cadastro falhava e era desfeita, e ao repetir o item aparecia como
+   "já lançado" e era só marcado: ficava com saldo, mas sem cadastro, e não aparecia no estoque.
+   Também recria o cadastro de linhas já lançadas cujo produto não existe (mesma situação). */
+function invProdutosNovos(linhas){
+  const novos=[];
+  for(const L of linhas){
+    const ja=state.movements.find(m=>m.invId===L.key);
+    if(ja&&!L.code)L.code=ja.code;
+    if(!L.code)L.code=genCode();
+    if(findProduct(L.code))continue;
+    const p={code:L.code,desc:L.desc||(ja&&ja.desc)||L.code,unit:L.unit||'UN',aux:'',min:0,max:0,custo:ja?(Number(ja.valorUnit)||0):0,preco:0,ref:''};
+    state.products.push(p); novos.push(p);
+  }
+  return novos;
+}
+/* Etapa 2: aplica as linhas no state em memória (mesma regra do aplicarAjuste); devolve o que precisa ser marcado */
 function invAplicar(linhas){
   const marcas=[];
   for(const L of linhas){
     const ja=state.movements.find(m=>m.invId===L.key);
     if(ja){ marcas.push({...L,ja:true,mov:ja.id,code:L.code||ja.code,novo:ja.saldo,modoEf:ja.invModo||L.modoEf}); continue; }
-    let p=L.code?findProduct(L.code):null;
-    if(!p){ if(!L.code)L.code=genCode(); p={code:L.code,desc:L.desc,unit:L.unit||'UN',aux:'',min:0,max:0,custo:0,preco:0,ref:''}; state.products.push(p); }
+    const p=findProduct(L.code); if(!p)continue; /* cadastrado na etapa 1 */
     const atual=saldoOf(L.obra,L.code), delta=L.novo-atual;
     if(delta===0){ marcas.push({...L,semMov:true}); continue; }
     let custoFinal=p.custo||0; const ci=L.custo;
@@ -2526,30 +2544,69 @@ function invAplicar(linhas){
   }
   return marcas;
 }
-async function invSalvar(label){
-  const {error}=await sb.rpc('save_estado',{p_key:KEY,p_value:state,p_label:label});
-  if(error){ console.error(error); toast('Erro ao salvar: '+error.message,'err'); return false; }
-  cacheState(); refreshBadge(); return true;
-}
+/* Grava pelo mesmo caminho do save(): fila única por chave e SEM movimentos/saldos/obra atual dentro do documento.
+   Antes gravava o state inteiro (com as movimentações em memória): documento enorme, sujeito a tempo esgotado no
+   servidor e grande demais para a atualização em tempo real chegar às outras abas — que seguiam com o cadastro
+   antigo e, na gravação seguinte delas, apagavam os produtos recém-cadastrados. */
+async function invSalvar(label){ return !(await save(label)); }
 async function refreshInvBadge(){ if(!isEncarregado())return; const b=$('#navBadgeInv'); if(!b)return;
   try{ const a=await sb.from('contagem_itens').select('id',{count:'exact',head:true}).eq('status','aprovado');
     const e=await sb.from('contagem_extras').select('id',{count:'exact',head:true}).eq('status','aprovado');
     const n=(a.count||0)+(e.count||0); if(n){b.textContent=n;b.style.display='';}else b.style.display='none';
   }catch(x){ b.style.display='none'; } }
+/* Recuperação: lançamentos de inventário já feitos (movimento com inv_id) cujo produto não está no cadastro.
+   O saldo existe no banco, mas o estoque lista pelo cadastro — então o item some das telas. Reconstrói o cadastro
+   com a descrição/unidade/custo da contagem e do próprio movimento. */
+let invOrfaos=[];
+async function invCarregarOrfaos(){
+  const {data,error}=await fetchAllRows(()=>sb.from('movimentos_estoque').select('id,ts,code,descricao,valor_unit,inv_id').like('inv_id','inv:%').order('ts',{ascending:false}).order('id'));
+  if(error)throw error;
+  const porCode={};
+  (data||[]).forEach(m=>{ if(!m.code||findProduct(m.code)||porCode[m.code])return; porCode[m.code]=m; }); /* mais recente primeiro */
+  const lst=Object.values(porCode); if(!lst.length)return [];
+  const exIds=[...new Set(lst.map(m=>/^inv:extra:(.+)$/.exec(m.inv_id)).filter(Boolean).map(x=>x[1]))], ex={};
+  for(let i=0;i<exIds.length;i+=100){ const r=await sb.from('contagem_extras').select('id,descricao,desc_final,unidade,unid_final,custo,ciclo_id').in('id',exIds.slice(i,i+100)); if(r.error)throw r.error; r.data.forEach(x=>ex[x.id]=x); }
+  return lst.map(m=>{ const x=ex[(/^inv:extra:(.+)$/.exec(m.inv_id)||[])[1]]||{};
+    return {code:m.code,desc:x.desc_final||m.descricao||x.descricao||m.code,unit:x.unid_final||x.unidade||'UN',custo:Number(m.valor_unit)||Number(x.custo)||0,extraId:x.id||null,saldo:state.obras.reduce((a,o)=>a+saldoTotalOf(o.id,m.code),0)}; });
+}
+function invOrfaosHTML(){ if(!invOrfaos.length)return '';
+  const mono="font-family:'IBM Plex Mono',monospace";
+  return '<div class="panel" style="border-left:5px solid #c98a1a"><h3>⚠ '+invOrfaos.length+' item(ns) lançado(s) pela contagem sem cadastro</h3><p class="desc">Estes itens já tiveram o saldo lançado pelo inventário, mas o cadastro do produto não foi gravado — por isso <b>não aparecem no estoque</b>. Recadastrar cria os produtos com a descrição, unidade e custo da contagem; o saldo já lançado volta a aparecer (nenhuma quantidade é lançada de novo).</p>'
+    +'<button class="btn primary" onclick="invRecadastrarOrfaos()">Recadastrar '+invOrfaos.length+' produto(s)</button>'
+    +'<details style="margin-top:10px"><summary style="cursor:pointer;color:var(--muted);font-size:12.5px">Ver itens</summary><div class="tbl-wrap" style="margin-top:8px"><table><thead><tr><th>Código</th><th>Descrição</th><th>Unid.</th><th class="num">Saldo no banco</th><th class="num">Custo</th></tr></thead><tbody>'
+    +invOrfaos.map(o=>'<tr><td style="'+mono+'">'+esc(o.code)+'</td><td>'+esc(o.desc)+'</td><td>'+esc(o.unit)+'</td><td class="num">'+numf(o.saldo)+'</td><td class="num">'+money(o.custo)+'</td></tr>').join('')
+    +'</tbody></table></div></details></div>'; }
+function invRecadastrarOrfaos(){
+  if(!invOrfaos.length)return;
+  requireSupervisor('Recadastrar '+invOrfaos.length+' produto(s) lançados pela contagem sem cadastro',async()=>{
+    const novos=invOrfaos.filter(o=>!findProduct(o.code)).map(o=>({code:o.code,desc:o.desc,unit:o.unit,aux:'',min:0,max:0,custo:o.custo,preco:0,ref:''}));
+    if(!novos.length){ await renderInventario(); return; }
+    state.products.push(...novos);
+    toast('Salvando...','warn');
+    if(!(await invSalvar('Produtos recadastrados (lançados pelo inventário sem cadastro): '+novos.length))){
+      const cods=new Set(novos.map(p=>p.code)); state.products=state.products.filter(p=>!cods.has(p.code));
+      toast('Os produtos não foram cadastrados. Tente novamente.','err'); return; }
+    for(const o of invOrfaos)if(o.extraId)await fotosExtraParaProduto(o.extraId,o.code);
+    loadFotosExt();
+    toast(novos.length+' produto(s) recadastrado(s). Já aparecem no estoque.','ok');
+    await renderInventario();
+  });
+}
 async function renderInventario(){
   if(!isEncarregado()||isEncFrotas()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito a encarregados/administradores.</div></div>'; return; }
   $('#view').innerHTML='<div class="panel"><div class="muted">Carregando ajustes da contagem...</div></div>';
   try{ invRows=await invCarregar(); await ensureMovsInv(invRows.map(r=>r.key)); }
   catch(e){ $('#view').innerHTML='<div class="panel"><h3>Inventário</h3><p class="desc">Não consegui ler as tabelas da contagem ('+esc(e.message)+'). Confira se os arquivos SQL da contagem cíclica foram executados neste projeto.</p></div>'; return; }
+  try{ invOrfaos=await invCarregarOrfaos(); }catch(e){ console.warn('invCarregarOrfaos',e); invOrfaos=[]; }
   invDraw(); refreshInvBadge();
 }
 function invDraw(){
   const linhas=invCalcLote(invRows.filter(r=>podeAprovarObra(r.obra)));
-  if(!linhas.length){ $('#view').innerHTML='<div class="panel"><h3>Inventário</h3><p class="desc">Nenhum ajuste aguardando autorização. Os ajustes aparecem aqui depois que o encarregado aprova as divergências e os itens fora da lista na tela de <b>Revisão</b> da contagem.</p><button class="btn ghost sm" onclick="renderInventario()">Atualizar</button></div>'; return; }
+  if(!linhas.length){ $('#view').innerHTML=invOrfaosHTML()+'<div class="panel"><h3>Inventário</h3><p class="desc">Nenhum ajuste aguardando autorização. Os ajustes aparecem aqui depois que o encarregado aprova as divergências e os itens fora da lista na tela de <b>Revisão</b> da contagem.</p><button class="btn ghost sm" onclick="renderInventario()">Atualizar</button></div>'; return; }
   const grupos={}; linhas.forEach(l=>(grupos[l.ciclo.id]=grupos[l.ciclo.id]||[]).push(l));
   const marcados=linhas.filter(l=>!l.erro&&invSel[l.key]!==false);
   const mono="font-family:'IBM Plex Mono',monospace";
-  let h='<div class="panel"><h3>Inventário · autorizar e lançar</h3><p class="desc">Ajustes aprovados na contagem cíclica. Ao autorizar, o saldo é alterado, cada linha vira um movimento de <b>ajuste</b> na auditoria e os produtos novos são cadastrados. Confira o <b>saldo atual</b>: se ele mudou desde a contagem, escolha como aplicar.</p>'
+  let h=invOrfaosHTML()+'<div class="panel"><h3>Inventário · autorizar e lançar</h3><p class="desc">Ajustes aprovados na contagem cíclica. Ao autorizar, o saldo é alterado, cada linha vira um movimento de <b>ajuste</b> na auditoria e os produtos novos são cadastrados. Confira o <b>saldo atual</b>: se ele mudou desde a contagem, escolha como aplicar.</p>'
     +'<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><button class="btn primary" onclick="invLancar()"'+(marcados.length?'':' disabled')+'>Autorizar e lançar '+marcados.length+' selecionado(s)</button><button class="btn ghost sm" onclick="renderInventario()">Atualizar</button></div></div>';
   Object.values(grupos).forEach(g=>{
     const c=g[0].ciclo;
@@ -2581,15 +2638,22 @@ function invLancar(){
   if(!linhas.length){ toast('Nenhum ajuste selecionado.','err'); return; }
   const novos=linhas.filter(l=>l.criar).length;
   requireSupervisor('Autorizar e lançar '+linhas.length+' ajuste(s) de inventário no estoque'+(novos?' ('+novos+' produto(s) novo(s))':''),async()=>{
-    const bak=JSON.stringify(state);
     // recalcula no momento da confirmação (o estado pode ter mudado enquanto o aviso estava aberto)
     const atuais=invCalcLote(linhas).filter(l=>!l.erro);
+    const listas=[...new Set(atuais.map(l=>l.lista))].join(', ');
+    const novos=invProdutosNovos(atuais);
+    if(novos.length){
+      toast('Cadastrando '+novos.length+' produto(s)...','warn');
+      const ok=await invSalvar('Produtos cadastrados pelo inventário: '+novos.length+' · '+listas);
+      if(!ok){ const cods=new Set(novos.map(p=>p.code)); state.products=state.products.filter(p=>!cods.has(p.code));
+        toast('Os produtos novos não foram cadastrados e o estoque não foi alterado. Tente novamente.','err'); invDraw(); return; }
+    }
     const marcas=invAplicar(atuais);
-    const mudouEstado=marcas.some(m=>!m.ja&&!m.semMov);
-    if(mudouEstado){
+    if(marcas.some(m=>!m.ja&&!m.semMov)){
       toast('Salvando...','warn');
-      const ok=await invSalvar('Ajuste de inventário: '+marcas.length+' item(ns) · '+[...new Set(atuais.map(l=>l.lista))].join(', '));
-      if(!ok){ state=JSON.parse(bak); toast('O estoque não foi alterado. Tente novamente.','err'); invDraw(); return; }
+      /* saldo e movimentos já foram para o banco (tabelas próprias); aqui vai só o custo médio atualizado */
+      if(!(await invSalvar('Ajuste de inventário: '+marcas.length+' item(ns) · '+listas)))
+        toast('Saldos lançados, mas o custo médio não foi gravado. Confira o custo dos itens lançados.','warn');
     }
     const agora=new Date().toISOString(); let falhas=0;
     for(const m of marcas){
