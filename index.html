@@ -562,7 +562,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-09T15:00:00-03:00';
+const APP_VERSION='2026-10-09T15:30:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -1971,12 +1971,66 @@ async function nfRecuperarAutores(){ if(_nfAutoresTentado||!session)return;
   console.info('nfRecuperarAutores: '+ents.length+' registro(s) de entrada na auditoria, '+achou+' de '+faltam.length+' nota(s) preenchida(s)');
   if(achou){ drawNfHist(); save('Usuário de lançamento de '+achou+' nota(s) recuperado da auditoria'); }
   else if(isEncarregado()&&!ents.length)toast('A auditoria não retornou lançamentos de nota para preencher o usuário das notas antigas.','warn'); }
+/* Detalhe da nota lançada: todos os dados gravados na entrada (nota, XML, Controle de Notas, itens e composição do custo) */
+function fmtDocBR(d){ d=onlyDigits(d); if(d.length===14)return d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,'$1.$2.$3/$4-$5'); if(d.length===11)return d.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/,'$1.$2.$3-$4'); return d||''; }
 function notaDetalhe(id){ const n=state.notas.find(x=>x.id===id); if(!n)return;
-  const linhas=n.itens.map(it=>`<tr><td class="mono">${esc(it.code)}</td><td>${esc(it.desc)}${it.xmlDesc&&it.xmlDesc!==it.desc?`<div class="refline">NF: ${esc(it.xmlCod||'')} · ${esc(it.xmlDesc)}${it.fator&&it.fator!==1?` · fator ${numf(it.fator)}`:''}</div>`:''}${it.ncm||it.cst||nfExtrasLista(it).length?`<div class="refline">${[it.ncm?'NCM '+esc(it.ncm):'',it.cst?'CST '+esc(it.cst):'',...nfExtrasLista(it).map(e=>(e.neg?'− ':'+ ')+e.l.toLowerCase()+' '+money(e.v))].filter(Boolean).join(' · ')}${nfExtrasLista(it).length?' (no custo)':''}</div>`:''}</td><td class="num">${numf(it.qty)} ${esc(it.unit||'')}</td><td class="num">${money(it.custo)}</td><td class="num">${money(it.qty*it.custo)}</td></tr>`).join('');
-  modal(`<h3>Nota ${esc(n.numero)}</h3><p class="mp">Emissão: ${n.dataEmissao?new Date(n.dataEmissao+'T00:00:00').toLocaleDateString('pt-BR'):'—'} · ${esc(n.forn||'sem fornecedor')} · Obra: ${esc(obraName(n.obra))}<br>Lançada em ${n.ts?fmtDate(n.ts):'—'} por ${esc(n.porNome||'usuário não registrado')}</p>
+  const c=n.controle||{}; const dt=v=>v?fmtDia(v):'—'; const tx=v=>(v==null||v==='')?'—':esc(String(v));
+  const campo=(l,v,mono)=>`<div><div class="nfd-l">${l}</div><div class="nfd-v${mono?' mono':''}">${v}</div></div>`;
+  const ctrlObra=c.obraId?((_ctrlObras||[]).find(o=>String(o.id)===String(c.obraId))):null;
+  const PRIOR={baixa:'Baixa',media:'Média',alta:'Alta'};
+  const totItens=n.itens.reduce((s,it)=>s+it.qty*it.custo,0);
+  const linhas=n.itens.map(it=>{ const ex=nfExtrasLista(it); const comp=[];
+    if(it.custoNF!=null)comp.push('custo NF '+money(it.custoNF)+(it.fator&&it.fator!==1?' (÷ fator '+numf(it.fator)+')':''));
+    if(it.cte>0)comp.push('CT-e rateado '+money(it.cte));
+    if(it.custoMedio!=null)comp.push('custo médio '+money(it.custoAnt||0)+' (saldo '+numf(it.qAnt||0)+') → '+money(it.custoMedio));
+    return `<tr><td class="mono">${esc(it.code)}</td><td>${esc(it.desc)}
+      ${it.xmlDesc?`<div class="refline">NF: ${esc(it.xmlCod||'')} · ${esc(it.xmlDesc)}${it.xmlQty!=null?` · ${numf(it.xmlQty)} ${esc(it.xmlUnit||'')}`:''}${it.fator&&it.fator!==1?` · fator ${numf(it.fator)}`:''}</div>`:''}
+      ${it.ncm||it.cst||ex.length?`<div class="refline">${[it.ncm?'NCM '+esc(it.ncm):'',it.cst?'CST '+esc(it.cst):'',...ex.map(e=>(e.neg?'− ':'+ ')+e.l.toLowerCase()+' '+money(e.v))].filter(Boolean).join(' · ')}${ex.length?' (no custo)':''}</div>`:''}
+      ${it.lotes&&it.lotes.length?`<div class="refline">Lotes: ${esc(lotesTxt(it.lotes,it.unit))}</div>`:''}
+      ${comp.length?`<div class="refline">${comp.join(' · ')}</div>`:''}</td>
+      <td class="num">${numf(it.qty)} ${esc(it.unit||'')}</td><td class="num">${money(it.custo)}</td><td class="num">${money(it.qty*it.custo)}</td></tr>`; }).join('');
+  modal(`<style>.nfd-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px 16px;margin-bottom:14px}
+    .nfd-l{font-size:10.5px;color:#8a8377;text-transform:uppercase;letter-spacing:.5px;font-weight:700}.nfd-v{font-size:13px;margin-top:2px;word-break:break-word}
+    .nfd-s{font-size:11px;color:#8a8377;text-transform:uppercase;letter-spacing:.5px;font-weight:700;margin:16px 0 8px;padding-top:12px;border-top:1px solid #eee8dc}</style>
+  <h3>Nota ${esc(n.numero)}</h3>
+  <p class="mp">Lançada em ${n.ts?fmtDate(n.ts):'—'} por <b>${esc(n.porNome||'usuário não registrado')}</b></p>
+  <div class="nfd-g">
+    ${campo('Emissão',dt(n.dataEmissao))}
+    ${campo('Obra (estoque)',esc(obraName(n.obra)))}
+    ${campo('Valor da NF',money(n.valorNF>0?n.valorNF:(n.valor||0)-(n.freteCteValor||0)),true)}
+    ${campo('Total de entrada',money(n.valor||0),true)}
+  </div>
+  <div class="nfd-s">Emitente e destinatário</div>
+  <div class="nfd-g">
+    ${campo('Fornecedor (emitente)',tx(n.forn))}
+    ${campo('CNPJ do fornecedor',tx(fmtDocBR(n.cnpjEmit)),true)}
+    ${campo('Destinatário (tomador)',tx(n.destinatario))}
+    ${campo('CNPJ do tomador',tx(fmtDocBR(n.cnpjTomador)),true)}
+  </div>
+  ${n.chave?`<div class="nfd-g">${campo('Chave de acesso',esc(String(n.chave).replace(/(\d{4})(?=\d)/g,'$1 ')),true)}</div>`:''}
+  <div class="nfd-s">Controle de Notas</div>
+  <div class="nfd-g">
+    ${campo('Obra no Controle',ctrlObra?esc((ctrlObra.codigo?ctrlObra.codigo+' - ':'')+ctrlObra.nome):tx(c.obraId))}
+    ${campo('Pedido de compras',tx(c.pedidoCompras))}
+    ${campo('Vencimento',dt(c.vencimento))}
+    ${campo('Forma de pagamento',tx(c.formaPagamento))}
+    ${campo('Prioridade',tx(PRIOR[c.prioridade]||c.prioridade))}
+    ${campo('Frete (CT-e à parte)',c.frete==='sim'?'Sim':'Não')}
+  </div>
+  ${c.frete==='sim'?`<div class="nfd-g">
+    ${campo('Nº do CT-e',tx(c.freteCte),true)}
+    ${campo('Transportador',tx(c.freteTransportador))}
+    ${campo('Valor do frete',c.freteValor!=null?money(c.freteValor):'—',true)}
+    ${campo('Pagamento do frete',tx(c.freteFormaPagamento))}
+    ${campo('Vencimento do frete',dt(c.freteVencimento))}
+    ${campo('Rateado nos itens',n.freteCteValor>0?money(n.freteCteValor):'—',true)}
+  </div>`:''}
+  <div class="nfd-s">Itens (${n.itens.length})</div>
   <div class="tbl-wrap"><table><thead><tr><th>Código</th><th>Descrição</th><th class="num">Qtd</th><th class="num">Custo un.</th><th class="num">Total</th></tr></thead><tbody>${linhas}</tbody></table></div>
-  <div style="text-align:right;margin-top:12px;font-size:14px">Total da nota: <b class="mono">${money(n.valor||0)}</b></div>
+  <div style="text-align:right;margin-top:12px;font-size:14px">Total de entrada: <b class="mono">${money(n.valor||totItens)}</b>${n.freteCteValor>0?`<div class="muted" style="font-size:12px">inclui ${money(n.freteCteValor)} de frete CT-e rateado</div>`:''}</div>
   <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap">${isEncarregado()?`<button class="btn ghost" onclick="reprocXmlAbrir('${n.id}')">📄 Reprocessar XML</button>`:''}<button class="btn ghost" onclick="ctrlReenviarModal('${n.id}')">📤 Enviar ao Controle de Notas</button><button class="btn ghost" onclick="closeModal()">Fechar</button></div>`);
+  const m=$('#modalRoot .modal'); if(m)m.style.maxWidth='880px';
+  if(c.obraId&&!ctrlObra&&!_ctrlObras&&isOnline)ctrlObrasLista().then(()=>{ if($('#modalRoot .modal')&&_ctrlObras.some(o=>String(o.id)===String(c.obraId)))notaDetalhe(id); }).catch(()=>{});
 }
 function setEntradaTab(t){ entradaTab=t; $('#tbXml').classList.toggle('on',t==='xml'); $('#tbMan').classList.toggle('on',t==='manual');
   const pane=$('#entradaPane');
