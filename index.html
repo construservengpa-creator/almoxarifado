@@ -562,7 +562,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-09T15:30:00-03:00';
+const APP_VERSION='2026-10-09T16:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -1971,6 +1971,29 @@ async function nfRecuperarAutores(){ if(_nfAutoresTentado||!session)return;
   console.info('nfRecuperarAutores: '+ents.length+' registro(s) de entrada na auditoria, '+achou+' de '+faltam.length+' nota(s) preenchida(s)');
   if(achou){ drawNfHist(); save('Usuário de lançamento de '+achou+' nota(s) recuperado da auditoria'); }
   else if(isEncarregado()&&!ents.length)toast('A auditoria não retornou lançamentos de nota para preencher o usuário das notas antigas.','warn'); }
+/* Movimentações geradas pela nota: entradas (nota_id) e, se a nota teve aplicação direta, as baixas da requisição criada.
+   Mostra primeiro o que já está em memória e completa com o banco (a memória só tem a janela recente). */
+let _nfdMovsReq=0;
+function nfdMovsHtml(n,extra){ const reqs=(extra&&extra.reqs)||[];
+  const docsReq=new Set(reqs.map(r=>'REQ-'+String(r.id).padStart(5,'0')));
+  const movs=(state.movements||[]).filter(m=>m.notaId===n.id||(m.tipo==='baixa'&&m.doc&&[...docsReq].some(d=>m.doc.includes(d)))).sort((a,b)=>a.ts-b.ts);
+  const reqTxt=reqs.length?`<div class="muted" style="font-size:12px;margin-bottom:6px">Aplicação direta: ${reqs.map(r=>'REQ-'+String(r.id).padStart(5,'0')+(r.status?' ('+esc(String(r.status).replace(/_/g,' '))+')':'')).join(' · ')}</div>`:'';
+  if(!movs.length)return reqTxt+`<div class="muted" style="font-size:12.5px">${extra?(extra.erro?'Não foi possível carregar as movimentações: '+esc(extra.erro):'Nenhuma movimentação encontrada para esta nota.'):'Carregando...'}</div>`;
+  return reqTxt+`<div class="tbl-wrap nfd-mov"><table><thead><tr><th>Data</th><th>Tipo</th><th>Produto</th><th>Documento</th><th class="num">Qtd</th><th class="num">Valor un.</th><th class="num">Total</th><th class="num">Saldo após</th></tr></thead><tbody>`+
+    movs.map(m=>{ const tp=m.tipo==='entrada'?'<span class="pill in">Entrada</span>':m.tipo==='baixa'?(isMovDevolReq(m)?'<span class="pill in">Devol. requisição</span>':'<span class="pill out">Baixa</span>'):m.tipo==='ajuste'?'<span class="pill high">Ajuste</span>':m.tipo==='devolucao'?'<span class="pill out">Devolução</span>':'<span class="pill tr">Transf.</span>';
+      const q=Number(m.qty)||0; const e=(m.tipo==='baixa'||m.tipo==='devolucao')?-q:(m.tipo==='transferencia'?0:q); const cls=e>0?'pos':e<0?'neg':'';
+      return `<tr><td class="muted" style="font-size:12px;white-space:nowrap">${fmtDate(m.ts)}</td><td>${tp}</td><td style="font-size:12.5px"><span class="mono">${esc(m.code||'')}</span><div style="font-size:11.5px">${esc(m.desc||'')}</div></td>
+        <td style="font-size:12.5px">${esc(m.doc||'')}${m.seq?' · Nº '+seqf(m.seq):''}${m.aplic?' · '+esc(aplicName(m.aplic)):''}${m.os?' · OS '+esc(m.os):''}${m.lotes&&m.lotes.length?`<div style="font-size:11px;color:#2766b8">🏷 ${esc(lotesTxt(m.lotes))}</div>`:''}</td>
+        <td class="num ${cls}">${(e>0?'+':e<0?'−':'')+numf(Math.abs(e||m.qty))}</td><td class="num">${money(m.valorUnit)}</td><td class="num">${money(m.valorTotal)}</td><td class="num">${m.saldo!=null?numf(m.saldo):'—'}</td></tr>`; }).join('')+`</tbody></table></div>`; }
+async function nfdMovsCarregar(n){ const req=++_nfdMovsReq; const extra={reqs:[]};
+  try{
+    const {data,error}=await sb.from('movimentos_estoque').select('*').eq('nota_id',n.id); if(error)throw error; mergeMovs(data);
+    const {data:rq,error:e2}=await sb.from('requisicoes').select('id,status,criado_em').eq('obra_id',n.obra).ilike('observacao','Aplicação direta — NF '+n.numero+'%')
+      .gte('criado_em',new Date((n.ts||0)-5*60000).toISOString()).lte('criado_em',new Date((n.ts||0)+60*60000).toISOString());
+    if(!e2&&rq&&rq.length){ extra.reqs=rq;
+      const {data:bx}=await sb.from('movimentos_estoque').select('*').eq('tipo','baixa').or(rq.map(r=>'doc.ilike.%REQ-'+String(r.id).padStart(5,'0')+'%').join(',')); mergeMovs(bx); }
+  }catch(e){ extra.erro=(e&&e.message)||String(e); }
+  const box=$('#nfdMovs'); if(box&&req===_nfdMovsReq)box.innerHTML=nfdMovsHtml(n,extra); }
 /* Detalhe da nota lançada: todos os dados gravados na entrada (nota, XML, Controle de Notas, itens e composição do custo) */
 function fmtDocBR(d){ d=onlyDigits(d); if(d.length===14)return d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,'$1.$2.$3/$4-$5'); if(d.length===11)return d.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/,'$1.$2.$3-$4'); return d||''; }
 function notaDetalhe(id){ const n=state.notas.find(x=>x.id===id); if(!n)return;
@@ -1991,7 +2014,7 @@ function notaDetalhe(id){ const n=state.notas.find(x=>x.id===id); if(!n)return;
       <td class="num">${numf(it.qty)} ${esc(it.unit||'')}</td><td class="num">${money(it.custo)}</td><td class="num">${money(it.qty*it.custo)}</td></tr>`; }).join('');
   modal(`<style>.nfd-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px 16px;margin-bottom:14px}
     .nfd-l{font-size:10.5px;color:#8a8377;text-transform:uppercase;letter-spacing:.5px;font-weight:700}.nfd-v{font-size:13px;margin-top:2px;word-break:break-word}
-    .nfd-s{font-size:11px;color:#8a8377;text-transform:uppercase;letter-spacing:.5px;font-weight:700;margin:16px 0 8px;padding-top:12px;border-top:1px solid #eee8dc}</style>
+    .nfd-mov td.num{white-space:nowrap}.nfd-s{font-size:11px;color:#8a8377;text-transform:uppercase;letter-spacing:.5px;font-weight:700;margin:16px 0 8px;padding-top:12px;border-top:1px solid #eee8dc}</style>
   <h3>Nota ${esc(n.numero)}</h3>
   <p class="mp">Lançada em ${n.ts?fmtDate(n.ts):'—'} por <b>${esc(n.porNome||'usuário não registrado')}</b></p>
   <div class="nfd-g">
@@ -2027,9 +2050,12 @@ function notaDetalhe(id){ const n=state.notas.find(x=>x.id===id); if(!n)return;
   </div>`:''}
   <div class="nfd-s">Itens (${n.itens.length})</div>
   <div class="tbl-wrap"><table><thead><tr><th>Código</th><th>Descrição</th><th class="num">Qtd</th><th class="num">Custo un.</th><th class="num">Total</th></tr></thead><tbody>${linhas}</tbody></table></div>
+  <div class="nfd-s">Movimentações geradas</div>
+  <div id="nfdMovs">${nfdMovsHtml(n,null)}</div>
   <div style="text-align:right;margin-top:12px;font-size:14px">Total de entrada: <b class="mono">${money(n.valor||totItens)}</b>${n.freteCteValor>0?`<div class="muted" style="font-size:12px">inclui ${money(n.freteCteValor)} de frete CT-e rateado</div>`:''}</div>
   <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap">${isEncarregado()?`<button class="btn ghost" onclick="reprocXmlAbrir('${n.id}')">📄 Reprocessar XML</button>`:''}<button class="btn ghost" onclick="ctrlReenviarModal('${n.id}')">📤 Enviar ao Controle de Notas</button><button class="btn ghost" onclick="closeModal()">Fechar</button></div>`);
   const m=$('#modalRoot .modal'); if(m)m.style.maxWidth='880px';
+  nfdMovsCarregar(n);
   if(c.obraId&&!ctrlObra&&!_ctrlObras&&isOnline)ctrlObrasLista().then(()=>{ if($('#modalRoot .modal')&&_ctrlObras.some(o=>String(o.id)===String(c.obraId)))notaDetalhe(id); }).catch(()=>{});
 }
 function setEntradaTab(t){ entradaTab=t; $('#tbXml').classList.toggle('on',t==='xml'); $('#tbMan').classList.toggle('on',t==='manual');
