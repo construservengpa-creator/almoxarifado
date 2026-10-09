@@ -72,7 +72,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   td.num,th.num{text-align:right;font-family:'IBM Plex Mono',monospace}
   .pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600}
   .pill.low{background:#fde8e8;color:#c0392b} .pill.high{background:#fff3da;color:#a8731a}
-  .pill.good{background:#e3f7ee;color:#1c7a52}
+  .pill.good{background:#e3f7ee;color:#1c7a52} .pill.venc{background:#c0392b;color:#fff}
   .pill.in{background:#e3f7ee;color:#1c7a52} .pill.out{background:#fde8e8;color:#c0392b} .pill.tr{background:#e6effc;color:#2766b8}
   .field{margin-bottom:14px}
   label{display:block;font-size:12px;font-weight:600;color:#5a544a;margin-bottom:6px;text-transform:uppercase;letter-spacing:.4px}
@@ -559,7 +559,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-09T05:00:00-03:00';
+const APP_VERSION='2026-10-09T14:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -781,6 +781,12 @@ function subscribeRealtime(){
   // de o evento em tempo real não chegar (tabela fora da publicação do Realtime, conexão caiu etc.).
   sb.channel('devolucoes_sync').on('postgres_changes',{event:'*',schema:'public',table:'devolucoes'},()=>queueRefresh(atualizarDevolucoesAoVivo)).subscribe();
   setInterval(()=>{ if(activeTab==='devolucao'&&document.visibilityState==='visible')atualizarDevolucoesAoVivo(); },30000);
+  // Lotes: aplica a linha alterada por outro usuário (saldo/validade do lote)
+  sb.channel('lotes_sync').on('postgres_changes',{event:'*',schema:'public',table:'lotes_estoque'},pl=>{
+    if(!lotesAtivos())return;
+    const ok=pl.eventType!=='DELETE'&&lotesAplicarLinha(pl.new);
+    queueRefresh(ok?refreshTelaAtual:async()=>{ await loadLotes(); refreshTelaAtual(); });
+  }).subscribe();
   // Movimentações e saldos: aplica só a linha que mudou em vez de recarregar tudo do banco.
   let _movRenderTimer=null;
   const rerenderMov=()=>{ clearTimeout(_movRenderTimer); _movRenderTimer=setTimeout(()=>{
@@ -880,7 +886,9 @@ function obraEstoqueParaRequisicao(r){
   return r.mutuo_estoque_obra_id ? r.mutuo_estoque_obra_id : r.obra_id;
 }
 function totalSaldo(code){ let s=0; state.obras.forEach(o=>s+=saldoOf(o.id,code)); return s; }
-function addSaldo(obra,code,delta){
+/* lotes (opcional): na entrada, os lotes que entram; na saída, os lotes que saem (sem informar, sai por FEFO).
+   Devolve os lotes movimentados (null se o produto não tem lote nesta obra). */
+function addSaldo(obra,code,delta,lotes){
   if(!state.estoque[obra])state.estoque[obra]={};
   state.estoque[obra][code]=(state.estoque[obra][code]||0)+delta;
   if(obra&&code&&delta){
@@ -888,10 +896,11 @@ function addSaldo(obra,code,delta){
       if(error) toast('Erro ao gravar saldo no banco (recarregue a página para conferir): '+error.message,'err');
     });
   }
+  return lotesAoMover(obra,code,delta,lotes);
 }
 /* ===== Movimentações — agora persistidas linha a linha em movimentos_estoque, não mais dentro do JSON único (isso é o que elimina a perda por sobrescrita concorrente) ===== */
-function movToRow(m){ return {id:m.id,ts:m.ts,tipo:m.tipo,obra:m.obra||null,obra_dest:m.obraDest||null,code:m.code||null,descricao:m.desc||null,qty:m.qty||0,valor_unit:m.valorUnit||0,valor_total:m.valorTotal||0,doc:m.doc||null,obs:m.obs||null,aplic:m.aplic||null,os:m.os||null,seq:m.seq||null,nota_id:m.notaId||null,inv_id:m.invId||null,inv_modo:m.invModo||null,baixa_id:m.baixaId||null,romaneio_id:m.romaneioId||null,saldo:(m.saldo!=null?m.saldo:null),saldo_dest:(m.saldoDest!=null?m.saldoDest:null)}; }
-function rowToMov(r){ return {id:r.id,ts:Number(r.ts),tipo:r.tipo,obra:r.obra||undefined,obraDest:r.obra_dest||undefined,code:r.code||undefined,desc:r.descricao||undefined,qty:Number(r.qty)||0,valorUnit:Number(r.valor_unit)||0,valorTotal:Number(r.valor_total)||0,doc:r.doc||undefined,obs:r.obs||undefined,aplic:r.aplic||undefined,os:r.os||undefined,seq:r.seq||undefined,notaId:r.nota_id||undefined,invId:r.inv_id||undefined,invModo:r.inv_modo||undefined,baixaId:r.baixa_id||undefined,romaneioId:r.romaneio_id||undefined,saldo:r.saldo!=null?Number(r.saldo):undefined,saldoDest:r.saldo_dest!=null?Number(r.saldo_dest):undefined}; }
+function movToRow(m){ return {id:m.id,ts:m.ts,tipo:m.tipo,obra:m.obra||null,obra_dest:m.obraDest||null,code:m.code||null,descricao:m.desc||null,qty:m.qty||0,valor_unit:m.valorUnit||0,valor_total:m.valorTotal||0,doc:m.doc||null,obs:m.obs||null,aplic:m.aplic||null,os:m.os||null,seq:m.seq||null,nota_id:m.notaId||null,inv_id:m.invId||null,inv_modo:m.invModo||null,baixa_id:m.baixaId||null,romaneio_id:m.romaneioId||null,saldo:(m.saldo!=null?m.saldo:null),saldo_dest:(m.saldoDest!=null?m.saldoDest:null),...(m.lotes&&m.lotes.length?{lotes:m.lotes}:{})}; } /* lotes só vai quando existe: banco sem a coluna continua aceitando o resto */
+function rowToMov(r){ return {id:r.id,ts:Number(r.ts),tipo:r.tipo,obra:r.obra||undefined,obraDest:r.obra_dest||undefined,code:r.code||undefined,desc:r.descricao||undefined,qty:Number(r.qty)||0,valorUnit:Number(r.valor_unit)||0,valorTotal:Number(r.valor_total)||0,doc:r.doc||undefined,obs:r.obs||undefined,aplic:r.aplic||undefined,os:r.os||undefined,seq:r.seq||undefined,notaId:r.nota_id||undefined,invId:r.inv_id||undefined,invModo:r.inv_modo||undefined,baixaId:r.baixa_id||undefined,romaneioId:r.romaneio_id||undefined,saldo:r.saldo!=null?Number(r.saldo):undefined,saldoDest:r.saldo_dest!=null?Number(r.saldo_dest):undefined,lotes:Array.isArray(r.lotes)&&r.lotes.length?r.lotes:undefined}; }
 const _movPend=new Set();
 function pushMov(m){ if(!m.id)m.id=uid(); if(!m.ts)m.ts=Date.now(); state.movements.unshift(m);
   const pr=sb.from('movimentos_estoque').insert(movToRow(m)).then(({error})=>{ if(error) toast('Erro ao gravar movimentação no banco (recarregue a página para conferir): '+error.message,'err'); });
@@ -998,6 +1007,248 @@ function toast(msg,type='ok'){ const t=document.createElement('div'); t.classNam
 function refreshBadge(){ const o=curObra(); const b=$('#navBadge'); if(!o){b.style.display='none';return;}
   const tr=buildTracked(); const low=state.products.filter(p=>needsRepor(p,(o==='__all'?totalSaldo(p.code):saldoOf(o,p.code)),o,tr)).length;
   if(low>0){b.style.display='';b.textContent=low;}else{b.style.display='none';} }
+/* ===== LOTES E VALIDADE =====
+   Saldo por lote fica em lotes_estoque (obra + produto + lote, com validade). O saldo total continua em saldos_estoque;
+   a parte do saldo que não está em nenhum lote aparece como "sem lote" (estoque anterior ao controle, devolução, ajuste a mais).
+   - Entrada por nota: lote/validade vêm do XML (<rastro>) ou são digitados; produto marcado "controla lote" exige.
+   - Toda saída (separação, transferência, ajuste, inventário, devolução ao fornecedor) consome os lotes por FEFO —
+     o que vence primeiro sai primeiro — e a movimentação guarda quais lotes saíram (coluna lotes).
+   - Transferência leva os mesmos lotes para a obra de destino; excluir nota ou transferência devolve os lotes.
+   - O Painel mostra os lotes vencidos e os que vencem dentro do prazo de alerta (padrão 30 dias, ajustável por produto).
+   Sem o script LOTES_SQL rodado no banco, nada disso é gravado e o resto do sistema segue igual. */
+const LOTES_SQL=`-- Controle de lotes e validade
+-- Rodar uma vez no Supabase (SQL Editor) do projeto Estoque. Pode rodar de novo sem problema.
+
+create table if not exists public.lotes_estoque (
+  id            bigint generated always as identity primary key,
+  obra_id       text        not null,
+  code          text        not null,
+  lote          text        not null check (length(trim(lote)) > 0),
+  validade      date,
+  fabricacao    date,
+  saldo         numeric     not null default 0 check (saldo >= 0),
+  criado_em     timestamptz not null default now(),
+  atualizado_em timestamptz not null default now()
+);
+create unique index if not exists lotes_estoque_uk on public.lotes_estoque (obra_id, code, lote);
+create index if not exists lotes_estoque_validade_idx on public.lotes_estoque (validade) where saldo > 0;
+
+-- Quais lotes entraram/saíram em cada movimentação (rastreabilidade)
+alter table public.movimentos_estoque add column if not exists lotes jsonb;
+
+alter table public.lotes_estoque enable row level security;
+drop policy if exists "lotes: leitura" on public.lotes_estoque;
+create policy "lotes: leitura" on public.lotes_estoque
+  for select to authenticated
+  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.ativo));
+-- Sem INSERT/UPDATE/DELETE direto: o saldo do lote só muda pela função abaixo.
+
+-- Soma (ou subtrai) quantidade de um lote; cria o lote se ainda não existir. Nunca deixa saldo negativo.
+-- Validade/fabricação informadas atualizam as do lote; nulas mantêm as atuais.
+create or replace function public.mover_lote(p_obra text, p_code text, p_lote text, p_validade date,
+                                             p_fabricacao date, p_delta numeric)
+returns numeric language plpgsql security definer set search_path = public as $$
+declare v_saldo numeric;
+begin
+  if not exists (select 1 from public.profiles p where p.id = auth.uid() and p.ativo) then
+    raise exception 'Usuário sem acesso.';
+  end if;
+  if coalesce(trim(p_lote), '') = '' then raise exception 'Informe o lote.'; end if;
+  insert into public.lotes_estoque as l (obra_id, code, lote, validade, fabricacao, saldo)
+  values (p_obra, p_code, upper(trim(p_lote)), p_validade, p_fabricacao, greatest(coalesce(p_delta, 0), 0))
+  on conflict (obra_id, code, lote) do update
+     set saldo         = greatest(l.saldo + coalesce(p_delta, 0), 0),
+         validade      = coalesce(excluded.validade, l.validade),
+         fabricacao    = coalesce(excluded.fabricacao, l.fabricacao),
+         atualizado_em = now()
+  returning saldo into v_saldo;
+  return v_saldo;
+end $$;
+grant execute on function public.mover_lote(text, text, text, date, date, numeric) to authenticated;
+
+-- Atualização em tempo real entre usuários
+do $$ begin
+  alter publication supabase_realtime add table public.lotes_estoque;
+exception when duplicate_object then null; end $$;
+`;
+const LOTE_DIAS_PADRAO=30, LOTE_DIAS_CRITICO=7;
+let lotesEstoque={}, _lotesOk=null; /* lotesEstoque[obra][code] = [{lote,validade,fabricacao,saldo}] · _lotesOk: tabela existe? (null = ainda não sabe) */
+function lotesAtivos(){ return _lotesOk===true; }
+function podeGerirLotes(){ return isAlmoxarife()||isEncarregado(); }
+function lotesTabelaFaltando(e){ const m=(e&&e.message)||''; return !!e&&(e.code==='42P01'||e.code==='PGRST205'||e.code==='PGRST202'||e.code==='42883'||(/lotes_estoque|mover_lote/.test(m)&&/(could not find|does not exist|não existe|schema cache)/i.test(m))); }
+async function loadLotes(){
+  const {data,error}=await fetchAllRows(()=>sb.from('lotes_estoque').select('obra_id,code,lote,validade,fabricacao,saldo').gt('saldo',0).order('obra_id').order('code').order('lote'));
+  if(error){ if(lotesTabelaFaltando(error))_lotesOk=false; else console.warn('loadLotes',error); return false; }
+  const m={}; (data||[]).forEach(r=>{ const o=m[r.obra_id]||(m[r.obra_id]={}); (o[r.code]||(o[r.code]=[])).push({lote:r.lote,validade:r.validade||null,fabricacao:r.fabricacao||null,saldo:Number(r.saldo)||0}); });
+  lotesEstoque=m; _lotesOk=true; return true; }
+/* Linha alterada por outro usuário (tempo real) */
+function lotesAplicarLinha(r){ if(!r||!r.obra_id||r.code==null||!r.lote)return false;
+  const o=lotesEstoque[r.obra_id]||(lotesEstoque[r.obra_id]={}); const arr=o[r.code]||(o[r.code]=[]); const i=arr.findIndex(x=>x.lote===r.lote);
+  const v={lote:r.lote,validade:r.validade||null,fabricacao:r.fabricacao||null,saldo:Number(r.saldo)||0}; if(i>=0)arr[i]=v; else arr.push(v); return true; }
+function lotesInstalarHTML(){ return `<div class="panel" style="border-left:4px solid #f5a623;margin-bottom:16px"><h3 style="font-size:14px">🏷 Controle de lotes e validade — falta configurar o banco</h3>
+  <p class="desc">Para gravar lotes, validades e gerar os alertas de vencimento, rode uma vez o script abaixo no Supabase (SQL Editor) e recarregue a página.</p>
+  <button class="btn primary sm" onclick="navigator.clipboard.writeText(LOTES_SQL).then(()=>toast('Script copiado.','ok'),()=>toast('Não foi possível copiar — selecione o texto.','err'))">Copiar script SQL</button></div>`; }
+function diasAlertaVenc(p){ const d=p&&Number(p.diasAlertaVenc); return d>0?d:(Number(state.config&&state.config.lotesDiasAlerta)||LOTE_DIAS_PADRAO); }
+function fmtDia(iso){ if(!iso)return '—'; const [a,m,d]=String(iso).slice(0,10).split('-'); return d+'/'+m+'/'+a; }
+function diasParaVencer(validade){ if(!validade)return null; const v=new Date(String(validade).slice(0,10)+'T00:00:00'); if(isNaN(v))return null; const h=new Date(); h.setHours(0,0,0,0); return Math.round((v-h)/864e5); }
+function ordFefo(a,b){ return String(a.validade||'9999-12-31').localeCompare(String(b.validade||'9999-12-31'))||String(a.lote).localeCompare(String(b.lote),'pt-BR',{numeric:true}); }
+function lotesDe(obra,code){ const l=((lotesEstoque[obra]||{})[code])||[]; return l.filter(x=>x.saldo>1e-9).sort(ordFefo); }
+function saldoEmLotes(obra,code){ return lotesDe(obra,code).reduce((s,l)=>s+l.saldo,0); }
+function saldoSemLote(obra,code){ return Math.max(+(saldoTotalOf(obra,code)-saldoEmLotes(obra,code)).toFixed(6),0); }
+/* Lote sem número (só validade) vira "S/N-aaaa-mm-dd": um por validade */
+function normLote(lote,validade){ const l=String(lote||'').trim().toUpperCase().slice(0,60); return l||(validade?'S/N-'+String(validade).slice(0,10):''); }
+function loteNome(lote){ return /^S\/N-/.test(String(lote))?'sem nº':String(lote); }
+function lotesTxt(ls,u){ return (ls||[]).map(l=>loteNome(l.lote)+(l.validade?' (val. '+fmtDia(l.validade)+')':'')+(l.qty!=null?': '+numf(l.qty)+(u?' '+u:''):'')).join(' · '); }
+/* FEFO: quanto sai de cada lote para atender qty (o que passar do saldo em lotes sai do "sem lote") */
+function lotesFefo(obra,code,qty){ let falta=Number(qty)||0; const plan=[];
+  for(const l of lotesDe(obra,code)){ if(falta<=1e-9)break; const q=Math.min(l.saldo,falta); plan.push({lote:l.lote,validade:l.validade||null,qty:+q.toFixed(6)}); falta-=q; }
+  return plan; }
+function moverLote(obra,code,l,delta){ if(!lotesAtivos()||!obra||code==null||!l||!l.lote||!delta)return;
+  const o=lotesEstoque[obra]||(lotesEstoque[obra]={}); const arr=o[code]||(o[code]=[]);
+  let x=arr.find(y=>y.lote===l.lote); if(!x){ x={lote:l.lote,validade:l.validade||null,fabricacao:l.fabricacao||null,saldo:0}; arr.push(x); }
+  x.saldo=Math.max(+(x.saldo+delta).toFixed(6),0); if(l.validade)x.validade=l.validade; if(l.fabricacao)x.fabricacao=l.fabricacao;
+  sb.rpc('mover_lote',{p_obra:obra,p_code:String(code),p_lote:l.lote,p_validade:l.validade||null,p_fabricacao:l.fabricacao||null,p_delta:delta}).then(({error})=>{
+    if(error)toast('Erro ao gravar o lote '+esc(l.lote)+' no banco (recarregue a página para conferir): '+esc(error.message),'err'); }); }
+/* Chamado pelo addSaldo: entrada só mexe em lote se vier informado; saída usa os lotes informados ou FEFO.
+   Devolve os lotes movimentados (para guardar na movimentação / levar ao destino da transferência). */
+function lotesAoMover(obra,code,delta,lotes){ if(!lotesAtivos()||!obra||code==null||!delta)return null;
+  if(delta>0){ if(!lotes||!lotes.length)return null; lotes.forEach(l=>moverLote(obra,code,l,Math.abs(Number(l.qty)||0))); return lotes.map(l=>({lote:l.lote,validade:l.validade||null,qty:Math.abs(Number(l.qty)||0)})); }
+  const plan=lotes&&lotes.length?lotes.map(l=>({lote:l.lote,validade:l.validade||null,qty:Math.abs(Number(l.qty)||0)})):lotesFefo(obra,code,-delta);
+  plan.forEach(l=>moverLote(obra,code,l,-l.qty)); return plan.length?plan:null; }
+/* Situação da validade: nivel 4 vencido · 3 crítico (até 7 dias) · 2 dentro do prazo de alerta · 1 válido · 0 sem validade */
+function vencInfo(validade,p){ const d=diasParaVencer(validade); const lim=diasAlertaVenc(p);
+  if(d==null)return {nivel:0,d,cls:'good',txt:'Sem validade'};
+  if(d<0)return {nivel:4,d,cls:'venc',txt:'Vencido há '+(-d)+(d===-1?' dia':' dias')};
+  if(d===0)return {nivel:3,d,cls:'low',txt:'Vence hoje'};
+  if(d<=Math.min(LOTE_DIAS_CRITICO,lim))return {nivel:3,d,cls:'low',txt:'Vence em '+d+(d===1?' dia':' dias')};
+  if(d<=lim)return {nivel:2,d,cls:'high',txt:'Vence em '+d+' dias'};
+  return {nivel:1,d,cls:'good',txt:'Válido'}; }
+function vencPill(validade,p){ const v=vencInfo(validade,p); return `<span class="pill ${v.cls}">${v.txt}</span>`; }
+/* Resumo dos lotes no detalhe do produto (todas as obras, o que vence primeiro no topo) */
+function lotesDetalheHTML(p){ if(!lotesAtivos())return ''; const u=esc(p.unit||'');
+  const ls=[]; Object.keys(lotesEstoque).forEach(o=>{ if(state.obras.some(x=>x.id===o))lotesDe(o,p.code).forEach(l=>ls.push(Object.assign({obra:o},l))); }); ls.sort(ordFefo);
+  if(!ls.length)return p.controlaLote?`<p class="muted" style="font-size:12px;margin-top:10px">🏷 Controla lote · nenhum lote com saldo.</p>`:'';
+  return `<div class="sechead" style="margin:14px 0 6px"><h3 style="margin:0;font-size:14px">🏷 Lotes</h3></div><div class="tbl-wrap"><table><thead><tr><th>Obra</th><th>Lote</th><th>Validade</th><th class="num">Saldo</th><th>Situação</th></tr></thead><tbody>${
+    ls.slice(0,8).map(l=>`<tr><td>${esc(obraName(l.obra))}</td><td class="mono">${esc(loteNome(l.lote))}</td><td>${fmtDia(l.validade)}</td><td class="num">${numf(l.saldo)} ${u}</td><td>${vencPill(l.validade,p)}</td></tr>`).join('')
+  }${ls.length>8?`<tr><td colspan="5" class="muted" style="font-size:12px;text-align:center">+ ${ls.length-8} lote(s) — veja em "Lotes e validade"</td></tr>`:''}</tbody></table></div>`; }
+/* Pior situação de validade por produto na obra (ou em todas) — marca a linha no painel de produtos */
+function vencPiorPorProduto(obra){ const m=new Map(); if(!lotesAtivos())return m;
+  const obras=(!obra||obra==='__all')?Object.keys(lotesEstoque):[obra];
+  obras.forEach(o=>Object.keys(lotesEstoque[o]||{}).forEach(code=>{ const p=findProduct(code); lotesDe(o,code).forEach(l=>{ const v=vencInfo(l.validade,p); const a=m.get(code); if(!a||v.nivel>a.nivel||(v.nivel===a.nivel&&v.d!=null&&v.d<a.d))m.set(code,v); }); }));
+  return m; }
+function vencLinhas(obra,horiz){ const r=[]; const obras=(!obra||obra==='__all')?Object.keys(lotesEstoque):[obra];
+  obras.forEach(o=>{ if(!state.obras.some(x=>x.id===o))return;
+    Object.keys(lotesEstoque[o]||{}).forEach(code=>{ const p=findProduct(code); if(!p)return;
+      lotesDe(o,code).forEach(l=>{ const d=diasParaVencer(l.validade); if(d==null)return; if(d<=(horiz>0?horiz:diasAlertaVenc(p)))r.push({obra:o,code,p,l,d,v:vencInfo(l.validade,p)}); }); }); });
+  return r.sort((a,b)=>a.d-b.d||a.p.desc.localeCompare(b.p.desc,'pt-BR')); }
+/* ----- Painel: crítica da proximidade do vencimento ----- */
+function drawVencPainel(){ const box=$('#vencPainel'); if(!box)return;
+  if(_lotesOk===false){ box.innerHTML=isAdmin()?lotesInstalarHTML():''; return; }
+  if(!lotesAtivos()){ box.innerHTML=''; return; }
+  const o=curObra(), all=!o||o==='__all'; const hz=window._vencHz||0;
+  const temValidade=(all?Object.keys(lotesEstoque):[o]).some(ob=>Object.keys(lotesEstoque[ob]||{}).some(c=>lotesDe(ob,c).some(l=>l.validade)));
+  if(!temValidade){ box.innerHTML=''; return; }
+  const lin=vencLinhas(o,hz);
+  const venc=lin.filter(x=>x.v.nivel===4), crit=lin.filter(x=>x.v.nivel===3), aten=lin.filter(x=>x.v.nivel<=2);
+  const val=xs=>xs.reduce((s,x)=>s+x.l.saldo*(x.p.custo||0),0);
+  const lim=window._vencTodos?Infinity:30; const u=x=>esc(x.p.unit||'');
+  const cab=`<div class="sechead"><h3>⏳ Vencimento de lotes${all?'':' · '+esc(obraName(o))}</h3>
+    <select id="vencHz" style="width:auto" onchange="window._vencHz=Number(this.value)||0;window._vencTodos=false;drawVencPainel()">${[[0,'No prazo de alerta de cada produto'],[30,'Vencem em até 30 dias'],[60,'Vencem em até 60 dias'],[90,'Vencem em até 90 dias'],[180,'Vencem em até 180 dias']].map(([d,t])=>`<option value="${d}"${hz===d?' selected':''}>${t}</option>`).join('')}</select></div>`;
+  if(!lin.length){ box.innerHTML=cab+`<div class="tbl-wrap" style="margin-bottom:24px"><div class="empty" style="padding:18px">✓ Nenhum lote vencido ou perto do vencimento${all?'':' nesta obra'}.</div></div>`; return; }
+  const chip=(n,t,cls,v)=>n?`<span class="pill ${cls}" style="font-size:12px;padding:4px 11px">${n} ${t} · ${money(v)}</span>`:'';
+  box.innerHTML=cab+`<div style="display:flex;gap:8px;flex-wrap:wrap;margin:-4px 0 10px">${chip(venc.length,venc.length===1?'lote vencido':'lotes vencidos','venc',val(venc))}${chip(crit.length,'vencem em até '+LOTE_DIAS_CRITICO+' dias','low',val(crit))}${chip(aten.length,hz?'vencem em até '+hz+' dias':'no prazo de alerta','high',val(aten))}</div>
+  <div class="tbl-wrap" style="margin-bottom:24px"><table><thead><tr><th>Produto</th>${all?'<th>Obra</th>':''}<th>Lote</th><th>Validade</th><th class="num">Saldo do lote</th><th class="num">Valor</th><th>Situação</th><th></th></tr></thead><tbody>${
+    lin.slice(0,lim).map(x=>`<tr${x.v.nivel===4?' style="background:#fdf1f0"':''}><td><a href="#" onclick="lotesModal('${esc(x.code)}','${esc(x.obra)}');return false" style="color:#1c1c1c;font-weight:600;text-decoration:none">${esc(x.p.desc)}</a><div class="muted mono" style="font-size:10.5px">${esc(x.code)}</div></td>${all?`<td>${esc(obraName(x.obra))}</td>`:''}<td class="mono">${esc(loteNome(x.l.lote))}</td><td style="white-space:nowrap">${fmtDia(x.l.validade)}</td><td class="num"><b>${numf(x.l.saldo)}</b> ${u(x)}</td><td class="num">${money(x.l.saldo*(x.p.custo||0))}</td><td><span class="pill ${x.v.cls}">${x.v.txt}</span></td><td class="num"><button class="btn ghost sm" title="Lotes do produto" onclick="lotesModal('${esc(x.code)}','${esc(x.obra)}')">🏷</button></td></tr>`).join('')
+  }${lin.length>lim?`<tr><td colspan="${all?8:7}" style="text-align:center;padding:12px"><span class="muted" style="font-size:12px;margin-right:10px">Mostrando ${lim} de ${lin.length}</span><button class="btn ghost sm" onclick="window._vencTodos=true;drawVencPainel()">Mostrar todos</button></td></tr>`:''}</tbody></table></div>`; }
+/* ----- Lotes de um produto: consulta, identificação do saldo sem lote e correções ----- */
+function lotesModal(code,obraFoco){ const p=findProduct(code); if(!p)return; const u=esc(p.unit||'');
+  const fechar=`<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="closeModal()">Fechar</button></div>`;
+  if(!lotesAtivos()){ modal(`<h3>🏷 Lotes e validade</h3><p class="mp">${esc(p.desc)}</p>${_lotesOk===false?(isAdmin()?lotesInstalarHTML():'<p class="mp">O controle de lotes ainda não foi configurado no banco. Fale com o administrador.</p>'):'<p class="mp">Não foi possível carregar os lotes agora (sem conexão?). Tente de novo em instantes.</p>'}${fechar}`); return; }
+  const pode=podeGerirLotes();
+  const obras=state.obras.filter(o=>saldoTotalOf(o.id,code)>0||lotesDe(o.id,code).length).sort((a,b)=>(b.id===obraFoco)-(a.id===obraFoco)||a.nome.localeCompare(b.nome,'pt-BR'));
+  const blocos=obras.map(o=>{ const ls=lotesDe(o.id,code), sem=saldoSemLote(o.id,code), tot=saldoTotalOf(o.id,code), emL=saldoEmLotes(o.id,code);
+    const a=(fn,lote,txt,tt)=>`<button class="btn ghost sm" style="padding:2px 8px;font-size:11px" title="${tt}" onclick="${fn}('${esc(code)}','${esc(o.id)}','${esc(lote)}')">${txt}</button>`;
+    return `<div style="margin-bottom:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px"><b>${esc(o.nome)}</b><span class="muted" style="font-size:12px">saldo ${numf(tot)} ${u}</span></div>
+      <div class="tbl-wrap"><table><thead><tr><th>Lote</th><th>Validade</th><th class="num">Saldo</th><th>Situação</th>${pode?'<th></th>':''}</tr></thead><tbody>${
+        ls.map(l=>`<tr><td class="mono">${esc(loteNome(l.lote))}${l.fabricacao?`<div class="muted" style="font-size:10.5px">fab. ${fmtDia(l.fabricacao)}</div>`:''}</td><td style="white-space:nowrap">${fmtDia(l.validade)}</td><td class="num" style="white-space:nowrap"><b>${numf(l.saldo)}</b> ${u}</td><td style="white-space:nowrap">${vencPill(l.validade,p)}</td>${pode?`<td class="num" style="white-space:nowrap">${/^S\/N-/.test(l.lote)?'':a('loteValidadeForm',l.lote,'✎','Corrigir a validade deste lote')} ${a('loteDesfazer',l.lote,'↺','Tirar do lote: volta este saldo para sem lote (não altera o saldo do produto)')}</td>`:''}</tr>`).join('')
+      }${sem>1e-9?`<tr style="background:#faf8f3"><td class="muted" colspan="2">Sem lote identificado</td><td class="num" style="white-space:nowrap"><b>${numf(sem)}</b> ${u}</td><td>${p.controlaLote?'<span class="pill high">Identificar</span>':''}</td>${pode?`<td class="num">${a('loteIdentificarForm','','+ Lote','Informar o lote/validade do saldo que está sem lote')}</td>`:''}</tr>`:''}${emL>tot+1e-6?`<tr><td colspan="${pode?5:4}" style="font-size:11.5px;color:#a8731a">⚠ Os lotes somam ${numf(emL)} ${u}, mais que o saldo do produto (${numf(tot)}). Use "Tirar do lote" no que já não existe.</td></tr>`:''}</tbody></table></div></div>`; }).join('');
+  modal(`<h3>🏷 Lotes e validade</h3><p class="mp">${esc(p.desc)} · <span class="mono">${esc(code)}</span>${p.controlaLote?' · <span class="pill tr">controla lote</span>':''} · alerta de vencimento ${diasAlertaVenc(p)} dias antes</p>
+    ${blocos||'<div class="tbl-wrap"><div class="empty" style="padding:18px">Sem saldo nem lote em nenhuma obra.</div></div>'}
+    <div id="ltForm"></div>
+    <p class="muted" style="font-size:11.5px;margin-top:4px">As saídas consomem primeiro o lote que vence primeiro (FEFO). Para descartar material vencido, faça um <b>Ajuste de Saldo</b> — ele baixa o lote vencido.</p>${fechar}`); }
+function loteIdentificarForm(code,obra){ const p=findProduct(code); const el=$('#ltForm'); if(!p||!el)return; const sem=saldoSemLote(obra,code);
+  el.innerHTML=`<div class="panel" style="margin:4px 0 12px;background:#fbf9f4"><h3 style="font-size:14px">+ Identificar lote · ${esc(obraName(obra))}</h3><p class="desc">Informa o lote/validade de parte do saldo que está sem lote (até ${numf(sem)} ${esc(p.unit||'')}). Não altera o saldo do produto.</p>
+    <div class="row c3"><div class="field" style="margin:0"><label>Lote</label><input id="ltLote" class="mono" placeholder="nº do lote (opcional se tiver validade)"></div><div class="field" style="margin:0"><label>Validade</label><input id="ltVal" type="date"></div><div class="field" style="margin:0"><label>Quantidade</label><input id="ltQtd" type="number" step="any" min="0" value="${sem}"></div></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px"><button class="btn ghost sm" onclick="$('#ltForm').innerHTML=''">Cancelar</button><button class="btn primary sm" onclick="loteIdentificar('${esc(code)}','${esc(obra)}')">Salvar lote</button></div></div>`;
+  $('#ltLote').focus(); }
+function loteIdentificar(code,obra){ const p=findProduct(code); if(!p||!podeGerirLotes())return;
+  const val=$('#ltVal').value||null, lote=normLote($('#ltLote').value,val), q=parseFloat($('#ltQtd').value), sem=saldoSemLote(obra,code);
+  if(!lote){ toast('Informe o lote ou a validade.','err'); return; }
+  if(!(q>0)){ toast('Informe a quantidade.','err'); return; }
+  if(q>sem+1e-6){ toast(`Quantidade maior que o saldo sem lote (${numf(sem)}).`,'err'); return; }
+  const ex=lotesDe(obra,code).find(l=>l.lote===lote); if(ex&&ex.validade&&val&&ex.validade!==val){ toast(`O lote ${esc(lote)} já existe com validade ${fmtDia(ex.validade)}.`,'err'); return; }
+  moverLote(obra,code,{lote,validade:val},q); save('Lote '+loteNome(lote)+(val?' (val. '+fmtDia(val)+')':'')+' identificado: '+p.desc+' em '+obraName(obra)+' ('+numf(q)+')');
+  toast('Lote registrado.','ok'); lotesModal(code,obra); }
+function loteValidadeForm(code,obra,lote){ const p=findProduct(code); const el=$('#ltForm'); const l=lotesDe(obra,code).find(x=>x.lote===lote); if(!p||!el||!l)return;
+  el.innerHTML=`<div class="panel" style="margin:4px 0 12px;background:#fbf9f4"><h3 style="font-size:14px">✎ Validade do lote ${esc(loteNome(lote))} · ${esc(obraName(obra))}</h3>
+    <div class="row c2"><div class="field" style="margin:0"><label>Nova validade</label><input id="ltVal" type="date" value="${esc(l.validade||'')}"></div></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px"><button class="btn ghost sm" onclick="$('#ltForm').innerHTML=''">Cancelar</button><button class="btn primary sm" onclick="loteValidadeSalvar('${esc(code)}','${esc(obra)}','${esc(lote)}')">Salvar</button></div></div>`; }
+async function loteValidadeSalvar(code,obra,lote){ const p=findProduct(code); const l=lotesDe(obra,code).find(x=>x.lote===lote); if(!p||!l||!podeGerirLotes())return;
+  const val=$('#ltVal').value; if(!val){ toast('Informe a validade.','err'); return; }
+  const {error}=await sb.rpc('mover_lote',{p_obra:obra,p_code:String(code),p_lote:lote,p_validade:val,p_fabricacao:null,p_delta:0});
+  if(error){ toast('Erro ao salvar a validade: '+esc(error.message),'err'); return; }
+  const ant=l.validade; l.validade=val; save('Validade do lote '+lote+' de '+p.desc+' em '+obraName(obra)+': '+fmtDia(ant)+' → '+fmtDia(val));
+  toast('Validade atualizada.','ok'); lotesModal(code,obra); refreshTelaAtual(); }
+function loteDesfazer(code,obra,lote){ const p=findProduct(code); const l=lotesDe(obra,code).find(x=>x.lote===lote); if(!p||!l)return;
+  const el=$('#ltForm'); if(!el)return;
+  el.innerHTML=`<div class="panel" style="margin:4px 0 12px;border-left:4px solid #c0392b"><h3 style="font-size:14px">↺ Tirar ${numf(l.saldo)} ${esc(p.unit||'')} do lote ${esc(loteNome(lote))}?</h3><p class="desc">O saldo do produto não muda — essa quantidade volta para "sem lote". Use para corrigir um lote lançado errado ou que já não existe fisicamente (neste caso, depois faça o Ajuste de Saldo).</p>
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn ghost sm" onclick="$('#ltForm').innerHTML=''">Cancelar</button><button class="btn danger sm" onclick="loteDesfazerOk('${esc(code)}','${esc(obra)}','${esc(lote)}')">Tirar do lote</button></div></div>`; }
+function loteDesfazerOk(code,obra,lote){ const p=findProduct(code); const l=lotesDe(obra,code).find(x=>x.lote===lote); if(!p||!l||!podeGerirLotes())return;
+  const q=l.saldo; moverLote(obra,code,l,-q); save('Lote '+loteNome(lote)+' de '+p.desc+' em '+obraName(obra)+' desfeito ('+numf(q)+' voltou para sem lote)');
+  toast('Saldo voltou para "sem lote".','ok'); lotesModal(code,obra); }
+/* ----- Entrada por nota: lote/validade de cada item ----- */
+/* Lotes do XML (<rastro>, ou <med> nas notas antigas), já na unidade do cadastro (fator do vínculo) */
+function nfeRastro(prod){ const r=[...tagsOf(prod,'rastro')].map(x=>({lote:txt(x,'nLote'),q:parseFloat(txt(x,'qLote'))||0,fabricacao:(txt(x,'dFab')||'').slice(0,10)||null,validade:(txt(x,'dVal')||'').slice(0,10)||null}));
+  if(r.length)return r.filter(x=>x.lote||x.validade);
+  return [...tagsOf(prod,'med')].map(x=>({lote:txt(x,'nLote'),q:parseFloat(txt(x,'qLote'))||0,fabricacao:(txt(x,'dFab')||'').slice(0,10)||null,validade:(txt(x,'dVal')||'').slice(0,10)||null})).filter(x=>x.lote||x.validade); }
+function nfLotesSync(it){ const rs=it.xml&&it.xml.rastro;
+  if(rs&&rs.length&&!it.lotesManual){ const f=it.fator||1; it.lotes=rs.map(r=>({lote:normLote(r.lote,r.validade),validade:r.validade,fabricacao:r.fabricacao,qty:+((r.q||0)*f).toFixed(6)})); }
+  if(it.lotes&&it.lotes.length===1)it.lotes[0].qty=it.qty; }
+function nfLoteCellHTML(it,i){ if(!lotesAtivos())return ''; const p=it.code&&findProduct(it.code); const ls=it.lotes||[];
+  if(ls.length)return `<div style="margin-top:4px;font-size:11.5px;color:#2766b8">🏷 ${esc(lotesTxt(ls.length>1?ls:ls.map(l=>({lote:l.lote,validade:l.validade}))))} <button class="btn ghost sm" style="padding:1px 7px;font-size:11px" onclick="nfLoteModal(${i})">✎ Lote</button></div>`;
+  return p&&p.controlaLote?`<div style="margin-top:4px"><button class="btn danger sm" style="padding:2px 8px;font-size:11px" onclick="nfLoteModal(${i})">⚠ Informar lote / validade</button></div>`
+    :`<div style="margin-top:3px"><a href="#" onclick="nfLoteModal(${i});return false" style="font-size:11px;color:#8a8377">+ lote / validade</a></div>`; }
+let _nfLt=null;
+function nfLoteModal(i){ const it=nfItems[i]; if(!it)return; _nfLt={i,rows:(it.lotes&&it.lotes.length?it.lotes:[{lote:'',validade:'',qty:it.qty}]).map(l=>({lote:/^S\/N-/.test(l.lote||'')?'':(l.lote||''),validade:l.validade||'',fabricacao:l.fabricacao||null,qty:l.qty}))};
+  modal(`<h3>🏷 Lote e validade</h3><p class="mp">${esc(it.desc)} · quantidade da entrada: <b>${numf(it.qty)} ${esc(it.unit||'')}</b></p><div id="nfLtRows"></div>
+    <button class="btn ghost sm" onclick="nfLtSync();_nfLt.rows.push({lote:'',validade:'',qty:0});nfLtDraw()">+ Outro lote</button>
+    <p class="muted" style="font-size:11.5px;margin-top:8px">Sem número de lote, informe só a validade. Com mais de um lote, a soma das quantidades precisa fechar com a quantidade da entrada.</p>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap">${it.lotes&&it.lotes.length?`<button class="btn ghost" style="margin-right:auto" onclick="nfItems[${i}].lotes=null;nfItems[${i}].lotesManual=true;closeModal();drawNfItems()">Remover lote</button>`:''}<button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="nfLtSalvar()">Salvar</button></div>`);
+  nfLtDraw(); }
+function nfLtDraw(){ const el=$('#nfLtRows'); if(!el||!_nfLt)return; const um=_nfLt.rows.length===1;
+  el.innerHTML=_nfLt.rows.map((r,k)=>`<div class="row" style="grid-template-columns:1.4fr 1fr ${um?'':'.8fr '}auto;align-items:end;margin-bottom:8px">
+    <div class="field" style="margin:0"><label>Lote</label><input id="nfLtL${k}" class="mono" value="${esc(r.lote)}" placeholder="nº do lote"></div>
+    <div class="field" style="margin:0"><label>Validade</label><input id="nfLtV${k}" type="date" value="${esc(r.validade||'')}"></div>
+    ${um?'':`<div class="field" style="margin:0"><label>Qtd</label><input id="nfLtQ${k}" type="number" step="any" min="0" value="${r.qty||''}"></div>`}
+    <button class="btn danger sm" ${um?'disabled':''} onclick="nfLtSync();_nfLt.rows.splice(${k},1);nfLtDraw()">✕</button></div>`).join('');
+  const f=$('#nfLtL0'); if(f&&!f.value)f.focus(); }
+function nfLtSync(){ if(!_nfLt)return; _nfLt.rows.forEach((r,k)=>{ const l=$('#nfLtL'+k), v=$('#nfLtV'+k), q=$('#nfLtQ'+k); if(l)r.lote=l.value; if(v)r.validade=v.value; if(q)r.qty=parseFloat(q.value)||0; }); }
+function nfLtSalvar(){ if(!_nfLt)return; nfLtSync(); const it=nfItems[_nfLt.i]; if(!it){ closeModal(); return; }
+  const rows=_nfLt.rows.map(r=>({lote:normLote(r.lote,r.validade),validade:r.validade||null,fabricacao:r.fabricacao||null,qty:_nfLt.rows.length===1?it.qty:Number(r.qty)||0}));
+  if(rows.some(r=>!r.lote)){ toast('Informe o lote ou a validade em cada linha.','err'); return; }
+  if(rows.length>1&&rows.some(r=>!(r.qty>0))){ toast('Informe a quantidade de cada lote.','err'); return; }
+  if(new Set(rows.map(r=>r.lote)).size<rows.length){ toast('Lote repetido.','err'); return; }
+  const s=rows.reduce((a,r)=>a+r.qty,0); if(Math.abs(s-it.qty)>1e-6){ toast(`A soma dos lotes (${numf(s)}) precisa ser igual à quantidade da entrada (${numf(it.qty)}).`,'err'); return; }
+  it.lotes=rows; it.lotesManual=true; _nfLt=null; closeModal(); drawNfItems(); }
+/* Antes de dar entrada: produto com controle de lote precisa de lote, e a soma dos lotes tem de fechar com a quantidade */
+function nfLotesValidar(){ if(!lotesAtivos())return true;
+  for(const it of nfItems){ const p=it.code&&findProduct(it.code); const ls=it.lotes||[]; if(ls.length===1)ls[0].qty=it.qty;
+    if(p&&p.controlaLote&&!ls.length){ toast(`Informe o lote/validade de ${esc(p.desc)} — produto com controle de lote.`,'err'); return false; }
+    if(ls.length){ const s=ls.reduce((a,l)=>a+(Number(l.qty)||0),0); if(Math.abs(s-it.qty)>1e-6){ toast(`${esc(it.desc)}: a soma dos lotes (${numf(s)}) não bate com a quantidade da entrada (${numf(it.qty)}). Clique em "✎ Lote" para corrigir.`,'err'); return false; } } }
+  return true; }
+/* Separação: qual lote pegar na prateleira (o que vence primeiro) */
+function loteHintSep(obra,code,qty){ if(!lotesAtivos()||!(qty>0))return ''; const pl=lotesFefo(obra,code,qty); if(!pl.length)return ''; const p=findProduct(code);
+  return `<div style="font-size:11px;color:#2766b8;margin-top:2px">🏷 Separar primeiro: ${pl.map(l=>esc(loteNome(l.lote))+(l.validade?' (val. '+fmtDia(l.validade)+')':'')+' → '+numf(l.qty)+(vencInfo(l.validade,p).nivel===4?' <b style="color:#c0392b">VENCIDO</b>':'')).join(' · ')}</div>`; }
 function modal(html){ $('#modalRoot').innerHTML=`<div class="ovl" onclick="if(event.target===this)closeModal()"><div class="modal">${html}</div></div>`; }
 function closeModal(){ $('#modalRoot').innerHTML=''; }
 function obraOptions(sel,all){ let h=all?`<option value="__all">Todas as obras (consolidado)</option>`:''; 
@@ -1294,6 +1545,7 @@ function renderPainel(){
       html+=`<tr><td class="mono">${esc(p.code)}</td><td>${esc(p.desc)}</td><td class="num">${numf(s)} ${esc(p.unit||'')}</td><td class="num muted">${all?'—':limDe(p,o).off?'—':numf(limDe(p,o).min)}</td><td class="num muted">${all?'—':limDe(p,o).max>0?numf(limDe(p,o).max):'—'}</td><td>${st==='low'?reposPill(p.code,o,'<span class="pill low">Repor</span>'):'<span class="pill high">Excesso</span>'}</td></tr>`;});
     html+=`</tbody></table></div>`;
   }
+  html+=`<div id="vencPainel"></div>`;
   html+=`<div class="sechead"><h3>Painel de produtos${all?' (consolidado)':' · '+esc(obraName(o))}</h3>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <div class="search" style="min-width:160px"><span class="si">⌕</span><input id="dashSearch" placeholder="Nome, código, auxiliar ou equipamento..."></div>
@@ -1304,7 +1556,7 @@ function renderPainel(){
       <button class="btn ghost sm" id="dashGrpAll" onclick="toggleAllDashGrp()">Expandir todos</button>
       <span id="dashCount" style="font-size:12px;color:#8a8377"></span>
     </div></div>`;
-  if(!ps.length){ html+=`<div class="tbl-wrap"><div class="empty"><div class="ico">▦</div>Nenhum produto. Use <b>Entrada</b> ou <b>Importar Planilha</b>.</div></div>`; $('#view').innerHTML=html; drawDashboard(); ['dashFrom','dashTo'].forEach(id=>{const el=$('#'+id); if(el)el.onchange=dashDatasChange;}); return; }
+  if(!ps.length){ html+=`<div class="tbl-wrap"><div class="empty"><div class="ico">▦</div>Nenhum produto. Use <b>Entrada</b> ou <b>Importar Planilha</b>.</div></div>`; $('#view').innerHTML=html; drawVencPainel(); drawDashboard(); ['dashFrom','dashTo'].forEach(id=>{const el=$('#'+id); if(el)el.onchange=dashDatasChange;}); return; }
   html+=`<div class="tbl-wrap"><table class="fixa"><colgroup><col style="width:70px"><col style="width:150px"><col><col style="width:100px"><col style="width:110px"><col style="width:110px"><col style="width:100px"><col style="width:140px"><col style="width:64px"></colgroup><thead><tr><th>Foto</th><th>Código</th><th>Produto</th><th class="num">Saldo</th><th class="num">Mín / Máx</th><th class="num">Custo</th><th class="num">Venda</th><th>Situação</th><th></th></tr></thead><tbody id="dashRows"></tbody></table></div>`;
   $('#view').innerHTML=html;
   /* Grupos começam recolhidos (só o cabeçalho com nº de itens, valor e "p/ repor"); com texto na busca começam abertos,
@@ -1321,9 +1573,10 @@ function renderPainel(){
       if(fst && st!==fst)return false; if(qmax!=null && !(s<=qmax))return false; return true; });
     $('#dashCount').textContent=list.length+' item(ns)';
     const sig=[q,fst,qr,zero,grouped,curObra()].join('|'); if(window._dashSig!==sig){ if(window._dashQ!==q){ window._dashQ=q; grpTog.clear(); } window._dashSig=sig; window._dashLim=LIST_PAGE; }
-    let budget=window._dashLim||LIST_PAGE, shown=0;
-    const rowHTML=p=>{const s=sal(p.code);const st=stOf(p,s);
-      const pill=st==='low'?reposPill(p.code,o,'<span class="pill low">Abaixo do mín</span>'):st==='high'?'<span class="pill high">Acima do máx</span>':'<span class="pill good">Normal</span>';
+    let budget=window._dashLim||LIST_PAGE, shown=0; const vencMap=vencPiorPorProduto(o);
+    const rowHTML=p=>{const s=sal(p.code);const st=stOf(p,s); const vc=vencMap.get(p.code);
+      const pill=(st==='low'?reposPill(p.code,o,'<span class="pill low">Abaixo do mín</span>'):st==='high'?'<span class="pill high">Acima do máx</span>':'<span class="pill good">Normal</span>')
+        +(vc&&vc.nivel>=2?`<div style="margin-top:3px"><a href="#" onclick="lotesModal('${esc(p.code)}','${esc(o)}');return false" title="Ver lotes"><span class="pill ${vc.cls}">⏳ ${vc.txt}</span></a></div>`:'');
       return `<tr><td>${thumb(p.code)}</td><td class="mono">${esc(p.code)}${p.aux?`<br><span style="font-size:10px;color:#a09a8d">aux: ${esc(p.aux)}</span>`:''}</td><td><a href="#" onclick="productDetailModal('${esc(p.code)}');return false" style="color:#1c1c1c;font-weight:600;text-decoration:none">${esc(p.desc)}</a>${p.ref?`<div class="refline clamp" title="${esc(p.ref)}" onclick="this.classList.toggle('aberta')">↳ ${esc(p.ref)}</div>`:''}</td><td class="num"><b class="${st==='low'?'neg':''}">${numf(s)}</b> ${esc(p.unit||'')}</td><td class="num muted">${all?'por obra':limTxt(p,o)}</td><td class="num">${money(p.custo||0)}</td><td class="num">${p.preco?money(p.preco):'—'}</td><td>${pill}</td><td class="num"><button class="btn ghost sm" title="Detalhes do produto" onclick="productDetailModal('${esc(p.code)}')">🔍</button></td></tr>`;};
     let body;
     if(!grouped){ const vis=list.slice(0,budget); shown=vis.length; body=vis.map(rowHTML).join(''); }
@@ -1343,7 +1596,7 @@ function renderPainel(){
     watchListMore($('#dashRows'),'dashMais'); };
   window.dashMais=all=>{ window._dashLim=all?Infinity:(window._dashLim||LIST_PAGE)+LIST_PAGE*2; draw(); };
   draw(); ['dashSearch','dashStatus','dashQty','dashZero','dashGroup'].forEach(id=>{const el=$('#'+id); if(el){el.oninput=draw; el.onchange=draw;}});
-  drawDashboard(); ['dashFrom','dashTo'].forEach(id=>{const el=$('#'+id); if(el)el.onchange=dashDatasChange;});
+  drawVencPainel(); drawDashboard(); ['dashFrom','dashTo'].forEach(id=>{const el=$('#'+id); if(el)el.onchange=dashDatasChange;});
 }
 /* Período do Painel: fica guardado enquanto a página está aberta (trocar de obra não volta mais para 90 dias) */
 const isoDia=d=>new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
@@ -1439,7 +1692,8 @@ function productDetailModal(code){ const p=findProduct(code); if(!p)return; cons
     ${p.ref?`<div style="font-size:13px;color:#6a6357;margin-bottom:12px"><b>Referências / Aplicação:</b><br>${esc(p.ref).replace(/\n/g,'<br>')}</div>`:''}
     <div class="tbl-wrap"><table><thead><tr><th>Obra</th><th class="num">Saldo</th><th class="num">Mín</th><th class="num">Máx</th><th class="num">Controle</th></tr></thead><tbody>${saldos||'<tr><td colspan="5" class="empty" style="padding:14px">Sem saldo em nenhuma obra.</td></tr>'}</tbody></table></div>
     <p class="muted" style="font-size:11.5px;margin-top:6px">Mín/Máx em cinza/itálico = padrão do produto. Para definir em uma obra sem saldo, selecione a obra no topo da tela Produtos.</p>
-    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="closeModal()">Fechar</button><button class="btn primary" onclick="closeModal();editProductModal('${esc(code)}')">Editar</button></div>`);
+    ${lotesDetalheHTML(p)}
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">${lotesAtivos()?`<button class="btn ghost" style="margin-right:auto" onclick="lotesModal('${esc(code)}')">🏷 Lotes e validade</button>`:''}<button class="btn ghost" onclick="closeModal()">Fechar</button><button class="btn primary" onclick="closeModal();editProductModal('${esc(code)}')">Editar</button></div>`);
 }
 /* ===== OBRAS ===== */
 function renderObras(){
@@ -1712,11 +1966,11 @@ function importXml(content){
     let add=0, auto=0;
     nfItems=nfItems.filter(i=>!i.reposPre); /* o XML substitui os itens pré-carregados da solicitação */
     const itensX=nfeItensCusto(doc); const acresTotal=itensX.reduce((t,x)=>t+x.acres,0);
-    itensX.forEach(x=>{ const {cProd,cEAN,qty,custo,custoNF,ex,xProd,uCom,ncm,cst}=x; const eanOk=!!cEAN;
+    itensX.forEach(x=>{ const {cProd,cEAN,qty,custo,custoNF,ex,xProd,uCom,ncm,cst,rastro}=x; const eanOk=!!cEAN;
       const code=eanOk?cEAN:(cProd||genCode());
       const it={code, desc:xProd, unit:uCom, qty, custo, preco:0,
-        xml:Object.assign({cProd, cEAN, xProd, uCom, qty, custo, custoNF, ncm, cst, cnpj:onlyDigits(emitCnpjX)},ex), link:null, fator:1, lembrar:true};
-      autoVincular(it); if(it.link)auto++;
+        xml:Object.assign({cProd, cEAN, xProd, uCom, qty, custo, custoNF, ncm, cst, rastro, cnpj:onlyDigits(emitCnpjX)},ex), link:null, fator:1, lembrar:true};
+      autoVincular(it); if(it.link)auto++; nfLotesSync(it);
       nfItems.push(it); add++; });
     if(nNF&&$('#nfNum'))$('#nfNum').value=String(nNF).replace(/\D/g,''); if(forn&&$('#nfForn'))$('#nfForn').value=forn;
     const dhEmi=ide?(txt(ide,'dhEmi')||txt(ide,'dEmi')):''; if(dhEmi&&$('#nfData'))$('#nfData').value=dhEmi.slice(0,10);
@@ -1752,7 +2006,7 @@ function nfeItensCusto(doc){
     const ex={frete:rat.frete[di]||0,seg:rat.seg[di]||0,outro:rat.outro[di]||0,ipi,st,descto:rat.descto[di]||0};
     const acres=ex.frete+ex.seg+ex.outro+ex.ipi+ex.st-ex.descto;
     const custo=acres&&qty>0?Math.max(0,+(custoNF+acres/qty).toFixed(6)):custoNF;
-    return {cProd,cEAN,qty,custoNF,custo,ex,acres,xProd:txt(prod,'xProd'),uCom:(txt(prod,'uCom')||'UN').toUpperCase(),ncm:onlyDigits(txt(prod,'NCM')),cst:cstIcmsDoDet(det)}; }); }
+    return {cProd,cEAN,qty,custoNF,custo,ex,acres,rastro:nfeRastro(prod),xProd:txt(prod,'xProd'),uCom:(txt(prod,'uCom')||'UN').toUpperCase(),ncm:onlyDigits(txt(prod,'NCM')),cst:cstIcmsDoDet(det)}; }); }
 function nfeChave(doc){ const inf=tagsOf(doc,'infNFe')[0]; const ch=onlyDigits((inf&&inf.getAttribute('Id'))||txt(doc,'chNFe')||''); return ch.length===44?ch:''; }
 /* Valores da NF-e que compõem o custo de entrada além do valor unitário (em R$ do item; desconto subtrai) */
 const NF_EXTRAS=[['frete','Frete'],['seg','Seguro'],['outro','Outras despesas'],['ipi','IPI'],['st','ICMS-ST'],['descto','Desconto']];
@@ -1775,10 +2029,10 @@ function sugestoesVinc(it,lim){ const x=it.xml; return state.products.map(p=>({p
 /* aplica o vínculo: qtd/custo passam para a unidade do estoque via fator (1 unid. da nota = fator unid. do estoque) */
 function aplicarVinculo(it,p,fator,origem){ fator=Number(fator)>0?Number(fator):1;
   it.link=p.code; it.code=p.code; it.desc=p.desc; it.unit=p.unit||'UN'; it.fator=fator; it.origem=origem||'manual';
-  it.qty=+(it.xml.qty*fator).toFixed(6); it.custo=fator?+(it.xml.custo/fator).toFixed(6):it.xml.custo; }
+  it.qty=+(it.xml.qty*fator).toFixed(6); it.custo=fator?+(it.xml.custo/fator).toFixed(6):it.xml.custo; nfLotesSync(it); }
 function desfazerVinculo(it){ const x=it.xml; it.link=null; it.origem=null; it.fator=1;
   it.code=x.cEAN||x.cProd||''; if(it.code&&findProduct(it.code))it.code=genCode(); /* cadastro novo não pode colidir com produto existente */
-  it.desc=x.xProd; it.unit=x.uCom; it.qty=x.qty; it.custo=x.custo; }
+  it.desc=x.xProd; it.unit=x.uCom; it.qty=x.qty; it.custo=x.custo; nfLotesSync(it); }
 function autoVincular(it){ const x=it.xml;
   const mem=(state.vinculosNF||{})[vincKey(x.cnpj,x.cProd)]; const pm=mem&&findProduct(mem.code);
   if(pm){ aplicarVinculo(it,pm,mem.fator||1,'memoria'); return; }
@@ -1867,14 +2121,15 @@ function rmNfItem(i){ nfItems.splice(i,1); drawNfItems(); }
 function drawNfItems(){ const b=$('#nfBody'); if(!b)return;
   if(!nfItems.length){ b.innerHTML=`<tr><td colspan="6" class="empty" style="padding:24px">Nenhum item. Carregue um XML, busque no estoque ou adicione manualmente.</td></tr>`; $('#nfTotal').textContent='R$ 0,00'; drawVincResumo(); return; }
   let tot=0; b.innerHTML=nfItems.map((it,i)=>{const t=(it.qty||0)*(it.custo||0);tot+=t;const ex=it.code&&findProduct(it.code);
-    return `<tr><td class="mono">${it.code?esc(it.code):'<span class="muted">auto</span>'}${it.xml?'':(ex?' <span class="pill good" style="font-size:9px">existe</span>':'')}</td><td>${esc(it.desc)}${it.reposPre?' <span class="pill solicitada" style="font-size:9px">da solicitação</span>':''}${it.xml?vincCellHTML(it,i):''}</td><td class="num"><input class="inline-edit" type="number" step="any" min="0" value="${it.qty}" oninput="setNfQty(${i},this.value)"></td><td class="num"><input class="inline-edit" type="number" step="any" min="0" value="${it.custo}" oninput="setNfCusto(${i},this.value)"></td><td class="num" id="nft_${i}">${money(t)}</td><td class="num"><button class="btn danger sm" onclick="rmNfItem(${i})">✕</button></td></tr>`;}).join('');
+    return `<tr><td class="mono">${it.code?esc(it.code):'<span class="muted">auto</span>'}${it.xml?'':(ex?' <span class="pill good" style="font-size:9px">existe</span>':'')}</td><td>${esc(it.desc)}${it.reposPre?' <span class="pill solicitada" style="font-size:9px">da solicitação</span>':''}${it.xml?vincCellHTML(it,i):''}${nfLoteCellHTML(it,i)}</td><td class="num"><input class="inline-edit" type="number" step="any" min="0" value="${it.qty}" oninput="setNfQty(${i},this.value)"></td><td class="num"><input class="inline-edit" type="number" step="any" min="0" value="${it.custo}" oninput="setNfCusto(${i},this.value)"></td><td class="num" id="nft_${i}">${money(t)}</td><td class="num"><button class="btn danger sm" onclick="rmNfItem(${i})">✕</button></td></tr>`;}).join('');
   $('#nfTotal').textContent=money(tot); drawVincResumo(); }
-function setNfQty(i,v){ if(nfItems[i])nfItems[i].qty=parseFloat(v)||0; refreshNfTotals(); }
+function setNfQty(i,v){ const it=nfItems[i]; if(it){ it.qty=parseFloat(v)||0; if(it.lotes&&it.lotes.length===1)it.lotes[0].qty=it.qty; } refreshNfTotals(); }
 function setNfCusto(i,v){ if(nfItems[i])nfItems[i].custo=parseFloat(v)||0; refreshNfTotals(); }
 function refreshNfTotals(){ let tot=0; nfItems.forEach((it,i)=>{const t=(it.qty||0)*(it.custo||0);tot+=t;const c=$('#nft_'+i);if(c)c.textContent=money(t);}); if($('#nfTotal'))$('#nfTotal').textContent=money(tot); }
 function processNf(force){
   if(!nfItems.length){toast('Adicione ao menos um item.','err');return;}
   const apd=nfApdDados(); if(apd===false)return;
+  if(!nfLotesValidar())return;
   const obra=$('#nfObra').value; const numero=$('#nfNum').value.replace(/\D/g,'')||'s/nº'; const forn=$('#nfForn').value.trim(); const dataEmissao=$('#nfData').value||'';
   const cnpjTom=$('#nfCnpjTom')?$('#nfCnpjTom').value.trim():''; const cnpjEmit=$('#nfCnpjEmit')?$('#nfCnpjEmit').value.trim():'';
   const totalCheck=nfItems.reduce((s,it)=>s+it.qty*it.custo,0);
@@ -1890,10 +2145,12 @@ function processNf(force){
     if(it.preco>0)p.preco=it.preco; if(!it.xml && it.desc&&p.desc!==it.desc)p.desc=it.desc; /* item de XML não renomeia o cadastro com a descrição do fornecedor */
     if(it.xml && it.lembrar!==false && it.xml.cProd){ const k=vincKey(it.xml.cnpj,it.xml.cProd); if(!state.vinculosNF)state.vinculosNF={};
       state.vinculosNF[k]={code:p.code,fator:it.fator||1,xProd:it.xml.xProd,uCom:it.xml.uCom,forn,ts}; }
-    addSaldo(obra,p.code,it.qty); total+=it.qty*it.custo;
-    notaItens.push(Object.assign({code:p.code,desc:p.desc,qty:it.qty,custo:it.custo,unit:p.unit}, it.xml?{xmlCod:it.xml.cProd,xmlDesc:it.xml.xProd,xmlUnit:it.xml.uCom,xmlQty:it.xml.qty,fator:it.fator||1,ncm:it.xml.ncm||'',cst:it.xml.cst||'',frete:it.xml.frete||0,seg:it.xml.seg||0,outro:it.xml.outro||0,ipi:it.xml.ipi||0,st:it.xml.st||0,descto:it.xml.descto||0,custoNF:+((it.xml.custoNF!=null?it.xml.custoNF:it.xml.custo)/(it.fator||1)).toFixed(6)}:{},
+    const ltIn=lotesAtivos()&&it.lotes&&it.lotes.length?it.lotes:null;
+    if(ltIn&&!p.controlaLote&&ltIn.some(l=>l.validade))p.controlaLote=true; /* recebeu com validade: passa a controlar lote */
+    const lt=addSaldo(obra,p.code,it.qty,ltIn); total+=it.qty*it.custo;
+    notaItens.push(Object.assign({code:p.code,desc:p.desc,qty:it.qty,custo:it.custo,unit:p.unit},lt?{lotes:lt}:{}, it.xml?{xmlCod:it.xml.cProd,xmlDesc:it.xml.xProd,xmlUnit:it.xml.uCom,xmlQty:it.xml.qty,fator:it.fator||1,ncm:it.xml.ncm||'',cst:it.xml.cst||'',frete:it.xml.frete||0,seg:it.xml.seg||0,outro:it.xml.outro||0,ipi:it.xml.ipi||0,st:it.xml.st||0,descto:it.xml.descto||0,custoNF:+((it.xml.custoNF!=null?it.xml.custoNF:it.xml.custo)/(it.fator||1)).toFixed(6)}:{},
       {qAnt,custoAnt,custoMedio:p.custo||0})); /* composição do custo: saldo e custo médio antes da entrada e o custo médio resultante */
-    movsNota.push(pushMov({id:uid(),ts,tipo:'entrada',obra,notaId,code:p.code,desc:p.desc,qty:it.qty,valorUnit:it.custo,valorTotal:it.qty*it.custo,doc,saldo:saldoOf(obra,p.code)}));
+    movsNota.push(pushMov({id:uid(),ts,tipo:'entrada',obra,notaId,code:p.code,desc:p.desc,qty:it.qty,valorUnit:it.custo,valorTotal:it.qty*it.custo,doc,saldo:saldoOf(obra,p.code),lotes:lt||undefined}));
     { const Lm=limDe(p,obra); if(!Lm.off&&Lm.max>0&&saldoOf(obra,p.code)>Lm.max)alerts.push(`${p.desc}: ${numf(saldoOf(obra,p.code))} acima do máximo`); }
   });
   const xmlExtra=_nfXmlExtra||{}; _nfXmlExtra=null;
@@ -2043,7 +2300,7 @@ function nfApdDados(){ const c=$('#nfApd'); if(!c||!c.checked)return null;
   return {aplic,os}; }
 async function requisicaoAplicacaoDireta({obra,itens,numero,forn,aplic,os}){
   const quem=profile.nome||profile.email;
-  const porCode=new Map(); itens.forEach(i=>{ const x=porCode.get(i.code); if(x)x.qty+=Number(i.qty)||0; else porCode.set(i.code,{code:i.code,desc:i.desc,unit:i.unit||'',qty:Number(i.qty)||0}); });
+  const porCode=new Map(); itens.forEach(i=>{ const x=porCode.get(i.code); if(x){ x.qty+=Number(i.qty)||0; if(i.lotes)x.lotes=(x.lotes||[]).concat(i.lotes); } else porCode.set(i.code,{code:i.code,desc:i.desc,unit:i.unit||'',qty:Number(i.qty)||0,lotes:i.lotes?i.lotes.slice():null}); });
   const lista=[...porCode.values()].filter(i=>i.qty>0);
   const falta=lista.filter(i=>saldoOf(obra,i.code)<i.qty-1e-9);
   if(falta.length){ toast('Entrada feita, mas a requisição de aplicação direta NÃO foi gerada: saldo disponível insuficiente em '+falta.map(i=>i.desc).join(', ')+' (há devolução bloqueando saldo?).','err'); go('produtos'); return; }
@@ -2066,9 +2323,9 @@ async function requisicaoAplicacaoDireta({obra,itens,numero,forn,aplic,os}){
       .eq('requisicao_id',reqId).eq('code',i.code).eq('quantidade_separada',0).select('id');
     if(eC||!claim||!claim.length){ await save('Separação '+reqN+' (aplicação direta)'); return etapa('separação de '+i.desc+' não gravou'+(eC?' ('+eC.message+')':''),reqN); }
     const p=findProduct(i.code); const vu=p?(p.custo||0):0;
-    addSaldo(obra,i.code,-i.qty);
+    const lt=addSaldo(obra,i.code,-i.qty,i.lotes);
     const {data:numData,error:eNum}=await sb.rpc('proximo_numero_documento',{p_tipo:'baixa'});
-    pushMov({id:uid(),ts:Date.now(),seq:eNum?0:numData,tipo:'baixa',obra,aplic,obs:payload.observacao,os,code:i.code,desc:i.desc,qty:i.qty,valorUnit:vu,valorTotal:i.qty*vu,doc:'Separação '+reqN,saldo:saldoOf(obra,i.code)});
+    pushMov({id:uid(),ts:Date.now(),seq:eNum?0:numData,tipo:'baixa',obra,aplic,obs:payload.observacao,os,code:i.code,desc:i.desc,qty:i.qty,valorUnit:vu,valorTotal:i.qty*vu,doc:'Separação '+reqN,saldo:saldoOf(obra,i.code),lotes:lt||undefined});
   }
   await save('Separação '+reqN+' (aplicação direta)');
   const c=await concluirSeparacaoReq(reqId); if(!c.ok){ _sepPresas.set(reqId,c.motivo); return etapa('separação não concluída ('+c.motivo+')',reqN); }
@@ -2167,6 +2424,11 @@ function editProductModal(code){ const p=findProduct(code); if(!p)return;
       <div class="field" style="margin:0"><label>Estoque (Localização)</label><input id="epLocal" list="localListE" value="${esc(p.localizacao||'')}" placeholder="Ex.: Almoxarifado Central"></div>
       <div class="field" style="margin:0"><label>Endereço</label><input id="epEndereco" value="${esc(p.endereco||'')}" placeholder="Ex.: Corredor B, Prateleira 3"></div>
     </div>
+    <div class="row c2" style="align-items:start;margin-top:14px">
+      <div class="field" style="margin:0"><label style="display:flex;align-items:center;gap:8px;text-transform:none;font-weight:600;margin:0"><input type="checkbox" id="epLote" style="width:auto" ${p.controlaLote?'checked':''}> 🏷 Controla lote e validade</label>
+        <div class="muted" style="font-size:11px;margin-top:3px">A entrada por nota passa a exigir lote/validade; as saídas consomem primeiro o lote que vence primeiro. ${lotesAtivos()?`<a href="#" onclick="closeModal();lotesModal('${esc(code)}');return false">Ver lotes</a>`:''}</div></div>
+      <div class="field" style="margin:0"><label>Alertar vencimento com (dias de antecedência)</label><input id="epDiasVenc" type="number" min="0" step="1" value="${p.diasAlertaVenc||''}" placeholder="padrão: ${diasAlertaVenc(null)} dias"></div>
+    </div>
     <datalist id="grupoListE">${grupos.map(g=>`<option value="${esc(g)}">`).join('')}</datalist>
     <datalist id="localListE">${locais.map(l=>`<option value="${esc(l)}">`).join('')}</datalist>
     <div class="field"><label>Referências / Aplicação</label><textarea id="epRef" rows="3" placeholder="Ex.: usado na escavadeira CAT 320 · filtro hidráulico">${esc(p.ref||'')}</textarea></div>
@@ -2221,6 +2483,8 @@ function saveEditProduct(code){ const p=findProduct(code); if(!p)return; const d
   p.desc=d; p.unit=$('#epUnit').value.trim()||'UN'; p.aux=($('#epAux')?$('#epAux').value.trim():(p.aux||'')); if($('#epCusto'))p.custo=parseFloat($('#epCusto').value)||0; if($('#epPreco'))p.preco=parseFloat($('#epPreco').value)||0; p.ref=$('#epRef').value.trim();
   p.grupo=($('#epGrupo')?$('#epGrupo').value.trim():''); p.localizacao=($('#epLocal')?$('#epLocal').value.trim():''); p.endereco=($('#epEndereco')?$('#epEndereco').value.trim():'');
   if($('#epNcm'))p.ncm=onlyDigits($('#epNcm').value); if($('#epCst'))p.cst=onlyDigits($('#epCst').value);
+  if($('#epLote')){ if($('#epLote').checked)p.controlaLote=true; else delete p.controlaLote; }
+  if($('#epDiasVenc')){ const d=parseInt($('#epDiasVenc').value,10); if(d>0)p.diasAlertaVenc=d; else delete p.diasAlertaVenc; }
   save(); closeModal(); renderProdutos(); toast('Produto atualizado.','ok'); }
 function newProductModal(){ const grupos=[...new Set(state.products.map(p=>p.grupo).filter(Boolean))]; const locais=[...new Set(state.products.map(p=>p.localizacao).filter(Boolean))];
   modal(`<h3>Novo produto</h3><p class="mp">O código de barras é gerado se ficar em branco. Saldo entra na obra <b>${esc(obraName(curObra()==='__all'?state.obras[0].id:curObra()))}</b>.</p>
@@ -2666,8 +2930,8 @@ function aplicarAjuste(code){ if(ajTravaBarrar())return; const p=findProduct(cod
   }
   requireSupervisor(`Ajustar saldo de "${p.desc}" em ${obraName(obra)} de ${numf(atual)} para ${numf(novo)}`,async()=>{
     if(ajTravaBarrar())return; /* pode ter sido bloqueado enquanto a confirmação estava aberta */
-    addSaldo(obra,code,delta); p.custo=custoFinal;
-    pushMov({id:uid(),ts:Date.now(),tipo:'ajuste',obra,code:p.code,desc:p.desc,qty:delta,valorUnit:custoFinal,valorTotal:delta*custoFinal,doc:'Ajuste: '+motivo,saldo:saldoOf(obra,code)});
+    const lt=addSaldo(obra,code,delta); p.custo=custoFinal;
+    pushMov({id:uid(),ts:Date.now(),tipo:'ajuste',obra,code:p.code,desc:p.desc,qty:delta,valorUnit:custoFinal,valorTotal:delta*custoFinal,doc:'Ajuste: '+motivo,saldo:saldoOf(obra,code),lotes:lt||undefined});
     toast('Salvando...','warn');
     await save('Ajuste de saldo: '+p.desc+' em '+obraName(obra)+' ('+(delta>0?'+':'')+numf(delta)+') · '+motivo);
     toast('Saldo ajustado e salvo.','ok'); renderAjuste(); }); }
@@ -2747,9 +3011,9 @@ function invAplicar(linhas){
     if(delta===0){ marcas.push({...L,semMov:true}); continue; }
     let custoFinal=p.custo||0; const ci=L.custo;
     if(delta>0&&ci!=null&&ci>0){ custoFinal=custoMedioEntrada(p,delta,ci).custoMedio; }
-    addSaldo(L.obra,L.code,delta); p.custo=custoFinal;
+    const lt=addSaldo(L.obra,L.code,delta); p.custo=custoFinal;
     const mid=uid();
-    pushMov({id:mid,ts:Date.now(),tipo:'ajuste',obra:L.obra,code:L.code,desc:p.desc,qty:delta,valorUnit:custoFinal,valorTotal:delta*custoFinal,doc:'Ajuste de inventário: '+L.lista+(L.tipo==='extra'?' · item fora da lista':''),saldo:saldoOf(L.obra,L.code),invId:L.key,invModo:L.modoEf});
+    pushMov({id:mid,ts:Date.now(),tipo:'ajuste',obra:L.obra,code:L.code,desc:p.desc,qty:delta,valorUnit:custoFinal,valorTotal:delta*custoFinal,doc:'Ajuste de inventário: '+L.lista+(L.tipo==='extra'?' · item fora da lista':''),saldo:saldoOf(L.obra,L.code),invId:L.key,invModo:L.modoEf,lotes:lt||undefined});
     marcas.push({...L,mov:mid});
   }
   return marcas;
@@ -3147,7 +3411,7 @@ async function drawSeparacaoList(){ const box=$('#sepList'); if(!box)return;
     return `<div class="panel" style="margin-bottom:14px">
       <div class="sechead" style="margin-bottom:10px"><h3 style="font-size:14px">REQ-${String(r.id).padStart(5,'0')} — ${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</h3><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span></div>
       <table><thead><tr><th>Item</th><th class="num">Solicitado</th><th class="num">Disponível agora</th><th>Situação</th><th></th></tr></thead><tbody>${
-        its.map(i=>`<tr><td>${esc(i.descricao)}${i.quantidade_separada>0?`<div class="muted" style="font-size:10.5px">já separado: ${numf(i.quantidade_separada)}</div>`:''}</td><td class="num">${numf(i.quantidade_solicitada)} ${esc(i.unidade||'')}</td><td class="num">${numf(i.quantidade_disponivel)}</td><td><span class="pill ${i.status}">${itemStatusLabel(i.status)}</span></td><td class="num">${i.quantidade_disponivel>0&&i.status!=='separado'?`<button class="btn primary sm" onclick="separarItem(${i.id})">Separar ${numf(i.quantidade_disponivel)}</button>`:i.status==='separado'?'✓':''}</td></tr>`).join('')
+        its.map(i=>`<tr><td>${esc(i.descricao)}${i.status!=='separado'?loteHintSep(obraEstoqueParaRequisicao(r),i.code,i.quantidade_disponivel):''}${i.quantidade_separada>0?`<div class="muted" style="font-size:10.5px">já separado: ${numf(i.quantidade_separada)}</div>`:''}</td><td class="num">${numf(i.quantidade_solicitada)} ${esc(i.unidade||'')}</td><td class="num">${numf(i.quantidade_disponivel)}</td><td><span class="pill ${i.status}">${itemStatusLabel(i.status)}</span></td><td class="num">${i.quantidade_disponivel>0&&i.status!=='separado'?`<button class="btn primary sm" onclick="separarItem(${i.id})">Separar ${numf(i.quantidade_disponivel)}</button>`:i.status==='separado'?'✓':''}</td></tr>`).join('')
       }</tbody></table>${_sepPresas.has(r.id)?`<div style="margin-top:10px;padding:10px 12px;border-left:4px solid #c0392b;background:#fbeeec;border-radius:6px;font-size:12.5px"><b>⚠ Todos os itens já foram separados, mas a requisição não avançou para a próxima etapa.</b><div class="muted" style="margin:3px 0 8px">Motivo: ${esc(_sepPresas.get(r.id))}</div><button class="btn primary sm" onclick="tentarConcluirSeparacao(${r.id})">Tentar concluir agora</button></div>`:''}</div>`;
   }).join('');
 }
@@ -3222,11 +3486,11 @@ async function _separarItem(id){
     .eq('id',id).eq('quantidade_disponivel',item.quantidade_disponivel).eq('quantidade_separada',item.quantidade_separada).select('id');
   if(eC){toast('Erro ao separar: '+eC.message,'err');return;}
   if(!claim||!claim.length){toast('Este item já foi separado por outra pessoa/aba — atualizando a lista.','warn'); drawSeparacaoList(); return;}
-  addSaldo(obraSaldo,item.code,-qtdSeparar);
+  const lt=addSaldo(obraSaldo,item.code,-qtdSeparar);
   const {data:numData,error:eNum}=await sb.rpc('proximo_numero_documento',{p_tipo:'baixa'});
   const numero=eNum?0:numData;
   if(eNum) console.warn('Falha ao gerar numeração da baixa, seguindo sem número:',eNum);
-  pushMov({id:uid(),ts:Date.now(),seq:numero,tipo:'baixa',obra:obraSaldo,aplic:r.aplicacao_id||'',obs:r.observacao||'',os:r.ordem_servico||'',code:item.code,desc:item.descricao,qty:qtdSeparar,valorUnit:vu,valorTotal:qtdSeparar*vu,doc:'Separação REQ-'+String(r.id).padStart(5,'0'),saldo:saldoOf(obraSaldo,item.code)});
+  pushMov({id:uid(),ts:Date.now(),seq:numero,tipo:'baixa',obra:obraSaldo,aplic:r.aplicacao_id||'',obs:r.observacao||'',os:r.ordem_servico||'',code:item.code,desc:item.descricao,qty:qtdSeparar,valorUnit:vu,valorTotal:qtdSeparar*vu,doc:'Separação REQ-'+String(r.id).padStart(5,'0'),saldo:saldoOf(obraSaldo,item.code),lotes:lt||undefined});
   await save('Separação REQ-'+String(r.id).padStart(5,'0')+': '+item.descricao);
   if(r.mutuo_empresa_destino){
     const estObra=state.obras.find(x=>x.id===r.mutuo_estoque_obra_id);
@@ -4224,7 +4488,7 @@ function drawTrCart(){ const b=$('#trCartBody'); if(!b)return; const orig=trOrig
   b.innerHTML=trCart.map(i=>{const p=findProduct(i.code);const s=saldoOf(orig,i.code);const tot=(i.qty||0)*((p.custo)||0);return `<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''}</span></td><td class="num ${i.qty>s?'neg':''}">${numf(s)} ${esc(p.unit||'')}</td><td class="num"><input class="inline-edit" type="number" step="any" min="0" value="${i.qty}" oninput="setTrQty('${esc(i.code)}',this.value)"></td><td class="num" id="tv_${esc(i.code)}">${money(tot)}</td><td class="num"><button class="btn danger sm" onclick="rmTr('${esc(i.code)}')">✕</button></td></tr>`;}).join(''); updateTrTotal(); }
 function drawTrHist(){ const _o=curObra(); const list=state.movements.filter(m=>m.tipo==='transferencia'&&(_o==='__all'||m.obra===_o||m.obraDest===_o)).slice(0,40);
   $('#trHist').innerHTML=list.length?list.map(m=>`<tr><td class="muted" style="font-size:12px">${fmtDate(m.ts)}</td><td class="mono">${m.seq?seqf(m.seq):'—'}</td><td style="font-size:12.5px">${esc(obraName(m.obra))} → ${esc(obraName(m.obraDest))}</td><td>${esc(m.desc)}${m.obs?`<br><span class="muted" style="font-size:11px">obs: ${esc(m.obs)}</span>`:''}</td><td class="num"><span class="pill tr">${numf(m.qty)}</span></td><td class="num">${money(m.valorTotal)}</td><td class="num"><button class="btn ghost sm" title="Romaneio (agrupado)" onclick="reportRomaneio('${m.romaneioId||m.id}')">🖨</button> <button class="btn danger sm" title="Excluir e estornar (supervisor)" onclick="delTrMov('${m.id}')">🗑</button></td></tr>`).join(''):`<tr><td colspan="7" class="empty" style="padding:24px">Nenhuma transferência.</td></tr>`; }
-function delTrMov(id){ const m=state.movements.find(x=>x.id===id&&x.tipo==='transferencia'); if(!m)return; requireSupervisor('Excluir transferência Nº '+seqf(m.seq),()=>{ addSaldo(m.obra,m.code,m.qty); addSaldo(m.obraDest,m.code,-m.qty); state.movements=state.movements.filter(x=>x.id!==id); sb.from('movimentos_estoque').delete().eq('id',id).then(({error})=>{ if(error)toast('Erro ao excluir movimentação no banco: '+error.message,'err'); }); save('Transferência Nº '+seqf(m.seq)+' excluída e estornada'); drawTrHist(); toast('Transferência excluída e estornada.','warn'); }); }
+function delTrMov(id){ const m=state.movements.find(x=>x.id===id&&x.tipo==='transferencia'); if(!m)return; requireSupervisor('Excluir transferência Nº '+seqf(m.seq),()=>{ addSaldo(m.obra,m.code,m.qty,m.lotes); addSaldo(m.obraDest,m.code,-m.qty,m.lotes); state.movements=state.movements.filter(x=>x.id!==id); sb.from('movimentos_estoque').delete().eq('id',id).then(({error})=>{ if(error)toast('Erro ao excluir movimentação no banco: '+error.message,'err'); }); save('Transferência Nº '+seqf(m.seq)+' excluída e estornada'); drawTrHist(); toast('Transferência excluída e estornada.','warn'); }); }
 async function confirmTransfer(){ const orig=$('#trOrig').value, dest=$('#trDest').value;
   if(orig===dest){toast('Origem e destino devem ser diferentes.','err');return;}
   const oOrig=state.obras.find(o=>o.id===orig), oDest=state.obras.find(o=>o.id===dest);
@@ -4237,8 +4501,8 @@ async function confirmTransfer(){ const orig=$('#trOrig').value, dest=$('#trDest
   const {data:numData,error:eNum}=await sb.rpc('proximo_numero_documento',{p_tipo:'transferencia'});
   const seq=eNum?0:numData; if(eNum)console.warn('Falha ao gerar numeração da transferência, seguindo sem número:',eNum);
   const romaneioId=uid(); const ts=Date.now(); const repItens=[];
-  itens.forEach(i=>{const p=findProduct(i.code); const vu=p.custo||0; addSaldo(orig,p.code,-i.qty); addSaldo(dest,p.code,i.qty);
-    pushMov({id:uid(),ts,seq,romaneioId,tipo:'transferencia',obra:orig,obraDest:dest,obs,code:p.code,desc:p.desc,qty:i.qty,valorUnit:vu,valorTotal:i.qty*vu,doc:`Romaneio Nº ${seqf(seq)} · ${obraName(orig)} → ${obraName(dest)}`,saldo:saldoOf(orig,p.code),saldoDest:saldoOf(dest,p.code)});
+  itens.forEach(i=>{const p=findProduct(i.code); const vu=p.custo||0; const lt=addSaldo(orig,p.code,-i.qty); addSaldo(dest,p.code,i.qty,lt); /* os mesmos lotes chegam ao destino */
+    pushMov({id:uid(),ts,seq,romaneioId,tipo:'transferencia',obra:orig,obraDest:dest,obs,code:p.code,desc:p.desc,qty:i.qty,valorUnit:vu,valorTotal:i.qty*vu,doc:`Romaneio Nº ${seqf(seq)} · ${obraName(orig)} → ${obraName(dest)}`,saldo:saldoOf(orig,p.code),saldoDest:saldoOf(dest,p.code),lotes:lt||undefined});
     repItens.push({code:p.code,aux:p.aux,desc:p.desc,qty:i.qty,unit:p.unit,valor:vu}); });
   save('Transferência Nº '+seqf(seq)+' · '+obraName(orig)+' → '+obraName(dest)); toast(`Romaneio Nº ${seqf(seq)} · ${itens.length} item(ns) · ${esc(obraName(orig))} → ${esc(obraName(dest))}`,'ok');
   if(wantReport)printSignReport({titulo:'Romaneio de Transferência de Estoque',numero:seqf(seq),conferencia:true,recebimento:true,subtitulo:'Movimentação entre obras',data:fmtDate(ts),obra:obraName(orig),obraDest:obraName(dest),obs,itens:repItens,assinaturas:['Responsável obra origem','Responsável obra destino','Transportador / Conferente']});
@@ -4946,8 +5210,8 @@ async function concluirDevolucao(id){
   if(file){ if(file.size>4*1024*1024){toast('Arquivo muito grande (máx. 4MB).','err');return;} docB64=await fileToDataURL(file); docNome=file.name; }
   const {data:d,error:e1}=await sb.from('devolucoes').select('*').eq('id',id).maybeSingle();
   if(e1||!d){toast('Erro ao carregar devolução.','err');return;}
-  (d.itens||[]).forEach(it=>{ addSaldo(d.obra_id,it.code,-Number(it.qty||0));
-    pushMov({id:uid(),ts:Date.now(),tipo:'devolucao',obra:d.obra_id,code:it.code,desc:it.desc,qty:Number(it.qty||0),valorUnit:Number(it.valorUnit||0),valorTotal:Number(it.qty||0)*Number(it.valorUnit||0),doc:'Devolução #'+d.id,obs:d.fornecedor?('Fornecedor: '+d.fornecedor):'',saldo:saldoTotalOf(d.obra_id,it.code)}); });
+  (d.itens||[]).forEach(it=>{ const lt=addSaldo(d.obra_id,it.code,-Number(it.qty||0));
+    pushMov({lotes:lt||undefined,id:uid(),ts:Date.now(),tipo:'devolucao',obra:d.obra_id,code:it.code,desc:it.desc,qty:Number(it.qty||0),valorUnit:Number(it.valorUnit||0),valorTotal:Number(it.qty||0)*Number(it.valorUnit||0),doc:'Devolução #'+d.id,obs:d.fornecedor?('Fornecedor: '+d.fornecedor):'',saldo:saldoTotalOf(d.obra_id,it.code)}); });
   await save('Devolução #'+d.id+' concluída — saldo estornado');
   const {error:e2}=await sb.from('devolucoes').update({status:'concluida',numero_nota_devolucao:numero||d.numero_nota_devolucao,data_nota_devolucao:data,doc_devolucao_base64:docB64,doc_devolucao_nome:docNome,concluido_em:new Date().toISOString(),concluido_por_nome:profile.nome||profile.email}).eq('id',id);
   if(e2){toast('Saldo estornado, mas houve erro ao atualizar o registro: '+e2.message,'err');return;}
@@ -5006,7 +5270,7 @@ async function showConsulta(p){ _consAtual=p.code; const o=curObra(); const all=
     (movs.length?movs.map(m=>{ const tp=m.tipo==='entrada'?'<span class="pill in">Entrada</span>':m.tipo==='baixa'?(isMovDevolReq(m)?'<span class="pill in">Devol. requisição</span>':'<span class="pill out">Baixa</span>'):m.tipo==='ajuste'?'<span class="pill high">Ajuste</span>':m.tipo==='devolucao'?'<span class="pill out">Devolução</span>':'<span class="pill tr">Transf.</span>';
       const obraCell=m.tipo==='transferencia'?`${esc(obraName(m.obra))} → ${esc(obraName(m.obraDest))}`:esc(obraName(m.obra));
       const e=efeito(m); const qtdTxt=(m.tipo==='transferencia'&&all)?'⇄'+numf(m.qty):(e>0?'+':e<0?'−':'')+numf(Math.abs(e||m.qty)); const cls=e>0?'pos':e<0?'neg':'';
-      return `<tr><td class="muted" style="font-size:12px">${fmtDate(m.ts)}</td><td>${tp}</td><td style="font-size:12.5px">${obraCell}</td><td style="font-size:12.5px">${esc(m.doc||'')}${m.aplic?' · '+esc(aplicName(m.aplic)):''}</td><td class="num ${cls}">${qtdTxt}</td><td class="num">${money(m.valorUnit)}</td><td class="num">${money(m.valorTotal)}</td></tr>`;}).join('')
+      return `<tr><td class="muted" style="font-size:12px">${fmtDate(m.ts)}</td><td>${tp}</td><td style="font-size:12.5px">${obraCell}</td><td style="font-size:12.5px">${esc(m.doc||'')}${m.aplic?' · '+esc(aplicName(m.aplic)):''}${m.lotes&&m.lotes.length?`<div style="font-size:11px;color:#2766b8">🏷 ${esc(lotesTxt(m.lotes))}</div>`:''}</td><td class="num ${cls}">${qtdTxt}</td><td class="num">${money(m.valorUnit)}</td><td class="num">${money(m.valorTotal)}</td></tr>`;}).join('')
       :`<tr><td colspan="7" class="empty" style="padding:24px">Sem movimentações.</td></tr>`)+`</tbody></table></div>`;
   withBarcode(()=>{try{JsBarcode('#consBc',String(p.code),{format:'CODE128',width:1.6,height:46,fontSize:13,margin:4});}catch(e){}});
 }
@@ -5216,7 +5480,7 @@ function deleteNotaId(id,fromEntrada){ const n=state.notas.find(x=>x.id===id); i
   const {data:mvNota,error:eN}=await sb.from('movimentos_estoque').select('*').eq('nota_id',id);
   if(eN){ toast('Erro ao buscar as movimentações da nota: '+eN.message,'err'); return; }
   estornarCustoNota(n);
-  (mvNota||[]).map(rowToMov).forEach(m=>addSaldo(m.obra,m.code,-m.qty));
+  (mvNota||[]).map(rowToMov).forEach(m=>addSaldo(m.obra,m.code,-m.qty,m.lotes));
   state.movements=state.movements.filter(m=>m.notaId!==id);
   await sb.from('movimentos_estoque').delete().eq('nota_id',id);
   state.notas=state.notas.filter(x=>x.id!==id); save('NF '+n.numero+' excluída e estornada'); if(fromEntrada)drawNfHist(); else renderAdmin(); toast('Nota excluída e estornada.','warn'); }); }
@@ -5316,7 +5580,7 @@ function onAuthReady(){
   const p=(async()=>{
     profile=await loadProfile();
     if(!profile||!profile.ativo){ showPending(); return; }
-    hideGate(); applyRoleNav(); initNavGrps(); const pDev=refreshDevolucoesBloqueio().catch(()=>{}); await load(); await pDev; loadPhotos().then(()=>{ refreshTelaAtual(); migrarFotosAntigas(); }); loadFotosExt().then(mudou=>{ if(mudou&&!usuarioInteragindo())refreshTelaAtual(); }); loadReposAbertas().then(()=>refreshTelaAtual()); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); checkEntregaParcial().then(()=>refreshRetiradasBadge()); _comprovOk=null; _comprovPend={confirmar:[],receber:[]}; _comprovUsers=null; refreshComprovPend().then(()=>{ refreshComprovBadge(); processarLinkRecebimento(); }); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge();
+    hideGate(); applyRoleNav(); initNavGrps(); const pDev=refreshDevolucoesBloqueio().catch(()=>{}); const pLot=loadLotes().catch(e=>console.warn('loadLotes',e)); await load(); await pDev; await pLot; loadPhotos().then(()=>{ refreshTelaAtual(); migrarFotosAntigas(); }); loadFotosExt().then(mudou=>{ if(mudou&&!usuarioInteragindo())refreshTelaAtual(); }); loadReposAbertas().then(()=>refreshTelaAtual()); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); checkEntregaParcial().then(()=>refreshRetiradasBadge()); _comprovOk=null; _comprovPend={confirmar:[],receber:[]}; _comprovUsers=null; refreshComprovPend().then(()=>{ refreshComprovBadge(); processarLinkRecebimento(); }); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge();
     _bootedUid=uid; go(abaInicial());
     if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); startVersionWatch(); }
   })();
