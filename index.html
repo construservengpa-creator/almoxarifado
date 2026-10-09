@@ -559,7 +559,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-09T17:00:00-03:00';
+const APP_VERSION='2026-10-09T18:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -1893,7 +1893,7 @@ function renderEntrada(){
     <div id="vincResumo"></div>
     <div class="tbl-wrap" style="margin-top:18px"><table><thead><tr><th>Código</th><th>Descrição</th><th class="num">Qtd</th><th class="num">Custo un.</th><th class="num">Total</th><th></th></tr></thead><tbody id="nfBody"></tbody></table></div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px">
-      <div style="font-size:13px;color:#8a8377">Total: <b id="nfTotal" class="mono" style="color:#1c1c1c;font-size:16px">R$ 0,00</b></div>
+      <div style="font-size:13px;color:#8a8377">Total: <b id="nfTotal" class="mono" style="color:#1c1c1c;font-size:16px">R$ 0,00</b><span id="nfCteInfo"></span></div>
       <div style="display:flex;gap:10px"><button class="btn ghost" onclick="cancelarNf()">✕ Cancelar inserção</button><button class="btn primary" onclick="processNf()">✓ Dar entrada no estoque</button></div>
     </div>
   </div>
@@ -2014,7 +2014,7 @@ function nfeItensCusto(doc){
     return {cProd,cEAN,qty,custoNF,custo,ex,acres,rastro:nfeRastro(prod),xProd:txt(prod,'xProd'),uCom:(txt(prod,'uCom')||'UN').toUpperCase(),ncm:onlyDigits(txt(prod,'NCM')),cst:cstIcmsDoDet(det)}; }); }
 function nfeChave(doc){ const inf=tagsOf(doc,'infNFe')[0]; const ch=onlyDigits((inf&&inf.getAttribute('Id'))||txt(doc,'chNFe')||''); return ch.length===44?ch:''; }
 /* Valores da NF-e que compõem o custo de entrada além do valor unitário (em R$ do item; desconto subtrai) */
-const NF_EXTRAS=[['frete','Frete'],['seg','Seguro'],['outro','Outras despesas'],['ipi','IPI'],['st','ICMS-ST'],['descto','Desconto']];
+const NF_EXTRAS=[['frete','Frete'],['cte','Frete CT-e'],['seg','Seguro'],['outro','Outras despesas'],['ipi','IPI'],['st','ICMS-ST'],['descto','Desconto']];
 function nfExtrasLista(o){ return NF_EXTRAS.filter(([k])=>Number(o&&o[k])>0).map(([k,l])=>({k,l,v:Number(o[k]),neg:k==='descto'})); }
 /* Custo médio ponderado de uma entrada: base = saldo total do produto (todas as obras); saldo negativo conta como zero,
    para não distorcer a média. Devolve o saldo/custo usados e o novo custo médio. */
@@ -2128,7 +2128,7 @@ function drawNfItems(){ const b=$('#nfBody'); if(!b)return;
   if(!nfItems.length){ b.innerHTML=`<tr><td colspan="6" class="empty" style="padding:24px">Nenhum item. Carregue um XML, busque no estoque ou adicione manualmente.</td></tr>`; $('#nfTotal').textContent='R$ 0,00'; drawVincResumo(); return; }
   let tot=0; b.innerHTML=nfItems.map((it,i)=>{const t=(it.qty||0)*(it.custo||0);tot+=t;const ex=it.code&&findProduct(it.code);
     return `<tr><td class="mono">${it.code?esc(it.code):'<span class="muted">auto</span>'}${it.xml?'':(ex?' <span class="pill good" style="font-size:9px">existe</span>':'')}</td><td>${esc(it.desc)}${it.reposPre?' <span class="pill solicitada" style="font-size:9px">da solicitação</span>':''}${it.xml?vincCellHTML(it,i):''}${nfLoteCellHTML(it,i)}</td><td class="num"><input class="inline-edit" type="number" step="any" min="0" value="${it.qty}" oninput="setNfQty(${i},this.value)"></td><td class="num"><input class="inline-edit" type="number" step="any" min="0" value="${it.custo}" oninput="setNfCusto(${i},this.value)"></td><td class="num" id="nft_${i}">${money(t)}</td><td class="num"><button class="btn danger sm" onclick="rmNfItem(${i})">✕</button></td></tr>`;}).join('');
-  $('#nfTotal').textContent=money(tot); drawVincResumo(); }
+  $('#nfTotal').textContent=money(tot); drawVincResumo(); nfCteInfo(); }
 function setNfQty(i,v){ const it=nfItems[i]; if(it){ it.qty=parseFloat(v)||0; if(it.lotes&&it.lotes.length===1)it.lotes[0].qty=it.qty; } refreshNfTotals(); }
 function setNfCusto(i,v){ if(nfItems[i])nfItems[i].custo=parseFloat(v)||0; refreshNfTotals(); }
 function refreshNfTotals(){ let tot=0; nfItems.forEach((it,i)=>{const t=(it.qty||0)*(it.custo||0);tot+=t;const c=$('#nft_'+i);if(c)c.textContent=money(t);}); if($('#nfTotal'))$('#nfTotal').textContent=money(tot); }
@@ -2139,14 +2139,17 @@ function processNf(force){
   const obra=$('#nfObra').value; const numero=$('#nfNum').value.replace(/\D/g,'')||'s/nº'; const forn=$('#nfForn').value.trim(); const dataEmissao=$('#nfData').value||'';
   const cnpjTom=$('#nfCnpjTom')?$('#nfCnpjTom').value.trim():''; const cnpjEmit=$('#nfCnpjEmit')?$('#nfCnpjEmit').value.trim():'';
   const totalCheck=nfItems.reduce((s,it)=>s+it.qty*it.custo,0);
-  const dup=state.notas.find(n=>n.numero===numero && (n.forn||'')===forn && (n.cnpjTomador||'')===cnpjTom && (n.dataEmissao||'')===dataEmissao && Math.abs((n.valor||0)-totalCheck)<0.01);
+  const dup=state.notas.find(n=>n.numero===numero && (n.forn||'')===forn && (n.cnpjTomador||'')===cnpjTom && (n.dataEmissao||'')===dataEmissao && Math.abs((n.valor||0)-(n.freteCteValor||0)-totalCheck)<0.01);
   if(dup && !force){ modal(`<h3>⚠ Possível nota duplicada</h3><p class="mp">Já existe uma nota com <b>mesmo número, fornecedor, CNPJ do tomador, data de emissão e valor</b> (lançada em ${fmtDate(dup.ts)}, obra ${esc(obraName(dup.obra))}). Lançar mesmo assim?</p><div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn danger" onclick="closeModal();processNf(true)">Lançar assim mesmo</button></div>`); return; }
   const doc=`NF ${numero}${forn?' · '+forn:''}`; const notaId=uid(); const ts=Date.now();
+  /* Frete com CT-e à parte (informado no Controle de Notas): rateado no custo dos itens pelo valor de cada um */
+  const ctrlNf=ctrlLerCampos('nf'); const cteRat=nfRateioCte(nfItems,ctrlNf);
   let alerts=[], total=0; const notaItens=[]; const movsNota=[];
   nfItems.forEach(it=>{ let p=it.code?findProduct(it.code):null;
     if(!p){ const code=it.code||genCode(); p={code,desc:it.desc,unit:it.unit,aux:'',min:0,max:0,custo:0,preco:it.preco||0,ref:it.ref||''}; state.products.push(p); }
     else if(it.ref && !p.ref){ p.ref=it.ref; }
     if(it.xml){ if(it.xml.ncm)p.ncm=it.xml.ncm; if(it.xml.cst)p.cst=it.xml.cst; } /* NCM e CST da última nota recebida */
+    const cteIt=cteRat[nfItems.indexOf(it)]||0; if(cteIt>0&&it.qty>0)it.custo=+(it.custo+cteIt/it.qty).toFixed(6);
     const {qAnt,custoAnt,custoMedio}=custoMedioEntrada(p,it.qty,it.custo); p.custo=custoMedio;
     if(it.preco>0)p.preco=it.preco; if(!it.xml && it.desc&&p.desc!==it.desc)p.desc=it.desc; /* item de XML não renomeia o cadastro com a descrição do fornecedor */
     if(it.xml && it.lembrar!==false && it.xml.cProd){ const k=vincKey(it.xml.cnpj,it.xml.cProd); if(!state.vinculosNF)state.vinculosNF={};
@@ -2155,14 +2158,14 @@ function processNf(force){
     if(ltIn&&!p.controlaLote&&ltIn.some(l=>l.validade))p.controlaLote=true; /* recebeu com validade: passa a controlar lote */
     const lt=addSaldo(obra,p.code,it.qty,ltIn); total+=it.qty*it.custo;
     notaItens.push(Object.assign({code:p.code,desc:p.desc,qty:it.qty,custo:it.custo,unit:p.unit},lt?{lotes:lt}:{}, it.xml?{xmlCod:it.xml.cProd,xmlDesc:it.xml.xProd,xmlUnit:it.xml.uCom,xmlQty:it.xml.qty,fator:it.fator||1,ncm:it.xml.ncm||'',cst:it.xml.cst||'',frete:it.xml.frete||0,seg:it.xml.seg||0,outro:it.xml.outro||0,ipi:it.xml.ipi||0,st:it.xml.st||0,descto:it.xml.descto||0,custoNF:+((it.xml.custoNF!=null?it.xml.custoNF:it.xml.custo)/(it.fator||1)).toFixed(6)}:{},
-      {qAnt,custoAnt,custoMedio:p.custo||0})); /* composição do custo: saldo e custo médio antes da entrada e o custo médio resultante */
+      cteIt>0?{cte:cteIt}:{},{qAnt,custoAnt,custoMedio:p.custo||0})); /* composição do custo: saldo e custo médio antes da entrada e o custo médio resultante */
     movsNota.push(pushMov({id:uid(),ts,tipo:'entrada',obra,notaId,code:p.code,desc:p.desc,qty:it.qty,valorUnit:it.custo,valorTotal:it.qty*it.custo,doc,saldo:saldoOf(obra,p.code),lotes:lt||undefined}));
     { const Lm=limDe(p,obra); if(!Lm.off&&Lm.max>0&&saldoOf(obra,p.code)>Lm.max)alerts.push(`${p.desc}: ${numf(saldoOf(obra,p.code))} acima do máximo`); }
   });
   const xmlExtra=_nfXmlExtra||{}; _nfXmlExtra=null;
-  const ctrl=ctrlLerCampos('nf'); const anexosCtrl=ctrlLerAnexos('nf'); const valorNota=xmlExtra.vNF>0?xmlExtra.vNF:total;
+  const ctrl=ctrlNf; const anexosCtrl=ctrlLerAnexos('nf'); const totCte=cteRat.reduce((a,b)=>a+(b||0),0); const valorNota=xmlExtra.vNF>0?xmlExtra.vNF:+(total-totCte).toFixed(2); /* valor da NF sem o CT-e */
   if(ctrl.obraId){ if(!state.obraControleMap)state.obraControleMap={}; state.obraControleMap[obra]=ctrl.obraId; } /* lembra a obra do Controle para esta obra do estoque */
-  state.notas.unshift(Object.assign({id:notaId,numero,forn,dataEmissao,cnpjTomador:cnpjTom,cnpjEmit,obra,valor:total,itens:notaItens,ts,controle:ctrl},xmlExtra.chave?{chave:xmlExtra.chave}:{},xmlExtra.dest?{destinatario:xmlExtra.dest}:{},xmlExtra.vNF>0?{valorNF:xmlExtra.vNF}:{}));
+  state.notas.unshift(Object.assign({id:notaId,numero,forn,dataEmissao,cnpjTomador:cnpjTom,cnpjEmit,obra,valor:total,itens:notaItens,ts,controle:ctrl},totCte>0?{freteCteValor:+totCte.toFixed(2)}:{},xmlExtra.chave?{chave:xmlExtra.chave}:{},xmlExtra.dest?{destinatario:xmlExtra.dest}:{},xmlExtra.vNF>0?{valorNF:xmlExtra.vNF}:{}));
   save('Entrada NF '+numero+' em '+obraName(obra)); const n=nfItems.length; nfItems=[];
   enviarNotaControle(Object.assign({numero,fornecedor:forn,valor:valorNota,dataEmissao,chaveAcesso:xmlExtra.chave||null,cnpjEmitente:cnpjEmit||null,cnpjDestinatario:cnpjTom||null,destinatario:xmlExtra.dest||null,obraNome:obraName(obra),estoqueNotaId:notaId,
     descricao:'Recebida no estoque ('+obraName(obra)+') · '+notaItens.length+' item(ns)'},ctrl),anexosCtrl);
@@ -2232,7 +2235,7 @@ function ctrlCamposHtml(px,v){ v=v||{};
       <div class="row c3">
         <div class="field" style="margin:0"><label>Nº do CT-e</label><input id="${px}CtrlFreteCte" class="mono" value="${esc(v.freteCte||'')}" placeholder="Nº do conhecimento de transporte"></div>
         <div class="field" style="margin:0"><label>Transportador</label><input id="${px}CtrlFreteTransp" value="${esc(v.freteTransportador||'')}"></div>
-        <div class="field" style="margin:0"><label>Valor do frete (R$)</label><input id="${px}CtrlFreteValor" type="number" step="0.01" min="0" value="${esc(v.freteValor==null?'':v.freteValor)}"></div>
+        <div class="field" style="margin:0"><label>Valor do frete (R$)</label><input id="${px}CtrlFreteValor" type="number" step="0.01" min="0" value="${esc(v.freteValor==null?'':v.freteValor)}"${px==='nf'?' oninput="nfCteInfo()"':''}></div>
       </div>
       <div class="row c3" style="margin-top:8px">
         <div class="field" style="margin:0"><label>Forma de pagamento do frete</label><select id="${px}CtrlFreteForma"><option value="">Selecione...</option>${CTRL_FORMAS_PAG.map(f=>`<option${v.freteFormaPagamento===f?' selected':''}>${f}</option>`).join('')}</select></div>
@@ -2242,7 +2245,16 @@ function ctrlCamposHtml(px,v){ v=v||{};
     </div>
     <div class="field" style="margin:10px 0 0"><label>📎 Boleto / documentos da nota (anexos)</label><input id="${px}CtrlAnexos" type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.xml,.doc,.docx,.xls,.xlsx,.txt">
       <div class="muted" style="font-size:11.5px;margin-top:3px">Vão para "Documentos anexados" da nota no Controle de Notas (máx. 15 MB cada).</div></div>`; }
-function ctrlFreteToggle(px){ const f=$('#'+px+'CtrlFrete'), b=$('#'+px+'CtrlFreteBox'); if(b)b.style.display=f&&f.value==='sim'?'':'none'; }
+function ctrlFreteToggle(px){ const f=$('#'+px+'CtrlFrete'), b=$('#'+px+'CtrlFreteBox'); if(b)b.style.display=f&&f.value==='sim'?'':'none'; if(px==='nf')nfCteInfo(); }
+/* Rateio do frete do CT-e à parte entre os itens da nota, proporcional ao valor (qtd × custo); sem valor, pela quantidade.
+   Centavos do arredondamento vão para o maior item. Devolve o R$ de cada item (mesma ordem de itens). */
+function nfRateioCte(itens,ctrl){ const tot=ctrl&&ctrl.frete==='sim'?Number(ctrl.freteValor)||0:0; if(!(tot>0)||!itens.length)return itens.map(()=>0);
+  const base=itens.map(it=>(it.qty||0)*(it.custo||0)); let soma=base.reduce((a,b)=>a+b,0); const peso=soma>0?base:itens.map(it=>it.qty||0); soma=peso.reduce((a,b)=>a+b,0);
+  if(!(soma>0))return itens.map(()=>0);
+  const r=peso.map(w=>+(tot*w/soma).toFixed(2)); const dif=+(tot-r.reduce((a,b)=>a+b,0)).toFixed(2); if(dif){ const i=r.indexOf(Math.max(...r)); r[i]=+(r[i]+dif).toFixed(2); }
+  return r; }
+function nfCteInfo(){ const el=$('#nfCteInfo'); if(!el)return; const c=ctrlLerCampos('nf'); const v=c.frete==='sim'?Number(c.freteValor)||0:0;
+  el.innerHTML=v>0?` <span style="margin-left:6px">+ frete CT-e <b class="mono" style="color:#1c1c1c">${money(v)}</b> rateado no custo dos itens ao dar entrada</span>`:''; }
 function ctrlObrasLista(){ if(_ctrlObras)return Promise.resolve(_ctrlObras); if(_ctrlObrasP)return _ctrlObrasP;
   _ctrlObrasP=ctrlApi({acao:'obras'}).then(r=>{ _ctrlObras=r.obras||[]; return _ctrlObras; }).finally(()=>{ _ctrlObrasP=null; }); return _ctrlObrasP; }
 async function ctrlCarregarObras(px,obraEstoque,cnpj){ const el=$('#'+px+'CtrlObra'); if(!el)return;
@@ -5459,7 +5471,7 @@ function reprocXmlLer(id,content){ const n=state.notas.find(x=>x.id===id); const
     let k=xs.findIndex((x,xi)=>!usados.has(xi)&&x.cProd===it.xmlCod&&Math.abs(x.qty-(Number(it.xmlQty)||0))<1e-6);
     if(k<0)k=xs.findIndex((x,xi)=>!usados.has(xi)&&x.cProd===it.xmlCod);
     if(k<0)return {ii,it,erro:'não encontrado no XML'}; usados.add(k); const x=xs[k]; const f=Number(it.fator)||1;
-    return {ii,it,x,custo:+(x.custo/f).toFixed(6),custoNF:+(x.custoNF/f).toFixed(6)}; });
+    return {ii,it,x,custo:+(x.custo/f+(Number(it.cte)>0&&it.qty>0?it.cte/it.qty:0)).toFixed(6),custoNF:+(x.custoNF/f).toFixed(6)}; }); /* o frete do CT-e rateado continua no custo */
   const tot=tagsOf(doc,'ICMSTot')[0]; const vNF=tot?parseFloat(txt(tot,'vNF'))||0:0;
   _reproc={id,plano,vNF,chave};
   const ok=plano.filter(pl=>pl.x); const novoTot=(n.itens||[]).reduce((t,it,ii)=>{ const pl=plano[ii]; return t+(it.qty||0)*(pl.x?pl.custo:(it.custo||0)); },0);
