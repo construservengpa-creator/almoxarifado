@@ -562,7 +562,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-09T14:30:00-03:00';
+const APP_VERSION='2026-10-09T15:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -1959,15 +1959,18 @@ let _nfAutoresTentado=false;
 async function nfRecuperarAutores(){ if(_nfAutoresTentado||!session)return;
   const faltam=state.notas.filter(n=>!n.porNome&&n.ts&&n.numero); if(!faltam.length)return; _nfAutoresTentado=true;
   const desde=new Date(Math.min(...faltam.map(n=>n.ts))-10*60000).toISOString();
-  const {data,error}=await fetchAllRows(()=>sb.from('audit_log').select('criado_em,usuario_nome,acao,detalhes').gte('criado_em',desde).order('criado_em',{ascending:true}));
-  if(error||!data||!data.length)return;
-  const ents=data.map(r=>({t:new Date(r.criado_em).getTime(),nome:r.usuario_nome,txt:String(r.acao||'')+' '+(r.detalhes?JSON.stringify(r.detalhes):'')}))
-    .filter(r=>r.nome&&r.txt.includes('Entrada NF '));
+  /* só os salvamentos de entrada de nota — filtrado no servidor para não puxar a auditoria inteira */
+  const {data,error}=await fetchAllRows(()=>sb.from('audit_log').select('criado_em,usuario_nome,acao').ilike('acao','%Entrada NF %').gte('criado_em',desde).order('criado_em',{ascending:true}));
+  if(error){ _nfAutoresTentado=false; console.warn('nfRecuperarAutores: auditoria indisponível',error);
+    if(isEncarregado())toast('Não foi possível consultar a auditoria para preencher quem lançou as notas antigas: '+esc(error.message||String(error)),'warn'); return; }
+  const ents=(data||[]).map(r=>({t:new Date(r.criado_em).getTime(),nome:r.usuario_nome,txt:String(r.acao||'')})).filter(r=>r.nome);
   let achou=0;
-  faltam.forEach(n=>{ const alvo='Entrada NF '+n.numero+' em '; let melhor=null;
+  faltam.forEach(n=>{ const alvo='Entrada NF '+String(n.numero).trim()+' em '; let melhor=null;
     ents.forEach(r=>{ const d=Math.abs(r.t-n.ts); if(d<=10*60000&&r.txt.includes(alvo)&&(!melhor||d<melhor.d))melhor={d,nome:r.nome}; });
     if(melhor){ n.porNome=melhor.nome; achou++; } });
-  if(achou){ drawNfHist(); save('Usuário de lançamento de '+achou+' nota(s) recuperado da auditoria'); } }
+  console.info('nfRecuperarAutores: '+ents.length+' registro(s) de entrada na auditoria, '+achou+' de '+faltam.length+' nota(s) preenchida(s)');
+  if(achou){ drawNfHist(); save('Usuário de lançamento de '+achou+' nota(s) recuperado da auditoria'); }
+  else if(isEncarregado()&&!ents.length)toast('A auditoria não retornou lançamentos de nota para preencher o usuário das notas antigas.','warn'); }
 function notaDetalhe(id){ const n=state.notas.find(x=>x.id===id); if(!n)return;
   const linhas=n.itens.map(it=>`<tr><td class="mono">${esc(it.code)}</td><td>${esc(it.desc)}${it.xmlDesc&&it.xmlDesc!==it.desc?`<div class="refline">NF: ${esc(it.xmlCod||'')} · ${esc(it.xmlDesc)}${it.fator&&it.fator!==1?` · fator ${numf(it.fator)}`:''}</div>`:''}${it.ncm||it.cst||nfExtrasLista(it).length?`<div class="refline">${[it.ncm?'NCM '+esc(it.ncm):'',it.cst?'CST '+esc(it.cst):'',...nfExtrasLista(it).map(e=>(e.neg?'− ':'+ ')+e.l.toLowerCase()+' '+money(e.v))].filter(Boolean).join(' · ')}${nfExtrasLista(it).length?' (no custo)':''}</div>`:''}</td><td class="num">${numf(it.qty)} ${esc(it.unit||'')}</td><td class="num">${money(it.custo)}</td><td class="num">${money(it.qty*it.custo)}</td></tr>`).join('');
   modal(`<h3>Nota ${esc(n.numero)}</h3><p class="mp">Emissão: ${n.dataEmissao?new Date(n.dataEmissao+'T00:00:00').toLocaleDateString('pt-BR'):'—'} · ${esc(n.forn||'sem fornecedor')} · Obra: ${esc(obraName(n.obra))}<br>Lançada em ${n.ts?fmtDate(n.ts):'—'} por ${esc(n.porNome||'usuário não registrado')}</p>
