@@ -559,7 +559,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-09T16:00:00-03:00';
+const APP_VERSION='2026-10-09T17:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -1074,15 +1074,15 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 `;
 const LOTE_DIAS_PADRAO=30, LOTE_DIAS_CRITICO=7;
-let lotesEstoque={}, _lotesOk=null; /* lotesEstoque[obra][code] = [{lote,validade,fabricacao,saldo}] · _lotesOk: tabela existe? (null = ainda não sabe) */
+let lotesEstoque={}, _lotesOk=null, _lotesErro=null; /* lotesEstoque[obra][code] = [{lote,validade,fabricacao,saldo}] · _lotesOk: tabela existe? (null = ainda não sabe) */
 function lotesAtivos(){ return _lotesOk===true; }
 function podeGerirLotes(){ return isAlmoxarife()||isEncarregado(); }
 function lotesTabelaFaltando(e){ const m=(e&&e.message)||''; return !!e&&(e.code==='42P01'||e.code==='PGRST205'||e.code==='PGRST202'||e.code==='42883'||(/lotes_estoque|mover_lote/.test(m)&&/(could not find|does not exist|não existe|schema cache)/i.test(m))); }
 async function loadLotes(){
   const {data,error}=await fetchAllRows(()=>sb.from('lotes_estoque').select('obra_id,code,lote,validade,fabricacao,saldo').gt('saldo',0).order('obra_id').order('code').order('lote'));
-  if(error){ if(lotesTabelaFaltando(error))_lotesOk=false; else console.warn('loadLotes',error); return false; }
+  if(error){ if(lotesTabelaFaltando(error))_lotesOk=false; else { _lotesErro=error.message||String(error); console.warn('loadLotes',error); } return false; }
   const m={}; (data||[]).forEach(r=>{ const o=m[r.obra_id]||(m[r.obra_id]={}); (o[r.code]||(o[r.code]=[])).push({lote:r.lote,validade:r.validade||null,fabricacao:r.fabricacao||null,saldo:Number(r.saldo)||0}); });
-  lotesEstoque=m; _lotesOk=true; return true; }
+  lotesEstoque=m; _lotesOk=true; _lotesErro=null; return true; }
 /* Linha alterada por outro usuário (tempo real) */
 function lotesAplicarLinha(r){ if(!r||!r.obra_id||r.code==null||!r.lote)return false;
   const o=lotesEstoque[r.obra_id]||(lotesEstoque[r.obra_id]={}); const arr=o[r.code]||(o[r.code]=[]); const i=arr.findIndex(x=>x.lote===r.lote);
@@ -1146,10 +1146,10 @@ function vencLinhas(obra,horiz){ const r=[]; const obras=(!obra||obra==='__all')
 /* ----- Painel: crítica da proximidade do vencimento ----- */
 function drawVencPainel(){ const box=$('#vencPainel'); if(!box)return;
   if(_lotesOk===false){ box.innerHTML=isAdmin()?lotesInstalarHTML():''; return; }
-  if(!lotesAtivos()){ box.innerHTML=''; return; }
+  if(!lotesAtivos()){ box.innerHTML=isAdmin()&&_lotesErro?`<div class="panel" style="border-left:4px solid #c0392b;margin-bottom:16px;font-size:13px">⚠ Não foi possível carregar os lotes: ${esc(_lotesErro)}. Recarregue a página; se continuar, confira se o script de lotes rodou sem erro no Supabase.</div>`:''; return; }
   const o=curObra(), all=!o||o==='__all'; const hz=window._vencHz||0;
   const temValidade=(all?Object.keys(lotesEstoque):[o]).some(ob=>Object.keys(lotesEstoque[ob]||{}).some(c=>lotesDe(ob,c).some(l=>l.validade)));
-  if(!temValidade){ box.innerHTML=''; return; }
+  if(!temValidade){ box.innerHTML=`<div class="panel" style="margin-bottom:24px;padding:12px 16px;font-size:13px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><b>⏳ Vencimento de lotes</b><span class="muted">Nenhum lote com vencimento cadastrado${all?'':' nesta obra'}. Informe o vencimento na <b>Entrada / Nota Fiscal</b> (botão "🏷 Lote / vencimento" em cada item) ou, para o estoque que já existe, no 🔍 do produto → <b>Lotes e validade</b> → "+ Lote".</span></div>`; return; }
   const lin=vencLinhas(o,hz);
   const venc=lin.filter(x=>x.v.nivel===4), crit=lin.filter(x=>x.v.nivel===3), aten=lin.filter(x=>x.v.nivel<=2);
   const val=xs=>xs.reduce((s,x)=>s+x.l.saldo*(x.p.custo||0),0);
@@ -1165,7 +1165,7 @@ function drawVencPainel(){ const box=$('#vencPainel'); if(!box)return;
 /* ----- Lotes de um produto: consulta, identificação do saldo sem lote e correções ----- */
 function lotesModal(code,obraFoco){ const p=findProduct(code); if(!p)return; const u=esc(p.unit||'');
   const fechar=`<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="closeModal()">Fechar</button></div>`;
-  if(!lotesAtivos()){ modal(`<h3>🏷 Lotes e validade</h3><p class="mp">${esc(p.desc)}</p>${_lotesOk===false?(isAdmin()?lotesInstalarHTML():'<p class="mp">O controle de lotes ainda não foi configurado no banco. Fale com o administrador.</p>'):'<p class="mp">Não foi possível carregar os lotes agora (sem conexão?). Tente de novo em instantes.</p>'}${fechar}`); return; }
+  if(!lotesAtivos()){ modal(`<h3>🏷 Lotes e validade</h3><p class="mp">${esc(p.desc)}</p>${_lotesOk===false?(isAdmin()?lotesInstalarHTML():'<p class="mp">O controle de lotes ainda não foi configurado no banco. Fale com o administrador.</p>'):`<p class="mp">Não foi possível carregar os lotes agora${_lotesErro?' ('+esc(_lotesErro)+')':' (sem conexão?)'}. Recarregue a página e tente de novo.</p>`}${fechar}`); return; }
   const pode=podeGerirLotes();
   const obras=state.obras.filter(o=>saldoTotalOf(o.id,code)>0||lotesDe(o.id,code).length).sort((a,b)=>(b.id===obraFoco)-(a.id===obraFoco)||a.nome.localeCompare(b.nome,'pt-BR'));
   const blocos=obras.map(o=>{ const ls=lotesDe(o.id,code), sem=saldoSemLote(o.id,code), tot=saldoTotalOf(o.id,code), emL=saldoEmLotes(o.id,code);
@@ -1219,7 +1219,7 @@ function nfLotesSync(it){ const rs=it.xml&&it.xml.rastro;
 function nfLoteCellHTML(it,i){ if(!lotesAtivos())return ''; const p=it.code&&findProduct(it.code); const ls=it.lotes||[];
   if(ls.length)return `<div style="margin-top:4px;font-size:11.5px;color:#2766b8">🏷 ${esc(lotesTxt(ls.length>1?ls:ls.map(l=>({lote:l.lote,validade:l.validade}))))} <button class="btn ghost sm" style="padding:1px 7px;font-size:11px" onclick="nfLoteModal(${i})">✎ Lote</button></div>`;
   return p&&p.controlaLote?`<div style="margin-top:4px"><button class="btn danger sm" style="padding:2px 8px;font-size:11px" onclick="nfLoteModal(${i})">⚠ Informar lote / validade</button></div>`
-    :`<div style="margin-top:3px"><a href="#" onclick="nfLoteModal(${i});return false" style="font-size:11px;color:#8a8377">+ lote / validade</a></div>`; }
+    :`<div style="margin-top:4px"><button class="btn ghost sm" style="padding:2px 8px;font-size:11px" onclick="nfLoteModal(${i})">🏷 Lote / vencimento</button></div>`; }
 let _nfLt=null;
 function nfLoteModal(i){ const it=nfItems[i]; if(!it)return; _nfLt={i,rows:(it.lotes&&it.lotes.length?it.lotes:[{lote:'',validade:'',qty:it.qty}]).map(l=>({lote:/^S\/N-/.test(l.lote||'')?'':(l.lote||''),validade:l.validade||'',fabricacao:l.fabricacao||null,qty:l.qty}))};
   modal(`<h3>🏷 Lote e validade</h3><p class="mp">${esc(it.desc)} · quantidade da entrada: <b>${numf(it.qty)} ${esc(it.unit||'')}</b></p><div id="nfLtRows"></div>
@@ -1695,7 +1695,7 @@ function productDetailModal(code){ const p=findProduct(code); if(!p)return; cons
     <div class="tbl-wrap"><table><thead><tr><th>Obra</th><th class="num">Saldo</th><th class="num">Mín</th><th class="num">Máx</th><th class="num">Controle</th></tr></thead><tbody>${saldos||'<tr><td colspan="5" class="empty" style="padding:14px">Sem saldo em nenhuma obra.</td></tr>'}</tbody></table></div>
     <p class="muted" style="font-size:11.5px;margin-top:6px">Mín/Máx em cinza/itálico = padrão do produto. Para definir em uma obra sem saldo, selecione a obra no topo da tela Produtos.</p>
     ${lotesDetalheHTML(p)}
-    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">${lotesAtivos()?`<button class="btn ghost" style="margin-right:auto" onclick="lotesModal('${esc(code)}')">🏷 Lotes e validade</button>`:''}<button class="btn ghost" onclick="closeModal()">Fechar</button><button class="btn primary" onclick="closeModal();editProductModal('${esc(code)}')">Editar</button></div>`);
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" style="margin-right:auto" onclick="lotesModal('${esc(code)}')">🏷 Lotes e validade</button><button class="btn ghost" onclick="closeModal()">Fechar</button><button class="btn primary" onclick="closeModal();editProductModal('${esc(code)}')">Editar</button></div>`);
 }
 /* ===== OBRAS ===== */
 function renderObras(){
@@ -1948,7 +1948,10 @@ function setEntradaTab(t){ entradaTab=t; $('#tbXml').classList.toggle('on',t==='
       <button class="btn dark" onclick="addNfItem()">+ Add</button></div>
     <div class="row c2" style="margin-top:8px">
       <div class="field" style="margin:0"><label>Descrição / referência adicional (opcional)</label><input id="itRef" placeholder="Ex.: aplicação, especificação, modelo..."></div>
-      <div class="field" style="margin:0"><label>Aplicação (opcional)</label>${state.aplicacoes.length?`<select id="itAplic">${aplicOptions('')}</select>`:`<input id="itAplic" disabled placeholder="cadastre em Aplicações">`}</div></div>`;
+      <div class="field" style="margin:0"><label>Aplicação (opcional)</label>${state.aplicacoes.length?`<select id="itAplic">${aplicOptions('')}</select>`:`<input id="itAplic" disabled placeholder="cadastre em Aplicações">`}</div></div>
+    ${lotesAtivos()?`<div class="row c2" style="margin-top:8px">
+      <div class="field" style="margin:0"><label>🏷 Lote (opcional)</label><input id="itLote" class="mono" placeholder="nº do lote"></div>
+      <div class="field" style="margin:0"><label>⏳ Vencimento do lote (opcional)</label><input id="itVal" type="date"></div></div>`:''}`;
     const si=$('#nfSearch'); if(si)si.oninput=e=>drawNfSearch(e.target.value); }
 }
 function drawNfSearch(q){ const box=$('#nfSearchResults'); if(!box)return; const list=searchProducts(q).slice(0,8); if(!q||!list.length){box.innerHTML='';return;}
@@ -2117,8 +2120,9 @@ function addNfItem(){ const desc=$('#itDesc').value.trim(); const qty=parseFloat
   if(!desc){toast('Informe a descrição.','err');return;} if(!(qty>0)){toast('Quantidade inválida.','err');return;}
   const refTxt=($('#itRef')?$('#itRef').value.trim():''); const aplicId=($('#itAplic')&&$('#itAplic').value)?$('#itAplic').value:'';
   let ref=refTxt; if(aplicId){const an=aplicName(aplicId); ref=(ref?ref+' · ':'')+'Aplicação: '+an;}
-  nfItems.push({code:$('#itCode').value.trim(),desc,unit:$('#itUnit').value.trim()||'UN',qty,custo:parseFloat($('#itCusto').value)||0,preco:parseFloat($('#itPreco').value)||0,ref});
-  ['itCode','itDesc','itUnit','itQty','itCusto','itPreco','itRef'].forEach(id=>{if($('#'+id))$('#'+id).value='';}); if($('#itCode'))$('#itCode').focus(); drawNfItems(); }
+  const itVal=$('#itVal')?$('#itVal').value:'', itLote=normLote($('#itLote')?$('#itLote').value:'',itVal);
+  nfItems.push(Object.assign({code:$('#itCode').value.trim(),desc,unit:$('#itUnit').value.trim()||'UN',qty,custo:parseFloat($('#itCusto').value)||0,preco:parseFloat($('#itPreco').value)||0,ref},itLote?{lotes:[{lote:itLote,validade:itVal||null,qty}],lotesManual:true}:{}));
+  ['itCode','itDesc','itUnit','itQty','itCusto','itPreco','itRef','itLote','itVal'].forEach(id=>{if($('#'+id))$('#'+id).value='';}); if($('#itCode'))$('#itCode').focus(); drawNfItems(); }
 function rmNfItem(i){ nfItems.splice(i,1); drawNfItems(); }
 function drawNfItems(){ const b=$('#nfBody'); if(!b)return;
   if(!nfItems.length){ b.innerHTML=`<tr><td colspan="6" class="empty" style="padding:24px">Nenhum item. Carregue um XML, busque no estoque ou adicione manualmente.</td></tr>`; $('#nfTotal').textContent='R$ 0,00'; drawVincResumo(); return; }
