@@ -559,23 +559,25 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-09T14:00:00-03:00';
+const APP_VERSION='2026-10-09T16:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
-  _versionCheckTimer=setInterval(checkAppVersion,2*60*1000);
+  _versionCheckTimer=setInterval(checkAppVersion,60*1000);
   document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible')checkAppVersion(); });
   window.addEventListener('focus',checkAppVersion);
   setTimeout(checkAppVersion,20000);
 }
 /* Antes baixava o HTML inteiro (~400 KB) a cada 2 min e a cada foco da aba. Agora pergunta só o cabeçalho
-   (ETag/Last-Modified) e baixa o arquivo apenas quando ele mudou — e no máximo uma vez a cada 30 s. */
+   (ETag/Last-Modified) e baixa o arquivo apenas quando ele mudou — e no máximo uma vez a cada 30 s.
+   O HEAD leva um parâmetro único: sem ele, a CDN do GitHub Pages podia responder por até 10 min com o
+   cabeçalho da versão anterior depois de uma publicação, e o aviso de versão nova não aparecia. */
 let _verTag=null, _verLast=0;
 async function checkAppVersion(){
   if(_versionBannerShown||!isOnline)return;
   const agora=Date.now(); if(agora-_verLast<30000)return; _verLast=agora;
   let tag=null;
-  try{ const h=await fetch(location.pathname,{method:'HEAD',cache:'no-store'});
+  try{ const h=await fetch(location.pathname+'?_h='+agora,{method:'HEAD',cache:'no-store'});
     tag=h.ok?(h.headers.get('etag')||h.headers.get('last-modified')):null;
     if(tag&&_verTag!==null&&tag===_verTag)return;
   }catch(e){}
