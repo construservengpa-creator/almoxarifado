@@ -72,7 +72,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   td.num,th.num{text-align:right;font-family:'IBM Plex Mono',monospace}
   .pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600}
   .pill.low{background:#fde8e8;color:#c0392b} .pill.high{background:#fff3da;color:#a8731a}
-  .pill.good{background:#e3f7ee;color:#1c7a52} .pill.venc{background:#c0392b;color:#fff}
+  .pill.good{background:#e3f7ee;color:#1c7a52} .pill.venc{background:#c0392b;color:#fff} .campo-erro{border-color:#c0392b!important;box-shadow:0 0 0 3px rgba(192,57,43,.15)!important}
   .pill.in{background:#e3f7ee;color:#1c7a52} .pill.out{background:#fde8e8;color:#c0392b} .pill.tr{background:#e6effc;color:#2766b8}
   .field{margin-bottom:14px}
   label{display:block;font-size:12px;font-weight:600;color:#5a544a;margin-bottom:6px;text-transform:uppercase;letter-spacing:.4px}
@@ -559,7 +559,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-09T18:00:00-03:00';
+const APP_VERSION='2026-10-09T19:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -1857,14 +1857,14 @@ function renderEntrada(){
   <div class="panel">
     <h3>Dados da entrada</h3><p class="desc">Defina a obra de destino e o documento. Depois preencha os itens por XML ou manualmente.</p>
     <div class="row c4">
-      <div class="field"><label>Obra (destino)</label><select id="nfObra" onchange="ctrlSugerirObra('nf',this.value,$('#nfCnpjTom').value)">${obraOptions(_nfRepos?_nfRepos.obra_id:(curObra()==='__all'?(state.obras[0]&&state.obras[0].id):curObra()),false)}</select></div>
-      <div class="field"><label>Nº da Nota</label><input id="nfNum" class="mono" placeholder="000000" inputmode="numeric" pattern="[0-9]*" oninput="this.value=this.value.replace(/\D/g,'')"></div>
-      <div class="field"><label>Fornecedor</label><input id="nfForn" placeholder="Nome"></div>
-      <div class="field"><label>Data de emissão</label><input id="nfData" type="date"></div>
+      <div class="field"><label>Obra (destino) *</label><select id="nfObra" onchange="ctrlSugerirObra('nf',this.value,$('#nfCnpjTom').value)">${obraOptions(_nfRepos?_nfRepos.obra_id:(curObra()==='__all'?(state.obras[0]&&state.obras[0].id):curObra()),false)}</select></div>
+      <div class="field"><label>Nº da Nota *</label><input id="nfNum" class="mono" placeholder="000000" inputmode="numeric" pattern="[0-9]*" maxlength="9" autocomplete="off" data-noupper onbeforeinput="if(event.data&&/\D/.test(event.data))event.preventDefault()" oninput="nfSoDigitos(this)" onchange="nfSoDigitos(this)" onblur="nfSoDigitos(this)"></div>
+      <div class="field"><label>Fornecedor *</label><input id="nfForn" placeholder="Nome"></div>
+      <div class="field"><label>Data de emissão *</label><input id="nfData" type="date"></div>
     </div>
     <div class="row c2">
-      <div class="field" style="margin:0"><label>CNPJ do tomador (destinatário)</label><input id="nfCnpjTom" class="mono" placeholder="00.000.000/0000-00" onchange="ctrlSugerirObra('nf',$('#nfObra').value,this.value)"></div>
-      <div class="field" style="margin:0"><label>CNPJ do fornecedor (emitente)</label><input id="nfCnpjEmit" class="mono" placeholder="00.000.000/0000-00"></div>
+      <div class="field" style="margin:0"><label>CNPJ do tomador (destinatário) *</label><input id="nfCnpjTom" class="mono" placeholder="00.000.000/0000-00" onchange="ctrlSugerirObra('nf',$('#nfObra').value,this.value)"></div>
+      <div class="field" style="margin:0"><label>CNPJ do fornecedor (emitente) *</label><input id="nfCnpjEmit" class="mono" placeholder="00.000.000/0000-00"></div>
     </div>
     <div style="margin-top:14px;padding-top:12px;border-top:1px dashed #e4dfd4">
       <div style="font-size:11px;color:#8a8377;text-transform:uppercase;letter-spacing:.5px;font-weight:700;margin-bottom:6px">📑 Controle de Notas Fiscais</div>
@@ -1904,6 +1904,34 @@ function renderEntrada(){
   setEntradaTab(entradaTab); drawNfItems(); drawNfHist(); drawNfReposBanner();
   ctrlCarregarObras('nf',$('#nfObra').value,$('#nfCnpjTom').value);
 }
+/* Nº da nota: só dígitos (bloqueia letras ao digitar, colar ou preencher automático) */
+function nfSoDigitos(el){ const v=String(el.value||'').replace(/\D/g,'').slice(0,9); if(v!==el.value)el.value=v; }
+function docValido(d){ d=onlyDigits(d); if(/^(\d)\1+$/.test(d))return false;
+  if(d.length===11){ const dv=k=>{ let s=0; for(let i=0;i<k;i++)s+=Number(d[i])*(k+1-i); const r=(s*10)%11; return r===10?0:r; }; return dv(9)===Number(d[9])&&dv(10)===Number(d[10]); }
+  if(d.length===14){ const dv=k=>{ const w=k===12?[5,4,3,2,9,8,7,6,5,4,3,2]:[6,5,4,3,2,9,8,7,6,5,4,3,2]; let s=0; for(let i=0;i<k;i++)s+=Number(d[i])*w[i]; const r=s%11; return r<2?0:11-r; }; return dv(12)===Number(d[12])&&dv(13)===Number(d[13]); }
+  return false; }
+/* Campos obrigatórios da entrada: avisa o primeiro que falta e marca o campo */
+function nfObrigatoriosOk(){ const v=id=>{ const e=$('#'+id); return e?String(e.value||'').trim():''; };
+  const sel=id=>{ const e=$('#'+id); return e&&e.tagName==='SELECT'&&[...e.options].some(o=>o.value); }; /* lista carregou? */
+  const hoje=isoDia(new Date());
+  const regras=[
+    ['nfObra',()=>!!v('nfObra'),'Informe a obra de destino.'],
+    ['nfNum',()=>/^\d{1,9}$/.test(v('nfNum'))&&Number(v('nfNum'))>0,'Informe o número da nota — somente números (até 9 dígitos).'],
+    ['nfForn',()=>v('nfForn').length>=2,'Informe o fornecedor.'],
+    ['nfData',()=>!!v('nfData')&&v('nfData')<=hoje,v('nfData')>hoje?'A data de emissão não pode ser futura.':'Informe a data de emissão.'],
+    ['nfCnpjTom',()=>docValido(v('nfCnpjTom')),v('nfCnpjTom')?'CNPJ do tomador inválido.':'Informe o CNPJ do tomador (destinatário).'],
+    ['nfCnpjEmit',()=>docValido(v('nfCnpjEmit')),v('nfCnpjEmit')?'CNPJ do fornecedor inválido.':'Informe o CNPJ do fornecedor (emitente).'],
+    ['nfCtrlObra',()=>!sel('nfCtrlObra')||!!v('nfCtrlObra'),'Selecione a obra no Controle de Notas.'],
+    ['nfCtrlVenc',()=>!!v('nfCtrlVenc'),'Informe o vencimento da nota.'],
+    ['nfCtrlForma',()=>!!v('nfCtrlForma'),'Informe a forma de pagamento.']];
+  if(v('nfCtrlFrete')==='sim')regras.push(['nfCtrlFreteCte',()=>!!v('nfCtrlFreteCte'),'Informe o nº do CT-e do frete.'],['nfCtrlFreteValor',()=>Number(v('nfCtrlFreteValor'))>0,'Informe o valor do frete do CT-e.']);
+  document.querySelectorAll('.campo-erro').forEach(e=>e.classList.remove('campo-erro'));
+  const falta=regras.filter(([id,ok])=>$('#'+id)&&!ok());
+  if(!falta.length)return true;
+  falta.forEach(([id])=>{ const e=$('#'+id); e.classList.add('campo-erro'); e.addEventListener(e.tagName==='SELECT'?'change':'input',()=>e.classList.remove('campo-erro'),{once:true}); });
+  const [id0,,msg]=falta[0]; toast(msg+(falta.length>1?` (${falta.length} campos obrigatórios pendentes, marcados em vermelho)`:''),'err');
+  const e0=$('#'+id0); try{ e0.scrollIntoView({block:'center',behavior:'smooth'}); e0.focus({preventScroll:true}); }catch(_){}
+  return false; }
 function onNfApdChange(){ const c=$('#nfApd'), b=$('#nfApdBox'); if(b)b.style.display=c&&c.checked?'':'none'; }
 function drawNfReposBanner(){ const el=$('#nfReposBanner'); if(!el)return;
   if(!_nfRepos){ el.innerHTML=''; return; }
@@ -2134,9 +2162,10 @@ function setNfCusto(i,v){ if(nfItems[i])nfItems[i].custo=parseFloat(v)||0; refre
 function refreshNfTotals(){ let tot=0; nfItems.forEach((it,i)=>{const t=(it.qty||0)*(it.custo||0);tot+=t;const c=$('#nft_'+i);if(c)c.textContent=money(t);}); if($('#nfTotal'))$('#nfTotal').textContent=money(tot); }
 function processNf(force){
   if(!nfItems.length){toast('Adicione ao menos um item.','err');return;}
+  if(!nfObrigatoriosOk())return;
   const apd=nfApdDados(); if(apd===false)return;
   if(!nfLotesValidar())return;
-  const obra=$('#nfObra').value; const numero=$('#nfNum').value.replace(/\D/g,'')||'s/nº'; const forn=$('#nfForn').value.trim(); const dataEmissao=$('#nfData').value||'';
+  const obra=$('#nfObra').value; const numero=$('#nfNum').value.trim(); const forn=$('#nfForn').value.trim(); const dataEmissao=$('#nfData').value||'';
   const cnpjTom=$('#nfCnpjTom')?$('#nfCnpjTom').value.trim():''; const cnpjEmit=$('#nfCnpjEmit')?$('#nfCnpjEmit').value.trim():'';
   const totalCheck=nfItems.reduce((s,it)=>s+it.qty*it.custo,0);
   const dup=state.notas.find(n=>n.numero===numero && (n.forn||'')===forn && (n.cnpjTomador||'')===cnpjTom && (n.dataEmissao||'')===dataEmissao && Math.abs((n.valor||0)-(n.freteCteValor||0)-totalCheck)<0.01);
@@ -2219,23 +2248,23 @@ async function ctrlEnviarAnexos(notaId,estoqueNotaId,anexos){ let ok=0; const fa
    px = prefixo dos ids ('nf' na tela de entrada, 'cr' no modal de reenvio). */
 const CTRL_FORMAS_PAG=['Boleto','PIX','Transferência','Cartão','Depósito','Cheque','Outro'];
 let _ctrlObras=null, _ctrlObrasP=null;
-function ctrlCamposHtml(px,v){ v=v||{};
+function ctrlCamposHtml(px,v){ v=v||{}; const ob=px==='nf'?' *':''; /* obrigatórios só na entrada da nota */
   return `<div class="row c3">
-      <div class="field" style="margin:0"><label>Obra no Controle de Notas</label><select id="${px}CtrlObra" data-want="${esc(v.obraId||'')}" onchange="this.dataset.manual='1'"><option value="">Carregando...</option></select></div>
+      <div class="field" style="margin:0"><label>Obra no Controle de Notas${ob}</label><select id="${px}CtrlObra" data-want="${esc(v.obraId||'')}" onchange="this.dataset.manual='1'"><option value="">Carregando...</option></select></div>
       <div class="field" style="margin:0"><label>Pedido de compras</label><input id="${px}CtrlPedido" value="${esc(v.pedidoCompras||'')}" placeholder="Nº do pedido"></div>
-      <div class="field" style="margin:0"><label>Vencimento</label><input id="${px}CtrlVenc" type="date" value="${esc(v.vencimento||'')}"></div>
+      <div class="field" style="margin:0"><label>Vencimento${ob}</label><input id="${px}CtrlVenc" type="date" value="${esc(v.vencimento||'')}"></div>
     </div>
     <div class="row c3" style="margin-top:8px">
-      <div class="field" style="margin:0"><label>Forma de pagamento</label><select id="${px}CtrlForma"><option value="">Selecione...</option>${CTRL_FORMAS_PAG.map(f=>`<option${v.formaPagamento===f?' selected':''}>${f}</option>`).join('')}</select></div>
+      <div class="field" style="margin:0"><label>Forma de pagamento${ob}</label><select id="${px}CtrlForma"><option value="">Selecione...</option>${CTRL_FORMAS_PAG.map(f=>`<option${v.formaPagamento===f?' selected':''}>${f}</option>`).join('')}</select></div>
       <div class="field" style="margin:0"><label>Frete (CT-e à parte)</label><select id="${px}CtrlFrete" onchange="ctrlFreteToggle('${px}')"><option value="nao">Não</option><option value="sim"${v.frete==='sim'?' selected':''}>Sim</option></select></div>
       <div class="field" style="margin:0"><label>Prioridade</label><select id="${px}CtrlPrior">${[['baixa','Baixa'],['media','Média'],['alta','Alta']].map(([k,l])=>`<option value="${k}"${(v.prioridade||'media')===k?' selected':''}>${l}</option>`).join('')}</select></div>
     </div>
     <div id="${px}CtrlFreteBox" style="${v.frete==='sim'?'':'display:none;'}margin-top:10px;padding:10px 12px;border:1px dashed #e4dfd4;border-radius:8px">
       <div style="font-size:11px;color:#8a8377;text-transform:uppercase;letter-spacing:.5px;font-weight:700;margin-bottom:6px">🚚 Dados do frete</div>
       <div class="row c3">
-        <div class="field" style="margin:0"><label>Nº do CT-e</label><input id="${px}CtrlFreteCte" class="mono" value="${esc(v.freteCte||'')}" placeholder="Nº do conhecimento de transporte"></div>
+        <div class="field" style="margin:0"><label>Nº do CT-e${ob}</label><input id="${px}CtrlFreteCte" class="mono" value="${esc(v.freteCte||'')}" placeholder="Nº do conhecimento de transporte"></div>
         <div class="field" style="margin:0"><label>Transportador</label><input id="${px}CtrlFreteTransp" value="${esc(v.freteTransportador||'')}"></div>
-        <div class="field" style="margin:0"><label>Valor do frete (R$)</label><input id="${px}CtrlFreteValor" type="number" step="0.01" min="0" value="${esc(v.freteValor==null?'':v.freteValor)}"${px==='nf'?' oninput="nfCteInfo()"':''}></div>
+        <div class="field" style="margin:0"><label>Valor do frete (R$)${ob}</label><input id="${px}CtrlFreteValor" type="number" step="0.01" min="0" value="${esc(v.freteValor==null?'':v.freteValor)}"${px==='nf'?' oninput="nfCteInfo()"':''}></div>
       </div>
       <div class="row c3" style="margin-top:8px">
         <div class="field" style="margin:0"><label>Forma de pagamento do frete</label><select id="${px}CtrlFreteForma"><option value="">Selecione...</option>${CTRL_FORMAS_PAG.map(f=>`<option${v.freteFormaPagamento===f?' selected':''}>${f}</option>`).join('')}</select></div>
