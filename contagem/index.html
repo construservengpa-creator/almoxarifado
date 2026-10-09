@@ -44,6 +44,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke
 .tt h1{margin:0;font:600 20px/1.1 var(--f-head);letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sub{color:var(--mu);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ib{width:40px;height:40px;border-radius:10px;border:1px solid var(--line);background:var(--s1);display:grid;place-items:center}
+a.inicio-ib{color:inherit;text-decoration:none;font-size:20px;line-height:1}
 .sync{display:flex;align-items:center;gap:7px;height:40px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:var(--s1);font-size:13px}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--ok)}
 .dot.w{background:var(--ac)} .dot.b{background:var(--bad)}
@@ -491,6 +492,7 @@ function renderTopo(){
   t.innerHTML = `${S.tela === 'ciclo' ? `<button class="ib" data-act="voltar" aria-label="Voltar">${ico('back')}</button>` : '<span class="cap-selo"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#capivaraSilhueta"/></svg></span>'}
     <div class="tt"><h1>${esc(titulo)}</h1><div class="sub">${esc(sub)}</div></div>
     <button class="sync" data-act="pop-sync" aria-label="Estado da sincronização"><span class="dot ${chip[0]}"></span>${chip[1]}</button>
+    <a class="ib inicio-ib" href="https://construservengpa-creator.github.io/Painel-suprimentos/inicio.html" aria-label="Página inicial" title="Voltar à página inicial do Capivara (Suprimentos, Notas e Estoque)">⌂</a>
     <button class="ib" data-act="pop-user" aria-label="Usuário">${ico('user')}</button>`;
 }
 function renderNav(){
