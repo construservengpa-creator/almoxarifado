@@ -1,6 +1,6 @@
 // Service worker — Contagem Cíclica AMETA (pasta /contagem/: controla só esta pasta)
 // Estratégia: cache "stale-while-revalidate" só para o shell da Contagem. Supabase (outra origem) nunca é cacheado.
-const CACHE_NAME = 'contagem-ameta-v7';
+const CACHE_NAME = 'contagem-ameta-v8';
 const APP_SHELL = ['./', './manifest.webmanifest', '../icon-192.png', '../icon-512.png'];
 const SHELL_PATHS = new Set(APP_SHELL.map((p) => new URL(p, self.location.href).pathname));
 
