@@ -4614,10 +4614,14 @@ function renderTransfer(){
   const cur=curObra()==='__all'?state.obras[0].id:curObra();
   $('#view').innerHTML=`
   <div class="panel"><h3>Transferir entre obras (romaneio)</h3><p class="desc">Selecione origem e destino, adicione vários itens e gere um romaneio único para assinatura.</p>
-    <div class="row c2"><div class="field"><label>Obra origem</label><select id="trOrig" onchange="drawTrCart();checkTrEmpresa()">${obraOptions(cur,false)}</select></div><div class="field"><label>Obra destino</label><select id="trDest" onchange="checkTrEmpresa()">${obraOptions(state.obras.find(o=>o.id!==cur)?.id,false)}</select></div></div>
+    <div class="row c2"><div class="field"><label>Obra origem</label><select id="trOrig" onchange="trCancelScan();drawTrCart();checkTrEmpresa()">${obraOptions(cur,false)}</select></div><div class="field"><label>Obra destino</label><select id="trDest" onchange="checkTrEmpresa()">${obraOptions(state.obras.find(o=>o.id!==cur)?.id,false)}</select></div></div>
     <div id="trEmpresaWarn"></div>
-    <div class="field" style="margin:0"><label>Produto (nome, código de barras ou auxiliar)</label><input id="trScan" placeholder="Leia o código ou digite para pesquisar"></div>
+    <div class="scan-box"><label>📷 Leitura rápida — produto (código de barras, nome ou auxiliar)</label>
+    <input id="trScan" placeholder="Leia o código de barras ou digite nome / código (parcial)" autocomplete="off">
+    <button class="btn dark sm" style="margin-top:8px" onclick="openCameraScanner(c=>{$('#trScan').value=c; trLookup(c,true);})">📷 Usar câmera do celular</button>
+    <div class="scan-hint">⚡ Escaneie ou pesquise, informe a quantidade e <b>adicione à lista</b> (Enter confirma).</div></div>
     <div id="trResults"></div>
+    <div class="found-card" id="trFoundCard"></div>
     <div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Produto</th><th class="num">Saldo origem</th><th class="num">Qtd</th><th class="num">Valor</th><th></th></tr></thead><tbody id="trCartBody"></tbody></table></div>
     <div style="text-align:right;margin-top:6px;font-size:13px;color:#5a544a">Valor total: <b id="trTotal" class="mono">R$ 0,00</b></div>
     <div class="field" style="margin-top:10px"><label>Observação (opcional)</label><textarea id="trObs" rows="2" placeholder="Ex.: motivo, transportador... (Enter = nova linha)"></textarea></div>
@@ -4629,8 +4633,30 @@ function renderTransfer(){
   <div class="tbl-wrap"><table><thead><tr><th>Data</th><th>Nº</th><th>De → Para</th><th>Produto</th><th class="num">Qtd</th><th class="num">Valor</th><th></th></tr></thead><tbody id="trHist"></tbody></table></div>`;
   drawTrHist(); drawTrCart(); checkTrEmpresa(); const inp=$('#trScan'); inp.focus();
   inp.oninput=e=>drawTrResults(e.target.value);
-  inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault(); const ex=findByCodeOrAux(inp.value.trim()); if(ex){addTr(ex.code);return;} const list=searchProducts(inp.value); if(list.length===1)addTr(list[0].code); else if(!list.length)toast('Nada encontrado.','err'); }});
+  inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault(); trLookup(inp.value,false);}});
 }
+/* leitura rápida (mesmo fluxo da solicitação): lê/pesquisa → cartão com a quantidade → Enter adiciona à lista */
+let trProduct=null;
+function trLookupPick(code){ if($('#trResults'))$('#trResults').innerHTML=''; trLookup(code,true); }
+function trLookup(code,exactCode){ code=String(code||'').trim(); if(!code)return; const orig=trOrigId(); const fc=$('#trFoundCard'); if(!fc)return;
+  let p=findByCodeOrAux(code) || (exactCode?findProduct(code):null);
+  if(!p){ const list=searchProducts(code); if(list.length===1){p=list[0];} else if(list.length>1){ drawTrResults(code); toast('Vários itens encontrados — escolha na lista.','warn'); return; } }
+  if(!p){ trProduct=null; fc.className='found-card show'; fc.style.borderColor='var(--red)'; fc.innerHTML=`<div style="text-align:center;color:#c0392b">Nada encontrado para: <span class="mono">${esc(code)}</span></div>`; $('#trScan').value=''; $('#trScan').focus(); toast('Produto não encontrado.','err'); return; }
+  if($('#trResults'))$('#trResults').innerHTML='';
+  const s=saldoOf(orig,p.code); const ex=trCart.find(i=>i.code===p.code); const jaNaLista=ex?(ex.qty||0):0;
+  trProduct=p; fc.className='found-card show'; fc.style.borderColor=s<=0?'var(--red)':'var(--amber)';
+  fc.innerHTML=`<div class="fc-head"><div><div class="code">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · ${esc(obraName(orig))}</div><div class="name">${esc(p.desc)}</div></div>${s<=0?'<span class="pill low">Sem saldo</span>':'<span class="pill good">Com saldo</span>'}</div>
+    <div class="fc-stats"><div class="fc-stat"><div class="l">Saldo na origem</div><div class="v">${numf(s)} <span style="font-size:11px">${esc(p.unit||'')}</span></div></div><div class="fc-stat"><div class="l">Já na lista</div><div class="v">${numf(jaNaLista)}</div></div><div class="fc-stat"><div class="l">Custo médio</div><div class="v" style="font-size:15px">${money(p.custo||0)}</div></div></div>
+    ${s<=0?'<div style="background:#fdeaea;border:1px solid #e0a0a0;border-radius:8px;padding:8px 12px;margin-top:8px;font-size:12px;color:#a02525">Sem saldo na obra de origem — não é possível transferir este item.</div>'
+      :`<div class="field" style="margin:8px 0 0"><label>Quantidade a transferir</label><input id="trQty" type="number" step="any" min="0"></div>`}
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="trCancelScan()">Cancelar</button>${s>0?'<button class="btn primary" onclick="trAddScan()">+ Adicionar à lista</button>':''}</div>`;
+  $('#trScan').value=''; const q=$('#trQty'); if(q){ q.focus(); q.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();trAddScan();}}); } else $('#trScan').focus(); }
+function trAddScan(){ const p=trProduct; if(!p)return; const orig=trOrigId(); const qty=parseFloat($('#trQty')&&$('#trQty').value); if(!(qty>0)){toast('Informe a quantidade.','err');return;}
+  const s=saldoOf(orig,p.code); const ex=trCart.find(i=>i.code===p.code); const total=(ex?(ex.qty||0):0)+qty;
+  if(total>s){toast(`Quantidade maior que o saldo na origem (${numf(s)} ${p.unit||''}).`,'err');return;}
+  if(ex)ex.qty=total; else trCart.push({code:p.code,qty});
+  trCancelScan(); drawTrCart(); }
+function trCancelScan(){ trProduct=null; const fc=$('#trFoundCard'); if(fc)fc.className='found-card'; if($('#trScan')){$('#trScan').value='';$('#trScan').focus();} }
 function checkTrEmpresa(){ const box=$('#trEmpresaWarn'); if(!box)return;
   const orig=state.obras.find(o=>o.id===$('#trOrig').value), dest=state.obras.find(o=>o.id===$('#trDest').value);
   const btn=$('#trTransferBtn'); const diverge=orig&&dest&&orig.empresa&&dest.empresa&&orig.empresa.trim().toLowerCase()!==dest.empresa.trim().toLowerCase();
@@ -4641,8 +4667,7 @@ function checkTrEmpresa(){ const box=$('#trEmpresaWarn'); if(!box)return;
 }
 function trOrigId(){ return $('#trOrig')?$('#trOrig').value:(state.obras[0]&&state.obras[0].id); }
 function drawTrResults(q){ const box=$('#trResults'); if(!box)return; const orig=trOrigId(); const list=searchProducts(q).filter(p=>saldoOf(orig,p.code)>0).slice(0,8); if(!q){box.innerHTML='';return;} if(!list.length){box.innerHTML=`<div class="muted" style="font-size:12px;padding:8px 2px">Nenhum item com saldo na obra de origem.</div>`;return;}
-  box.innerHTML=`<div class="tbl-wrap" style="margin-top:10px"><table><tbody>`+list.map(p=>`<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · saldo ${numf(saldoOf(orig,p.code))} ${esc(p.unit||'')}</span></td><td class="num" style="width:80px"><button class="btn ghost sm" onclick="addTr('${esc(p.code)}')">+ Add</button></td></tr>`).join('')+`</tbody></table></div>`; }
-function addTr(code){ const orig=trOrigId(); if(saldoOf(orig,code)<=0){toast('Item sem saldo na obra de origem.','err');return;} if(!trCart.some(i=>i.code===code))trCart.push({code,qty:1}); if($('#trScan'))$('#trScan').value=''; if($('#trResults'))$('#trResults').innerHTML=''; drawTrCart(); if($('#trScan'))$('#trScan').focus(); }
+  box.innerHTML=`<div class="tbl-wrap" style="margin-top:10px"><table><tbody>`+list.map(p=>`<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · saldo ${numf(saldoOf(orig,p.code))} ${esc(p.unit||'')}</span></td><td class="num" style="width:90px"><button class="btn ghost sm" onclick="trLookupPick('${esc(p.code)}')">Selecionar</button></td></tr>`).join('')+`</tbody></table></div>`; }
 function rmTr(code){ trCart=trCart.filter(i=>i.code!==code); drawTrCart(); }
 function setTrQty(code,v){ const it=trCart.find(i=>i.code===code); if(it)it.qty=parseFloat(v)||0; const p=findProduct(code); const cell=$('#tv_'+CSS.escape(code)); if(cell&&p)cell.textContent=money((it?it.qty:0)*((p.custo)||0)); updateTrTotal(); }
 function updateTrTotal(){ const el=$('#trTotal'); if(!el)return; let t=0; trCart.forEach(i=>{const p=findProduct(i.code); t+=(i.qty||0)*((p&&p.custo)||0);}); el.textContent=money(t); }
