@@ -562,7 +562,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-13T15:00:00-03:00';
+const APP_VERSION='2026-10-13T17:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -6075,7 +6075,7 @@ function dupGrupos(prods){
   motivos.forEach((m,k)=>{ const gr=g.get(raiz(+k.split('|')[0])); gr.nivel=Math.max(gr.nivel,m.nivel); m.txt.forEach(t=>gr.motivos.add(t)); });
   return [...g.values()].filter(x=>x.itens.length>1).map(x=>({nivel:x.nivel,motivos:[...x.motivos],itens:x.itens.map(i=>prods[i])})); }
 function dupChave(gr){ return gr.itens.map(p=>String(p.code)).sort().join('|'); }
-async function dupIgnorar(chave,ign){ if(!state.config)state.config={supHash:null}; const l=new Set(state.config.dupIgnorados||[]);
+async function dupIgnorar(chave,ign){ if(!podeUnificar()){ toast('Marcar duplicidades é liberado só para o Brendo Hericles.','err'); return; } if(!state.config)state.config={supHash:null}; const l=new Set(state.config.dupIgnorados||[]);
   if(ign)l.add(chave); else l.delete(chave); state.config.dupIgnorados=[...l];
   await save((ign?'Marcado como não duplicidade: ':'Volta a aparecer em duplicidades: ')+chave.split('|').join(', ')); drawRelatorio(); }
 function drawRelDuplicidades(){ const box=$('#relView'); if(!box)return; relIdxOn();
@@ -6119,7 +6119,7 @@ function drawRelDuplicidades(){ const box=$('#relView'); if(!box)return; relIdxO
       return `<div class="panel" style="padding:0;overflow:hidden;margin-bottom:12px${ig?';opacity:.6':''}"><div style="padding:10px 14px;border-bottom:1px solid #e4dfd4;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <b>Grupo ${gi+1}</b>${pill(gr.nivel)}<span class="muted" style="font-size:12px;flex:1">${esc(gr.motivos.join(' · '))}</span>
         ${podeUnificar()?`<button class="btn primary sm" onclick="unificarModal(${esc(JSON.stringify(gr.itens.map(p=>String(p.code))))})">⇄ Unificar…</button>`:''}
-        <button class="btn ghost sm" onclick="dupIgnorar('${esc(ch)}',${ig?'false':'true'})">${ig?'Voltar a mostrar':'Não é duplicidade'}</button></div>
+        ${podeUnificar()?`<button class="btn ghost sm" onclick="dupIgnorar('${esc(ch)}',${ig?'false':'true'})">${ig?'Voltar a mostrar':'Não é duplicidade'}</button>`:''}</div>
         <div class="tbl-wrap" style="border:none;border-radius:0"><table><thead><tr><th>Código</th><th>Cód. auxiliar</th><th>Descrição</th><th>Unid.</th><th>Grupo / Localização</th><th class="num">Saldo</th></tr></thead><tbody>${
         gr.itens.map(p=>`<tr><td class="mono" style="font-size:12.5px"><a href="javascript:void 0" onclick="editProductModal('${esc(p.code)}')">${esc(p.code)}</a></td><td class="mono" style="font-size:12.5px">${esc(p.aux||'—')}</td><td>${esc(p.desc||'')}${p.fab?`<div class="muted" style="font-size:11px">Fabricante: ${esc(p.fab)}</div>`:''}</td><td>${esc(p.unit||'')}</td>
           <td style="font-size:12.5px">${esc(produtoGrupo(p.code))}<div class="muted" style="font-size:11px">${esc(produtoLocal(p.code))}</div></td><td class="num">${numf(sal(p.code))}</td></tr>`).join('')}</tbody></table></div></div>`; }).join('')
@@ -6133,9 +6133,11 @@ function drawRelDuplicidades(){ const box=$('#relView'); if(!box)return; relIdxO
    O histórico antigo continua no código antigo (a auditoria mostra os dois lados).
    Bloqueia se o produto que sai está em requisição em andamento ou em devolução ao fornecedor aberta.
    Mesma permissão do Ajuste de Saldo (mexe em saldo sem nota). */
-function podeUnificar(){ return isEncarregado()&&!isEncFrotas()&&podeFazerAjusteManual(); }
+/* Unificar produtos e marcar "não é duplicidade": liberado só para o Brendo Hericles (almoxarifado01). */
+const UNIFICAR_EMAIL='almoxarifado01@ametaengenharia.com.br';
+function podeUnificar(){ return !!profile&&profile.ativo&&String(profile.email||'').toLowerCase()===UNIFICAR_EMAIL; }
 let _unif=null;
-function unificarModal(codes){ if(!podeUnificar()){ toast('Unificar mexe no saldo: precisa da mesma liberação do Ajuste de Saldo.','err'); return; }
+function unificarModal(codes){ if(!podeUnificar()){ toast('Unificar produtos é liberado só para o Brendo Hericles.','err'); return; }
   codes=[...new Set((codes||[]).map(String))].filter(c=>findProduct(c));
   const tot=c=>state.obras.reduce((t,o)=>t+saldoTotalOf(o.id,c),0);
   codes.sort((a,b)=>tot(b)-tot(a));
@@ -6171,7 +6173,7 @@ function unificarDraw(){ const u=_unif; if(!u)return;
 function unifCusto(fica,sai){ const pos=c=>state.obras.reduce((t,o)=>t+Math.max(saldoTotalOf(o.id,c),0),0);
   let q=0,v=0; [fica,...sai].forEach(c=>{ const p=findProduct(c); const n=pos(c); q+=n; v+=n*(Number(p&&p.custo)||0); });
   if(q>0)return v/q; const F=findProduct(fica); if(F&&F.custo)return F.custo; const o=sai.map(findProduct).find(p=>p&&p.custo); return o?o.custo:0; }
-async function unificarConfirmar(){ const u=_unif; if(!u)return;
+async function unificarConfirmar(){ const u=_unif; if(!u||!podeUnificar())return;
   const fica=u.fica, sai=[...u.sai].filter(c=>c!==fica&&findProduct(c)); if(!findProduct(fica)||!sai.length)return;
   /* produto que sai em uso: requisição em andamento ou devolução aberta */
   const bloq=[];
