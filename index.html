@@ -5858,12 +5858,14 @@ async function reprocXmlAplicar(){ const R=_reproc; if(!R)return; const n=state.
     toast('XML reprocessado. Confira o recálculo do custo médio.','ok');
     recalcAbrir([...codes]); }); }
 function deleteNotaId(id,fromEntrada){ const n=state.notas.find(x=>x.id===id); if(!n)return; requireSupervisor(`Excluir NF ${n.numero}`,async()=>{
-  const {data:mvNota,error:eN}=await sb.from('movimentos_estoque').select('*').eq('nota_id',id);
-  if(eN){ toast('Erro ao buscar as movimentações da nota: '+eN.message,'err'); return; }
+  /* estorna só o que o banco de fato apagou: se a exclusão rodar duas vezes (duplo clique, ou outra pessoa
+     excluindo a mesma nota ao mesmo tempo), a segunda não acha mais nada e não abate o saldo de novo */
+  const {data:mvNota,error:eN}=await sb.from('movimentos_estoque').delete().eq('nota_id',id).select('*');
+  if(eN){ toast('Erro ao excluir as movimentações da nota: '+eN.message,'err'); return; }
+  if(!state.notas.some(x=>x.id===id)){ toast('Esta nota já foi excluída.','warn'); return; }
   estornarCustoNota(n);
   (mvNota||[]).map(rowToMov).forEach(m=>addSaldo(m.obra,m.code,-m.qty,m.lotes));
   state.movements=state.movements.filter(m=>m.notaId!==id);
-  await sb.from('movimentos_estoque').delete().eq('nota_id',id);
   state.notas=state.notas.filter(x=>x.id!==id); save('NF '+n.numero+' excluída e estornada'); if(fromEntrada)drawNfHist(); else renderAdmin(); toast('Nota excluída e estornada.','warn'); }); }
 function wipeAll(){ requireSupervisor('Zerar todo o estoque',()=>{ modal(`<h3 style="color:#b03030">Confirmar exclusão total</h3><p class="mp">Apaga <b>${state.products.length} produto(s)</b>, todos os saldos, histórico, fotos, <b>requisições, compras pendentes, caixas e embarques</b>. <b>Não há como desfazer.</b></p><div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn danger" onclick="doWipe()">Apagar tudo</button></div>`); }); }
 async function doWipe(){
