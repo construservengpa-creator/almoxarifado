@@ -4980,9 +4980,13 @@ function siengeNota(desc,it){ const d=new Set(_siengeTokens(desc));
   if(!alvo.length)return 0; let tot=0, ok=0, numFalta=false;
   alvo.forEach(w=>{ const peso=/\d/.test(w)?3:1; tot+=peso; if(d.has(w))ok+=peso; else if(/\d/.test(w))numFalta=true; });
   const n=ok/tot; return numFalta?n*0.5:n; }
-function siengeMelhorItem(code,itens){ const p=findProduct(code); if(!p||!itens.length)return null;
-  const notas=itens.map(it=>({it,n:siengeNota(p.desc,it)})).sort((a,b)=>b.n-a.n);
-  return notas[0].n>=0.6?notas[0].it:null; }
+/* o mesmo item da solicitação pode ter sido comprado em mais de um pedido (uma linha por pedido no relatório):
+   agrupa essas linhas para mostrar todos os pedidos juntos */
+function _siengeChave(it){ const n=t=>String(t||'').trim().replace(/\s+/g,' ').toUpperCase(); return [it.num_solicitacao,n(it.detalhe),n(it.descricao_insumo),Number(it.qtd_solicitada)||0].join('|'); }
+function siengeAgrupar(itens){ const m=new Map(); itens.forEach(it=>{ const k=_siengeChave(it); if(!m.has(k))m.set(k,[]); m.get(k).push(it); }); return [...m.values()]; }
+function siengeMelhorGrupo(code,itens){ const p=findProduct(code); if(!p||!itens.length)return null;
+  const notas=siengeAgrupar(itens).map(g=>({g,n:siengeNota(p.desc,g[0])})).sort((a,b)=>b.n-a.n);
+  return notas[0].n>=0.6?notas[0].g:null; }
 function _dm(d){ return d?new Date(String(d).slice(0,10)+'T00:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}):''; }
 /* situação de um item do Sienge: {cls, txt} */
 function siengeSituacao(it){ const hoje=new Date().toISOString().slice(0,10);
@@ -4992,15 +4996,25 @@ function siengeSituacao(it){ const hoje=new Date().toISOString().slice(0,10);
   if(it.num_pedido){ const atras=it.previsao_entrega&&String(it.previsao_entrega).slice(0,10)<hoje;
     return {cls:atras?'bad':'info',txt:(atras?'⏰ Atrasado · ':'🚚 ')+'Pedido '+it.num_pedido+(it.previsao_entrega?' · prev. '+_dm(it.previsao_entrega):'')+(Number(it.qtd_entregue)>0?' · parcial':'')}; }
   return {cls:'wait',txt:'⏳ Aguardando pedido'+(it.situacao_solicitacao?' · '+it.situacao_solicitacao:'')}; }
+/* saldo a entregar de um pedido (linha do relatório) */
+function _siengeSaldo(it){ if(it.saldo!=null&&it.saldo!=='')return Number(it.saldo)||0; return Math.max((Number(it.qtd_solicitada)||0)-(Number(it.qtd_entregue)||0),0); }
+/* situação de um item com um ou mais pedidos: {cls, txt} */
+function siengeSituacaoGrupo(g){ if(g.length===1)return siengeSituacao(g[0]);
+  const sts=g.map(it=>({it,st:siengeSituacao(it)})), pend=sts.filter(x=>x.st.cls==='info'||x.st.cls==='bad'), ent=sts.filter(x=>x.st.cls==='ok').length;
+  if(!pend.length){ if(ent)return {cls:'ok',txt:'✅ Entregue · '+g.length+' pedidos'}; return sts[0].st; }
+  const hoje=new Date().toISOString().slice(0,10), atras=pend.some(x=>x.st.cls==='bad');
+  const txt=(atras?'⏰ ':'🚚 ')+pend.length+' pedidos: '+pend.map(({it})=>{ const a=it.previsao_entrega&&String(it.previsao_entrega).slice(0,10)<hoje;
+    return it.num_pedido+' ('+numf(_siengeSaldo(it))+(it.previsao_entrega?' · '+(a?'atrasado ':'prev. ')+_dm(it.previsao_entrega):'')+')'; }).join(' + ')+(ent?' · '+ent+' entregue(s)':'');
+  return {cls:atras?'bad':'info',txt}; }
 function siengeResumoSol(itens){ if(!itens.length)return {cls:'wait',txt:'Não encontrada no Painel'};
-  const ent=itens.filter(i=>siengeSituacao(i).cls==='ok').length; return {cls:ent===itens.length?'ok':'info',txt:'Sienge: '+ent+' de '+itens.length+' item(ns) entregue(s)'}; }
+  const gs=siengeAgrupar(itens), ent=gs.filter(g=>siengeSituacaoGrupo(g).cls==='ok').length; return {cls:ent===gs.length?'ok':'info',txt:'Sienge: '+ent+' de '+gs.length+' item(ns) entregue(s)'}; }
 let _siengeDecorando=false;
 async function siengeDecorar(){ if(_siengeDecorando)return; _siengeDecorando=true;
   try{ const pills=[...document.querySelectorAll('[data-sienge-sol]:not([data-sienge-ok])')]; if(!pills.length)return;
     const ok=await siengeBuscar(pills.map(p=>p.dataset.siengeSol)); if(!ok)return;
     pills.forEach(p=>{ if(!p.isConnected||p.dataset.siengeOk)return; p.dataset.siengeOk='1';
       const c=_siengeCache.get(String(p.dataset.siengeSol).replace(/\D/g,'')); const itens=c?c.itens:[];
-      const it=siengeMelhorItem(p.dataset.siengeCode,itens); const st=it?siengeSituacao(it):siengeResumoSol(itens);
+      const g=siengeMelhorGrupo(p.dataset.siengeCode,itens), it=g&&g[0]; const st=g?siengeSituacaoGrupo(g):siengeResumoSol(itens);
       const el=document.createElement('span'); el.className='pill sienge-st '+st.cls; el.textContent=st.txt; el.style.cursor='pointer';
       el.title=(it?'Item do Sienge: '+(it.detalhe||it.descricao_insumo||''):'Nenhum item da solicitação bateu com a descrição deste produto')+' — clique para ver a solicitação';
       el.onclick=ev=>{ ev.stopPropagation(); siengeAbrir(p.dataset.siengeSol,p.dataset.siengeCode); };
@@ -5012,15 +5026,16 @@ async function siengeDecorar(){ if(_siengeDecorando)return; _siengeDecorando=tru
 async function siengeAbrir(num,code){ const n=String(num||'').replace(/\D/g,'');
   modal(`<h3>Solicitação Sienge ${esc(num)}</h3><div class="empty" style="padding:22px">Consultando o Painel de Suprimentos…</div>`);
   _siengeCache.delete(n); const ok=await siengeBuscar([n]);
-  const c=_siengeCache.get(n), itens=c?c.itens:[], p=code?findProduct(code):null, melhor=code?siengeMelhorItem(code,itens):null;
+  const c=_siengeCache.get(n), itens=c?c.itens:[], p=code?findProduct(code):null, melhor=code?siengeMelhorGrupo(code,itens):null;
   const imp=_siengeImportadoEm?fmtDate(new Date(_siengeImportadoEm).getTime()):'—';
   const corpo=!ok?`<div class="empty" style="padding:22px">Não foi possível consultar o Painel de Suprimentos${_siengeErro?': '+esc(_siengeErro):''}.</div>`
     :!itens.length?`<div class="empty" style="padding:22px">A solicitação ${esc(num)} não está na última importação do Sienge no Painel (${esc(imp)}). Confira o número ou se o relatório já foi importado.</div>`
-    :`<div class="tbl-wrap" style="max-height:60vh;overflow:auto"><table><thead><tr><th>Item no Sienge</th><th class="num">Qtd</th><th>Pedido / fornecedor</th><th>Situação</th></tr></thead><tbody>${itens.map(it=>{ const st=siengeSituacao(it), eh=it===melhor;
-      return `<tr${eh?' style="background:#fff3da"':''}><td>${eh?'<b>➜ </b>':''}${esc(it.detalhe||'')}<div class="muted" style="font-size:11px">${esc(it.descricao_insumo||'')}</div></td>
+    :`<div class="tbl-wrap" style="max-height:60vh;overflow:auto"><table><thead><tr><th>Item no Sienge</th><th class="num">Qtd</th><th>Pedido / fornecedor</th><th>Situação</th></tr></thead><tbody>${siengeAgrupar(itens).map(g=>{ const it=g[0], eh=g===melhor, varios=g.length>1;
+      const ped=g.map(x=>`<div${varios?' style="margin-bottom:6px"':''}>${x.num_pedido?'<span class="mono">'+esc(x.num_pedido)+'</span>':'—'}${varios&&x.num_pedido?' <span class="muted" style="font-size:11px">· saldo '+numf(_siengeSaldo(x))+' '+esc(x.unidade||'')+'</span>':''}<div class="muted" style="font-size:11px">${esc(String(x.fornecedor||'').replace(/^\d+\s*-\s*/,''))}</div></div>`).join('');
+      const sit=g.map(x=>{ const st=siengeSituacao(x); return `<div${varios?' style="margin-bottom:6px"':''}><span class="pill sienge-st ${st.cls}">${esc(st.txt)}</span>${x.comprador?'<div class="muted" style="font-size:11px">Comprador: '+esc(x.comprador)+'</div>':''}</div>`; }).join('');
+      return `<tr${eh?' style="background:#fff3da"':''}><td>${eh?'<b>➜ </b>':''}${esc(it.detalhe||'')}<div class="muted" style="font-size:11px">${esc(it.descricao_insumo||'')}${varios?' · <b>'+g.length+' pedidos</b>':''}</div></td>
         <td class="num" style="white-space:nowrap">${numf(Number(it.qtd_solicitada)||0)} ${esc(it.unidade||'')}${Number(it.qtd_entregue)>0?'<div class="muted" style="font-size:11px">entregue '+numf(Number(it.qtd_entregue))+'</div>':''}</td>
-        <td>${it.num_pedido?'<span class="mono">'+esc(it.num_pedido)+'</span>':'—'}<div class="muted" style="font-size:11px">${esc(String(it.fornecedor||'').replace(/^\d+\s*-\s*/,''))}</div></td>
-        <td><span class="pill sienge-st ${st.cls}">${esc(st.txt)}</span>${it.comprador?'<div class="muted" style="font-size:11px">Comprador: '+esc(it.comprador)+'</div>':''}</td></tr>`; }).join('')}</tbody></table></div>`;
+        <td>${ped}</td><td>${sit}</td></tr>`; }).join('')}</tbody></table></div>`;
   modal(`<h3>Solicitação Sienge ${esc(num)}</h3>
     <p class="mp">${itens[0]?esc(itens[0].obra||'')+' · ':''}Situação do Sienge pela última importação no Painel de Suprimentos: <b>${esc(imp)}</b>.${p?'<br>Produto do estoque: <b>'+esc(p.desc)+'</b>'+(melhor?' — item correspondente destacado.':' — <span style="color:#a05050">nenhum item da solicitação bateu com a descrição; confira na lista.</span>'):''}</p>
     ${corpo}<div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn primary" onclick="closeModal()">Fechar</button></div>`); }
