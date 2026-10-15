@@ -47,9 +47,13 @@ nota as (
   from mov
   having count(*) > 0
 )
+-- Aumenta também a versão (_rev): assim um aparelho que ainda tem a cópia sem a nota não consegue gravar por
+-- cima — o sistema percebe que o documento mudou, busca a versão nova e junta as alterações mantendo a nota.
 update app_kv
-   set value = jsonb_set(value, '{notas}', jsonb_build_array((select n from nota)) || coalesce(value->'notas', '[]'::jsonb))
+   set value = jsonb_set(
+         jsonb_set(value, '{notas}', jsonb_build_array((select n from nota)) || coalesce(value->'notas', '[]'::jsonb)),
+         '{_rev}', to_jsonb(coalesce(nullif(value->>'_rev', '')::bigint, 0) + 1))
  where key = 'controle-estoque-obras-v1'
    and exists (select 1 from nota)
    and not exists (select 1 from jsonb_array_elements(value->'notas') x where x->>'id' = 'omv8dhhg2gzl')
-returning 'NF 24778 recuperada — notas no documento: ' || jsonb_array_length(value->'notas') as resultado;
+returning 'NF 24778 recuperada — notas no documento: ' || jsonb_array_length(value->'notas') || ' · versão ' || (value->>'_rev') as resultado;
