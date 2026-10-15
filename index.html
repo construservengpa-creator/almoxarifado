@@ -4505,7 +4505,7 @@ function renderNotificacoes(){
   _notifSepKnown=new Set(); _notifRetKnown=new Set(); _notifFirstLoad=true;
   $('#view').innerHTML=`
     <div class="panel" id="notifHeader" style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:16px">
-      <div><h3 style="margin:0">🔔 Painel de Notificações</h3><p class="desc" style="margin:4px 0 0">Deixe esta tela aberta num monitor. Toca um alarme sempre que uma requisição nova entra em separação ou fica pronta para retirada — o que já está aguardando ao abrir a tela aparece listado, sem alarme; o som toca só para o que chegar depois.</p></div>
+      <div><h3 style="margin:0">🔔 Painel de Notificações</h3><p class="desc" style="margin:4px 0 0">Deixe esta tela aberta num monitor. Toca um alarme sempre que uma requisição nova entra em separação ou fica pronta para retirada — o que já está aguardando ao abrir a tela aparece listado, sem alarme; o som toca só para o que chegar depois.</p><p class="desc" style="margin:6px 0 0">🖥 Para o monitor, use o app próprio do painel, que não desconecta por inatividade: <a href="${esc(new URL('notificacoes/',location.href).href)}" target="_blank" rel="noopener" style="color:#7a5100;font-weight:600">${esc(new URL('notificacoes/',location.href).href)}</a></p></div>
       <button class="btn" onclick="notifModoApresentacao()">🖥 Modo apresentação</button>
     </div>
     <div class="notif-grid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
@@ -5749,7 +5749,9 @@ async function doSignup(){ const nome=$('#suNome').value.trim(); const email=$('
   const {error}=await sb.auth.signUp({email,password:senha,options:{data:{nome},emailRedirectTo:window.location.origin+window.location.pathname}});
   if(error){ $('#authMsg').textContent='Erro: '+error.message; return; }
   $('#authMsg').textContent='Conta criada! Aguarde um administrador ativar seu acesso, depois faça login.'; setAuthMode('login'); }
-async function doLogout(){ await sb.rpc('log_event',{p_acao:'logout'}); await sb.auth.signOut(); }
+/* scope 'local': encerra só a sessão deste navegador. O padrão (global) derrubava o usuário em todos os aparelhos —
+   ex.: a saída por inatividade no computador desconectava o app de Aprovações no celular. */
+async function doLogout(){ await sb.rpc('log_event',{p_acao:'logout'}); await sb.auth.signOut({scope:'local'}); }
 function showGate(){ $('#gate').style.display='flex'; }
 function hideGate(){ $('#gate').style.display='none'; }
 function showPending(){ _appUid=null; const el=$('#authView'); el.innerHTML=`<div class="pendbox"><div class="ico">⏳</div><h3 style="margin-bottom:8px">Conta aguardando aprovação</h3><p style="color:var(--muted);font-size:13px">Um administrador precisa ativar seu usuário antes do primeiro acesso.</p><button class="btn ghost sm" style="margin-top:16px" onclick="doLogout()">Sair</button></div>`; showGate(); }

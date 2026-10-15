@@ -243,16 +243,17 @@ const obraEstoque=r=>r.mutuo_estoque_obra_id?r.mutuo_estoque_obra_id:r.obra_id;
 /* ---------- login ---------- */
 async function carregarPerfil(){
   const {data,error}=await sb.from('profiles').select('id,nome,email,papel,ativo,setor,obras_vinculadas').eq('id',user.id).maybeSingle();
-  if(error||!data)throw new Error('Não foi possível carregar o seu perfil.');
+  if(error)throw new Error('Não foi possível carregar o seu perfil: '+error.message);
+  if(!data)throw new Error('Usuário sem cadastro no sistema de estoque — peça ao administrador.');
   if(!data.ativo)throw new Error('Seu usuário ainda não foi liberado pelo administrador.');
-  if(!(data.papel==='admin'||data.papel==='encarregado'))throw new Error('Este aplicativo é para quem aprova requisições (encarregados e administradores).');
+  if(!(data.papel==='admin'||data.papel==='encarregado'))throw new Error('Este aplicativo é para quem aprova requisições (encarregados e administradores). Seu papel no cadastro é "'+(data.papel||'—')+'" — peça ao administrador para mudar em Administração → Usuários.');
   profile=data;
 }
 async function iniciar(){
   const {data}=await sb.auth.getSession();
   if(!data.session){ mostrarLogin(); return; }
   user=data.session.user;
-  try{ await carregarPerfil(); }catch(e){ await sb.auth.signOut(); mostrarLogin(e.message); return; }
+  try{ await carregarPerfil(); }catch(e){ await sb.auth.signOut({scope:'local'}).catch(()=>{}); mostrarLogin(e.message); return; }
   mostrarApp();
 }
 function mostrarLogin(msg){ $('#vApp').hidden=true; $('#vLogin').hidden=false; $('#lgErr').textContent=msg||''; if(canal){ sb.removeChannel(canal); canal=null; } }
@@ -260,12 +261,13 @@ $('#fLogin').addEventListener('submit',async ev=>{
   ev.preventDefault(); const b=$('#lgBtn'); b.disabled=true; $('#lgErr').textContent='';
   try{
     const {data,error}=await sb.auth.signInWithPassword({email:$('#lgE').value.trim().toLowerCase(),password:$('#lgS').value});
-    if(error)throw new Error('E-mail ou senha inválidos.');
+    if(error){ const m=String(error.message||'');
+      throw new Error(/invalid login credentials/i.test(m)?'E-mail ou senha inválidos.':/email not confirmed/i.test(m)?'O e-mail deste usuário ainda não foi confirmado.':/fetch|network/i.test(m)?'Sem conexão com o servidor. Verifique a internet.':'Não foi possível entrar: '+m); }
     user=data.user; await carregarPerfil(); mostrarApp();
-  }catch(e){ await sb.auth.signOut().catch(()=>{}); $('#lgErr').textContent=e.message; }
+  }catch(e){ await sb.auth.signOut({scope:'local'}).catch(()=>{}); $('#lgErr').textContent=e.message; }
   finally{ b.disabled=false; }
 });
-$('#bSair').onclick=async()=>{ await sb.auth.signOut(); user=null; profile=null; mostrarLogin(); };
+$('#bSair').onclick=async()=>{ await sb.auth.signOut({scope:'local'}); user=null; profile=null; mostrarLogin(); };
 
 /* ---------- app ---------- */
 function mostrarApp(){
