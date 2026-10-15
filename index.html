@@ -573,7 +573,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-15T17:00:00-03:00';
+const APP_VERSION='2026-10-15T19:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -626,25 +626,96 @@ async function atualizarParaVersaoNova(){
   try{ const u=new URL(location.href); if(u.searchParams.has('atualizado')){ u.searchParams.delete('atualizado'); history.replaceState(null,'',u.pathname+(u.search||'')+u.hash); } }catch(e){}
 })();
 const Store={
-  async get(k){ try{ const {data,error}=await sb.from('app_kv').select('value').eq('key',k).maybeSingle(); if(error)throw error; return data?data.value:null; }catch(e){ console.warn('Store.get sem rede, usando cache:',e); return undefined; } },
+  async get(k){ try{ const {data,error}=await sb.from('app_kv').select('value').eq('key',k).maybeSingle(); if(error)throw error; const v=data?data.value:null; docBase(k,v); return v; }catch(e){ console.warn('Store.get sem rede, usando cache:',e); return undefined; } },
   /* Cada gravação envia o documento inteiro. Antes, várias alterações seguidas (ex.: mín/máx de vários produtos)
      disparavam gravações simultâneas na mesma linha do banco — uma esperava a outra e o servidor cancelava por
      tempo ("statement timeout"). Agora vai uma por vez por chave; as que chegam enquanto uma está em andamento
      viram UMA só gravação com o estado mais recente. Timeout é repetido automaticamente antes de avisar. */
-  set(k,v,label){ const q=_saveQ[k]||(_saveQ[k]={busy:false,next:null,labels:[],waiters:[]});
-    return new Promise(res=>{ q.next=v; if(label&&!q.labels.includes(label))q.labels.push(label); q.waiters.push(res); if(!q.busy)_drainSave(k); }); }
+  set(k,v,label){ const q=_saveQ[k]||(_saveQ[k]={busy:false,next:null,base:null,labels:[],waiters:[]});
+    return new Promise(res=>{ q.next=v; q.base=_base[k]||null; if(label&&!q.labels.includes(label))q.labels.push(label); q.waiters.push(res); if(!q.busy)_drainSave(k); }); }
 };
+/* ===== Gravação concorrente do documento compartilhado =====
+   Cada gravação envia o documento inteiro. Antes, um aparelho com cópia antiga (ex.: tempo real caído, aba parada)
+   regravava por cima e apagava o que outra pessoa tinha acabado de salvar — foi assim que a NF 24778 sumiu do
+   histórico em 14/10 (a entrada no estoque ficou, o registro da nota não). Agora o documento leva uma versão
+   (_rev): a gravação só passa se o banco ainda estiver na versão que este aparelho conhece. Se outra pessoa
+   gravou antes, busca a versão atual, junta as alterações dos dois (merge3 abaixo, item a item pelo id/código)
+   e grava o resultado. Com a função save_estado_cas no banco (scripts/save_estado_cas.sql) a conferência e a gravação
+   são atômicas; sem ela, confere a versão logo antes de gravar. */
+const _base={};                      /* chave -> {json,rev}: última versão do servidor que este aparelho conhece */
+const _aoMesclar={};                 /* chave -> função que aplica na tela o documento mesclado */
+let _casOk=null;                     /* null = ainda não sabe se o banco tem save_estado_cas */
+function _revDe(v){ return Number(v&&v._rev)||0; }
+function docBase(k,v){ try{ _base[k]=v&&typeof v==='object'?{json:JSON.stringify(v),rev:_revDe(v)}:null; }catch(e){ _base[k]=null; } }
+const _AUSENTE=Symbol('ausente');
+function _igual(a,b){ if(a===b)return true;
+  if(a===null||b===null||typeof a!=='object'||typeof b!=='object')return false;
+  if(Array.isArray(a)!==Array.isArray(b))return false;
+  if(Array.isArray(a)){ if(a.length!==b.length)return false; for(let i=0;i<a.length;i++)if(!_igual(a[i],b[i]))return false; return true; }
+  const ka=Object.keys(a).filter(k=>a[k]!==undefined), kb=Object.keys(b).filter(k=>b[k]!==undefined);
+  if(ka.length!==kb.length)return false; for(const k of ka)if(!(k in b)||!_igual(a[k],b[k]))return false; return true; }
+function _ehObj(x){ return !!x&&typeof x==='object'&&!Array.isArray(x); }
+function _chaveItem(x){ return _ehObj(x)?(x.id!=null?'id:'+x.id:x.code!=null?'code:'+x.code:null):null; }
+function _listaChaveada(a){ return Array.isArray(a)&&a.every(x=>_chaveItem(x)!==null); }
+/* junta base (b), este aparelho (l) e servidor (s): o que só um lado mudou, vale a mudança; listas de objetos com
+   id/código são juntadas item a item (inclusões dos dois lados entram, exclusões valem); em conflito no mesmo
+   campo vale este aparelho, exceto contadores (seq), que ficam com o maior. */
+function merge3(b,l,s,path){
+  if(_igual(l,b))return s; if(_igual(s,b))return l; if(_igual(l,s))return l;
+  if(_ehObj(l)&&_ehObj(s)){ const bb=_ehObj(b)?b:{}, r={};
+    new Set([...Object.keys(s),...Object.keys(l)]).forEach(k=>{
+      const m=merge3(k in bb&&bb[k]!==undefined?bb[k]:_AUSENTE, k in l&&l[k]!==undefined?l[k]:_AUSENTE, k in s&&s[k]!==undefined?s[k]:_AUSENTE, path?path+'.'+k:k);
+      if(m!==_AUSENTE)r[k]=m; });
+    return r; }
+  if(_listaChaveada(l)&&_listaChaveada(s)&&(b===_AUSENTE||b==null||_listaChaveada(b))){
+    const bArr=Array.isArray(b)?b:[], mapa=a=>{ const m=new Map(); a.forEach(x=>m.set(_chaveItem(x),x)); return m; };
+    const B=mapa(bArr), L=mapa(l), S=mapa(s), r=[];
+    s.forEach(x=>{ const k=_chaveItem(x); const m=merge3(B.has(k)?B.get(k):_AUSENTE, L.has(k)?L.get(k):_AUSENTE, x, path); if(m!==_AUSENTE)r.push(m); });
+    l.forEach((x,i)=>{ const k=_chaveItem(x); if(!S.has(k)&&!B.has(k))r.splice(Math.min(i,r.length),0,x); }); /* inclusões deste aparelho */
+    return r; }
+  if(/^seq(\.|$)/.test(path||'')&&typeof l==='number'&&typeof s==='number')return Math.max(l,s);
+  return l; }
+async function _lerServidor(k){ const {data,error}=await sb.from('app_kv').select('value').eq('key',k).maybeSingle(); if(error)throw error; return data?data.value:null; }
+function _ehFuncaoAusente(e){ return !!e&&(e.code==='PGRST202'||/save_estado_cas|could not find the function/i.test(e.message||'')); }
+/* grava v; se o servidor mudou desde base, mescla e tenta de novo. Devolve {error, value, mesclou} (value = o que foi gravado). */
+async function _gravarDoc(k,v,base,label){
+  let doc=v, mesclou=false;
+  for(let t=0;t<5;t++){
+    const baseRev=base?base.rev:_revDe(doc);
+    const novo=Object.assign({},doc,{_rev:baseRev+1});
+    let conflito=false;
+    if(_casOk!==false){
+      const {data,error}=await sb.rpc('save_estado_cas',{p_key:k,p_value:novo,p_label:label,p_base_rev:baseRev});
+      if(_ehFuncaoAusente(error))_casOk=false;
+      else{ if(error)return {error}; _casOk=true; if(!(data&&data.conflito))return {error:null,value:novo,mesclou}; conflito=true; }
+    }
+    if(!conflito){ /* sem a função no banco: confere a versão logo antes de gravar */
+      const {data:r,error:eR}=await sb.from('app_kv').select('rev:value->_rev').eq('key',k).maybeSingle();
+      conflito=!eR&&!!r&&(Number(r.rev)||0)!==baseRev;
+      if(!conflito){ const {error}=await sb.rpc('save_estado',{p_key:k,p_value:novo,p_label:label}); return {error,value:novo,mesclou}; }
+    }
+    let srv; try{ srv=await _lerServidor(k); }catch(e){ return {error:{message:'o documento foi alterado por outra pessoa e não foi possível ler a versão atual: '+((e&&e.message)||e)}}; }
+    let b0=null; try{ b0=base?JSON.parse(base.json):null; }catch(e){}
+    if(srv){ doc=merge3(b0===null?_AUSENTE:b0,doc,srv,''); mesclou=true; }
+    base=srv?{json:JSON.stringify(srv),rev:_revDe(srv)}:null;
+    console.info('Documento '+k+' alterado por outra pessoa — alterações juntadas antes de gravar.');
+  }
+  return {error:{message:'o documento mudou várias vezes seguidas enquanto salvava — refaça em instantes'}};
+}
 const _saveQ={};
 function _saveTimeout(e){ return !!e&&(e.code==='57014'||/statement timeout/i.test(e.message||'')); }
 async function _drainSave(k){ const q=_saveQ[k]; q.busy=true;
-  while(q.next!==null){ const v=q.next, label=q.labels.join(' · ')||null, ws=q.waiters; q.next=null; q.labels=[]; q.waiters=[];
-    let error=null;
+  while(q.next!==null){ const v=q.next, base=q.base, label=q.labels.join(' · ')||null, ws=q.waiters; q.next=null; q.labels=[]; q.waiters=[];
+    let error=null, gravado=null, mesclou=false;
     for(let t=0;t<3;t++){
-      try{ ({error}=await sb.rpc('save_estado',{p_key:k,p_value:v,p_label:label})); }catch(e){ error={message:(e&&e.message)||String(e)}; }
+      try{ ({error,value:gravado,mesclou}=await _gravarDoc(k,v,base,label)); }catch(e){ error={message:(e&&e.message)||String(e)}; }
       if(!error||!_saveTimeout(error)||q.next!==null)break; /* se já há estado mais novo na fila, ele substitui esta tentativa */
       await new Promise(r=>setTimeout(r,1500*(t+1)));
     }
     if(error&&q.next!==null){ q.waiters.push(...ws); continue; } /* o estado mais novo da fila inclui esta alteração: quem esperava recebe o resultado dele */
+    if(!error&&gravado){ docBase(k,gravado);
+      /* outra pessoa tinha gravado antes: aplica o resultado juntado na tela (se não há gravação mais nova na fila) */
+      if(mesclou&&q.next===null&&_aoMesclar[k]){ try{ _aoMesclar[k](gravado); }catch(e){ console.warn('aplicar mescla',e); } } }
     if(error){ console.error(error);
       toast(_saveTimeout(error)?'Não foi possível salvar: o servidor demorou demais para gravar. A alteração NÃO foi gravada no banco — refaça em instantes.':'Erro ao salvar: '+error.message,'err'); }
     ws.forEach(r=>{ try{ r(error||null); }catch(e){} });
@@ -670,6 +741,10 @@ function loadPhotos(){ _photosLoaded=false;
   return _photosReady; }
 function fotosProntas(){ if(_photosLoaded)return true; toast('Aguarde alguns segundos: as fotos ainda estão carregando.','warn'); return false; }
 async function savePhotos(){ if(_photosReady)await _photosReady; await Store.set(KEY+':fotos', photos, 'Fotos atualizadas'); cachePhotos(); }
+_aoMesclar[KEY]=val=>{ const prevM=state.movements, prevE=state.estoque, prevO=state.currentObra;
+  state=Object.assign({},val); state.movements=prevM||[]; state.estoque=prevE||{}; normalizeState(); restaurarObraLocal(prevO);
+  if(profile)applyRoleNav(); refreshBadge(); refreshTelaAtual(); };
+_aoMesclar[KEY+':fotos']=val=>{ photos=Object.assign({},val); };
 async function save(label){ const {movements,estoque,currentObra,...toPersist}=state; /* currentObra é escolha de cada usuário — não vai pro documento compartilhado */ const err=await Store.set(KEY, toPersist, label); cacheState(); refreshBadge(); return err; }
 
 /* ===== Modo offline: cache local + fila de sincronização ===== */
@@ -756,6 +831,7 @@ function queueRefresh(...fns){ fns.forEach(f=>_pendRefresh.add(f)); clearTimeout
 function subscribeRealtime(){
   sb.channel('app_kv_sync').on('postgres_changes',{event:'UPDATE',schema:'public',table:'app_kv',filter:'key=eq.'+KEY},payload=>{
     if(!payload.new||!payload.new.value)return;
+    docBase(KEY,payload.new.value); /* versão mais nova do servidor: base para a próxima gravação */
     const prevAjLib=ajusteManualLiberado();
     const prevMovements=state.movements, prevEstoque=state.estoque, prevObra=state.currentObra; /* movements/estoque não vêm mais dentro deste documento — preserva o que já está em memória em vez de zerar */
     state=payload.new.value;
