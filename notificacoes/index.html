@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1E2024">
+<title>Capivara Painel · AMETA</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="../favicon-32.png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Painel">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&family=Oswald:wght@500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.1/dist/umd/supabase.min.js"></script>
+<style>
+:root{
+  --bg:#1E2024; --s1:#272A30; --s2:#30343B; --line:#3B4048; --tx:#ECEDEF; --mu:#9AA1AC;
+  --ac:#F5C433; --ac-ink:#1E2024; --ok:#62C48F; --bad:#F26D5B; --info:#7DB4E8; --warn:#F2A65A;
+  --f-head:'Oswald','Arial Narrow',sans-serif;
+  --f-body:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --f-mono:'JetBrains Mono',ui-monospace,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.45 var(--f-body)}
+body{min-height:100dvh}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+[hidden]{display:none!important}
+
+.cap-selo{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:38px;height:38px;border-radius:22%;background:#F5C433;color:#1A1E24}
+.cap-selo svg{width:100%;height:100%;display:block}
+
+/* login */
+.login{max-width:360px;margin:12vh auto 0;padding:0 16px;text-align:center}
+.login .cap-selo{width:60px;height:60px;margin-bottom:14px}
+.login h2{font:600 24px var(--f-head);text-transform:uppercase;letter-spacing:.08em;margin:0 0 6px}
+.login h2 span{color:var(--ac)}
+.login p{color:var(--mu);font-size:13px;margin:0 0 18px}
+.login form{text-align:left}
+.f{display:block;width:100%}
+label.f{font-size:12.5px;color:var(--mu);margin:10px 0 4px}
+input.f{background:var(--s1);border:1px solid var(--line);border-radius:10px;padding:11px 12px}
+.err{color:var(--bad);font-size:13px;min-height:18px;margin:8px 0}
+.btn{border:0;border-radius:10px;padding:11px 16px;font-weight:600}
+.btn.pri{background:var(--ac);color:var(--ac-ink)}
+
+/* painel */
+.top{display:flex;align-items:center;gap:14px;padding:14px 2.5vw;border-bottom:1px solid var(--line)}
+.top h1{font:600 clamp(18px,2vw,28px)/1.1 var(--f-head);letter-spacing:.06em;text-transform:uppercase;margin:0;flex:1}
+.top h1 small{display:block;font:500 12.5px var(--f-body);color:var(--mu);text-transform:none;letter-spacing:0;margin-top:3px}
+.relogio{font:700 clamp(18px,2.2vw,32px) var(--f-mono);color:var(--ac)}
+.ib{background:var(--s1);border:1px solid var(--line);border-radius:10px;height:40px;min-width:40px;padding:0 12px;font-size:16px}
+.ib.on{background:var(--ac);color:var(--ac-ink);border-color:var(--ac)}
+.status{font-size:12px;color:var(--mu);white-space:nowrap}
+.status.off{color:var(--bad)}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:2.5vw;padding:2vw 2.5vw}
+@media(max-width:1000px){.grid{grid-template-columns:1fr}}
+.col h2{font:600 clamp(18px,1.9vw,30px) var(--f-head);letter-spacing:.04em;text-transform:uppercase;margin:0 0 14px;display:flex;align-items:center;gap:10px}
+.col h2 .n{font:700 .8em var(--f-mono);background:var(--s2);color:var(--ac);border-radius:8px;padding:2px 10px}
+.lista{display:flex;flex-direction:column;gap:12px}
+.card{background:var(--s1);border:1px solid var(--line);border-left:4px solid var(--info);border-radius:12px;padding:14px 16px}
+.col.sep .card{border-left-color:var(--warn)}
+.col.ret .card{border-left-color:var(--ok)}
+.col.apd .card{border-left-color:var(--info)}
+.card .hd{display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap}
+.card .req{font:700 clamp(14px,1.3vw,20px) var(--f-mono);color:var(--ac)}
+.card .st{font-size:12px;color:var(--mu)}
+.card .obra{font-weight:600;font-size:clamp(14px,1.25vw,19px);margin:3px 0}
+.card .eq{font-size:clamp(13px,1.15vw,18px);font-weight:600;margin:2px 0 4px}
+.card .eq b{font-family:var(--f-mono);color:var(--ac)}
+.card .mt{color:var(--mu);font-size:clamp(12px,1vw,15px)}
+.vazio{color:var(--mu);text-align:center;padding:50px 10px;border:1px dashed var(--line);border-radius:12px;font-size:clamp(14px,1.3vw,20px)}
+@keyframes pulso{0%{box-shadow:0 0 0 0 rgba(245,196,51,.6)}70%{box-shadow:0 0 0 18px rgba(245,196,51,0)}100%{box-shadow:0 0 0 0 rgba(245,196,51,0)}}
+.card.novo{animation:pulso 1.4s ease-out 4;background:#33302A}
+.aviso-som{position:fixed;inset:auto 16px 16px 16px;max-width:520px;margin:0 auto;background:var(--ac);color:var(--ac-ink);border-radius:12px;padding:12px 16px;font-weight:600;text-align:center;cursor:pointer;box-shadow:0 10px 30px rgba(0,0,0,.4)}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="capivaraSilhueta" viewBox="0 0 64 64"><g fill="currentColor"><rect x="12" y="40" width="6" height="12" rx="2.5"/><rect x="22" y="41" width="5.5" height="11" rx="2.5"/><rect x="35.5" y="40" width="6" height="12" rx="2.5"/><circle cx="41.5" cy="18.8" r="2.7"/><path fill-rule="evenodd" d="M10 44C5.5 40 5.5 30 9.5 25.5C13.5 20 21 17 28.5 17.8C33 18.3 35.5 20 38 20L44 19.6C50.5 19.8 55.5 21 58.5 23.5C60.8 25.5 61 31 59.5 33.5C58.3 35.2 55.5 35.8 52.5 35.8L46 35.8C44.5 40.5 41 44.5 36 45.5L16 46.5C13.5 46.5 11.3 45.5 10 44ZM48.6 24.3a1.6 1.6 0 1 0-3.2 0a1.6 1.6 0 1 0 3.2 0ZM59.2 26.6a.8 1.1 0 1 0-1.6 0a.8 1.1 0 1 0 1.6 0Z"/></g></symbol>
+</svg>
+
+<section id="vLogin" class="login" hidden>
+  <span class="cap-selo"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#capivaraSilhueta"/></svg></span>
+  <h2>Capivara <span>Painel</span></h2>
+  <p>Painel de notificações do almoxarifado para deixar aberto num monitor. Entre com um usuário do sistema de estoque — a sessão não expira por inatividade.</p>
+  <form id="fLogin">
+    <label class="f" for="lgE">E-mail</label>
+    <input class="f" id="lgE" type="email" autocomplete="username" required>
+    <label class="f" for="lgS">Senha</label>
+    <input class="f" id="lgS" type="password" autocomplete="current-password" required>
+    <div class="err" id="lgErr"></div>
+    <button class="btn pri" style="width:100%" id="lgBtn">Entrar</button>
+  </form>
+</section>
+
+<section id="vApp" hidden>
+  <header class="top">
+    <span class="cap-selo"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#capivaraSilhueta"/></svg></span>
+    <h1>Painel do Almoxarifado<small id="who"></small></h1>
+    <span class="status" id="status">conectando…</span>
+    <span class="relogio" id="relogio"></span>
+    <button class="ib" id="bSom" title="Ativar alarme sonoro">🔕</button>
+    <button class="ib" id="bTela" title="Tela cheia">⛶</button>
+    <button class="ib" id="bSair" title="Sair" style="font-size:13px;font-weight:600">Sair</button>
+  </header>
+  <div class="grid">
+    <div class="col sep"><h2>🔧 Aguardando separação <span class="n" id="nSep">0</span></h2><div class="lista" id="lSep"></div></div>
+    <div class="col ret"><h2>📦 Aguardando retirada <span class="n" id="nRet">0</span></h2><div class="lista" id="lRet"></div></div>
+    <div class="col apd"><h2>🔧 Retirada — aplicação direta <span class="n" id="nApd">0</span></h2><div class="lista" id="lApd"></div></div>
+  </div>
+  <div class="aviso-som" id="avisoSom">🔔 Toque aqui para ativar o alarme sonoro (o navegador só libera o som depois de um clique)</div>
+</section>
+
+<script>
+/* Painel de Notificações em aplicação própria — mesma lógica da aba "Painel de Notificações" do sistema
+   (index.html → drawNotifSeparacao / drawNotifRetirada), mas feito para ficar aberto num monitor:
+   - NÃO tem o controle de inatividade de 5 minutos do sistema: a sessão fica aberta e o token é renovado
+     automaticamente pelo Supabase;
+   - guarda a sessão numa chave própria do navegador, então o "Sair" (ou a saída por inatividade) do sistema
+     em outra aba deste mesmo navegador não derruba o painel;
+   - mantém a tela acesa (Wake Lock), atualiza em tempo real e, por garantia, a cada 15 s;
+   - toca alarme quando uma requisição nova entra em separação ou fica pronta para retirada (o que já estava
+     aguardando ao abrir aparece listado, sem alarme). */
+const SUPABASE_URL='https://qjmqburjyqlgwjihvlgp.supabase.co';
+const SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqbXFidXJqeXFsZ3dqaWh2bGdwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4NzU0NzIsImV4cCI6MjEwNDQ1MTQ3Mn0.cOdmVw3W0HCilACqZIVFMCwsr6zxA0g_3CreKIuk9kw';
+const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{auth:{storageKey:'capivara-painel-notificacoes-auth',persistSession:true,autoRefreshToken:true}});
+const STATE_KEY='controle-estoque-obras-v1';
+const STATUS_AINDA_NAO_SAIU=['em_separacao','aguardando_compra','separado','embalado','romaneio_emitido','faturado'];
+
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const numf=n=>(Number(n)||0).toLocaleString('pt-BR',{maximumFractionDigits:3});
+const reqN=id=>'REQ-'+String(id).padStart(5,'0');
+const quando=iso=>{ if(!iso)return''; const d=new Date(iso); return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); };
+const statusLabel=s=>({em_separacao:'Em separação',aguardando_compra:'Aguardando compra',separado:'Separado',embalado:'Embalado',romaneio_emitido:'Romaneio emitido',faturado:'Faturado'}[s]||s);
+const envioLabel=t=>t==='despacho'?'🚚 Despacho':t==='interna'?'🤝 Retirada no balcão':t==='aplicacao_direta'?'🔧 Aplicação direta':'❓ Envio não definido';
+const pendEntrega=i=>Math.max((Number(i&&i.quantidade_separada)||0)-(Number(i&&i.quantidade_entregue)||0),0);
+
+let profile=null, canal=null, timer=null, primeira=true, somOn=false, audioCtx=null, wakeLock=null;
+let conhecidosSep=new Set(), conhecidosRet=new Set();
+
+/* ---------- login ---------- */
+function msgErroLogin(error){ const m=String(error&&error.message||'');
+  if(/invalid login credentials/i.test(m))return 'E-mail ou senha inválidos.';
+  if(/email not confirmed/i.test(m))return 'O e-mail deste usuário ainda não foi confirmado.';
+  if(/fetch|network/i.test(m))return 'Sem conexão com o servidor. Verifique a internet.';
+  return 'Não foi possível entrar: '+m; }
+async function carregarPerfil(uid){
+  const {data,error}=await sb.from('profiles').select('id,nome,email,ativo').eq('id',uid).maybeSingle();
+  if(error)throw new Error('Não foi possível carregar o seu perfil: '+error.message);
+  if(!data)throw new Error('Usuário sem cadastro no sistema de estoque.');
+  if(!data.ativo)throw new Error('Seu usuário ainda não foi liberado pelo administrador.');
+  profile=data;
+}
+function mostrarLogin(msg){ pararPainel(); $('#vApp').hidden=true; $('#vLogin').hidden=false; $('#lgErr').textContent=msg||''; }
+$('#fLogin').addEventListener('submit',async ev=>{
+  ev.preventDefault(); const b=$('#lgBtn'); b.disabled=true; $('#lgErr').textContent='';
+  try{
+    const {data,error}=await sb.auth.signInWithPassword({email:$('#lgE').value.trim(),password:$('#lgS').value});
+    if(error)throw new Error(msgErroLogin(error));
+    await carregarPerfil(data.user.id); mostrarApp();
+  }catch(e){ await sb.auth.signOut({scope:'local'}).catch(()=>{}); $('#lgErr').textContent=e.message; }
+  finally{ b.disabled=false; }
+});
+$('#bSair').onclick=async()=>{ if(!confirm('Sair do painel?'))return; await sb.auth.signOut({scope:'local'}).catch(()=>{}); profile=null; mostrarLogin(); };
+/* se a sessão for encerrada de fora (ex.: senha trocada), volta para o login em vez de ficar com a tela parada */
+sb.auth.onAuthStateChange((ev,session)=>{ if(ev==='SIGNED_OUT'&&profile){ profile=null; mostrarLogin('A sessão foi encerrada. Entre novamente.'); } });
+
+async function iniciar(){
+  const {data}=await sb.auth.getSession();
+  if(!data.session){ mostrarLogin(); return; }
+  try{ await carregarPerfil(data.session.user.id); }
+  catch(e){ if(/conex|fetch|network/i.test(e.message)){ setTimeout(iniciar,10000); return; } mostrarLogin(e.message); return; }
+  mostrarApp();
+}
+
+/* ---------- painel ---------- */
+function mostrarApp(){
+  $('#vLogin').hidden=true; $('#vApp').hidden=false;
+  $('#who').textContent='Conectado como '+(profile.nome||profile.email)+' · atualiza sozinho, sem tempo limite de sessão';
+  conhecidosSep=new Set(); conhecidosRet=new Set(); primeira=true;
+  pararPainel();
+  canal=sb.channel('painel_notificacoes')
+    .on('postgres_changes',{event:'*',schema:'public',table:'requisicoes'},agendar)
+    .on('postgres_changes',{event:'*',schema:'public',table:'requisicao_itens_status'},agendar)
+    .subscribe(st=>{ if(st==='SUBSCRIBED')agendar(); });
+  timer=setInterval(atualizar,15000);
+  manterTelaAcesa();
+  atualizar();
+}
+function pararPainel(){ if(canal){ sb.removeChannel(canal); canal=null; } clearInterval(timer); timer=null; }
+function agendar(){ clearTimeout(window._rt); window._rt=setTimeout(atualizar,800); }
+
+let _tags={}, _tagsTs=0;
+async function tagsAplicacoes(){
+  if(Date.now()-_tagsTs<300000)return _tags;
+  try{ const {data,error}=await sb.from('app_kv').select('aplicacoes:value->aplicacoes').eq('key',STATE_KEY).maybeSingle(); if(error)throw error;
+    const m={}; ((data&&data.aplicacoes)||[]).forEach(a=>{ if(a&&a.id&&a.tag)m[a.id]=String(a.tag); }); _tags=m; _tagsTs=Date.now();
+  }catch(e){ console.warn('tagsAplicacoes',e); }
+  return _tags;
+}
+function equipHTML(r,tags){ const t=r.aplicacao_id&&tags[r.aplicacao_id];
+  if(!t&&!r.aplicacao_nome)return '';
+  return `<div class="eq">🎯 ${t?'<b>'+esc(t)+'</b> · ':''}${esc(r.aplicacao_nome||'')}</div>`; }
+
+/* lê em páginas de 1000 (limite do Supabase por consulta) */
+async function todasLinhas(mk){ let all=[]; for(let de=0;;de+=1000){ const {data,error}=await mk().range(de,de+999); if(error)throw error; all=all.concat(data||[]); if(!data||data.length<1000)return all; } }
+
+let _atualizando=false, _deNovo=false;
+async function atualizar(){
+  if(!profile)return;
+  if(_atualizando){ _deNovo=true; return; }
+  _atualizando=true;
+  try{ do{ _deNovo=false; await _atualizar(); }while(_deNovo); }
+  finally{ _atualizando=false; }
+}
+async function _atualizar(){
+  try{
+    const [sep,itens,tags]=await Promise.all([
+      todasLinhas(()=>sb.from('requisicoes').select('id,obra_nome,ordem_servico,status,criado_em,aplicacao_id,aplicacao_nome,solicitante_nome').in('status',['em_separacao','aguardando_compra']).order('criado_em',{ascending:true}).order('id',{ascending:true})),
+      todasLinhas(()=>sb.from('requisicao_itens_status').select('*, requisicoes!inner(id,obra_nome,ordem_servico,status,tipo_envio,criado_em,aplicacao_id,aplicacao_nome)')
+        .gt('quantidade_separada',0).in('requisicoes.status',STATUS_AINDA_NAO_SAIU).order('atualizado_em',{ascending:true}).order('id',{ascending:true})),
+      tagsAplicacoes()
+    ]);
+    desenharSeparacao(sep,tags); desenharRetirada(itens,tags);
+    primeira=false; status(true);
+  }catch(e){
+    console.warn('painel',e); status(false,e.message);
+    if(/jwt|token|auth/i.test(e.message||'')){ const {data}=await sb.auth.getSession(); if(!data.session){ profile=null; mostrarLogin('A sessão foi encerrada. Entre novamente.'); } }
+  }
+}
+function status(ok,msg){ const s=$('#status'); s.classList.toggle('off',!ok);
+  s.textContent=ok?'● atualizado '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'● sem conexão — tentando de novo'; s.title=msg||''; }
+
+function desenharSeparacao(reqs,tags){
+  const novos=new Set(reqs.filter(r=>!conhecidosSep.has(r.id)).map(r=>r.id));
+  reqs.forEach(r=>conhecidosSep.add(r.id));
+  if(!primeira&&novos.size)alarmeSeparacao();
+  $('#nSep').textContent=reqs.length;
+  $('#lSep').innerHTML=reqs.length?reqs.map(r=>`<div class="card ${!primeira&&novos.has(r.id)?'novo':''}">
+      <div class="hd"><span class="req">${reqN(r.id)}</span><span class="st">${esc(statusLabel(r.status))}</span></div>
+      <div class="obra">${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</div>
+      ${equipHTML(r,tags)}
+      <div class="mt">Solicitante: ${esc(r.solicitante_nome||'—')} · ${quando(r.criado_em)}</div>
+    </div>`).join(''):'<div class="vazio">Nada aguardando separação.</div>';
+}
+function desenharRetirada(itens,tags){
+  const grupos={};
+  itens.filter(i=>i.requisicoes&&STATUS_AINDA_NAO_SAIU.includes(i.requisicoes.status)&&pendEntrega(i)>0.0001)
+    .forEach(i=>{ const r=i.requisicoes; (grupos[r.id]=grupos[r.id]||{r,itens:[]}).itens.push(i); });
+  const lista=Object.values(grupos);
+  const novos=new Set(lista.filter(g=>!conhecidosRet.has(g.r.id)).map(g=>g.r.id));
+  lista.forEach(g=>conhecidosRet.add(g.r.id));
+  if(!primeira&&novos.size)alarmeRetirada();
+  const card=g=>{ const r=g.r; return `<div class="card ${!primeira&&novos.has(r.id)?'novo':''}">
+      <div class="hd"><span class="req">${reqN(r.id)}</span><span class="st">${envioLabel(r.tipo_envio)}</span></div>
+      <div class="obra">${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</div>
+      ${equipHTML(r,tags)}
+      <div class="mt">${g.itens.map(i=>esc(i.descricao)+' ('+numf(pendEntrega(i))+' '+esc(i.unidade||'')+')').join(', ')}</div>
+    </div>`; };
+  const normais=lista.filter(g=>g.r.tipo_envio!=='aplicacao_direta'), apd=lista.filter(g=>g.r.tipo_envio==='aplicacao_direta');
+  $('#nRet').textContent=normais.length; $('#nApd').textContent=apd.length;
+  $('#lRet').innerHTML=normais.length?normais.map(card).join(''):'<div class="vazio">Nada aguardando retirada.</div>';
+  $('#lApd').innerHTML=apd.length?apd.map(card).join(''):'<div class="vazio">Nada aguardando retirada.</div>';
+}
+
+/* ---------- som ---------- */
+function bip(freq,dur,delay){ if(!audioCtx)return; const t0=audioCtx.currentTime+(delay||0);
+  const o=audioCtx.createOscillator(), g=audioCtx.createGain(); o.type='sine'; o.frequency.setValueAtTime(freq,t0);
+  g.gain.setValueAtTime(0,t0); g.gain.linearRampToValueAtTime(.35,t0+.02); g.gain.linearRampToValueAtTime(0,t0+dur);
+  o.connect(g); g.connect(audioCtx.destination); o.start(t0); o.stop(t0+dur+.02); }
+function alarmeSeparacao(){ if(!somOn)return; if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume(); bip(880,.18,0); bip(880,.18,.25); bip(1046.5,.3,.5); }
+function alarmeRetirada(){ if(!somOn)return; if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume(); bip(660,.22,0); bip(660,.22,.32); }
+function ativarSom(){
+  if(!audioCtx){ try{ audioCtx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
+  if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume();
+  somOn=true; bip(880,.15,0); $('#bSom').textContent='🔔'; $('#bSom').classList.add('on'); $('#bSom').title='Alarme sonoro ativado'; $('#avisoSom').hidden=true;
+  manterTelaAcesa();
+}
+$('#bSom').onclick=ativarSom; $('#avisoSom').onclick=ativarSom;
+
+/* ---------- tela cheia e tela sempre acesa ---------- */
+$('#bTela').onclick=()=>{ if(document.fullscreenElement){ document.exitFullscreen().catch(()=>{}); return; }
+  const el=document.documentElement, rf=el.requestFullscreen||el.webkitRequestFullscreen; if(rf){ try{ Promise.resolve(rf.call(el)).catch(()=>{}); }catch(e){} } };
+async function manterTelaAcesa(){ try{ if('wakeLock' in navigator&&!wakeLock&&!document.hidden){ wakeLock=await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release',()=>{ wakeLock=null; }); } }catch(e){} }
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&profile){ manterTelaAcesa(); atualizar(); } });
+window.addEventListener('online',()=>{ if(profile)atualizar(); });
+
+setInterval(()=>{ $('#relogio').textContent=new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); },1000);
+iniciar();
+</script>
+</body>
+</html>

@@ -562,7 +562,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-13T18:00:00-03:00';
+const APP_VERSION='2026-10-15T12:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -3338,8 +3338,8 @@ async function drawAprovPend(){ const box=$('#aprovPend'); if(!box)return;
   }
   const {data,error}=await q;
   if(error){box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>';return;}
-  box.innerHTML=`<table><thead><tr><th>Nº</th><th>Data</th><th>Obra / OS</th><th>Aplicação</th><th>Solicitante</th><th>Itens</th><th>Observação</th><th></th></tr></thead><tbody>${
-    (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(r.criado_em).getTime())}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}${r.mutuo_estoque_obra_id?'<br><span class="pill aguardando_compra" style="font-size:10px">💱 Mútuo — sai de '+esc(obraName(r.mutuo_estoque_obra_id))+'</span>':''}</td><td>${esc(r.aplicacao_nome||'—')}</td><td>${esc(r.solicitante_nome)}</td><td>${r.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td class="muted" style="font-size:12px">${esc(r.observacao||'—')}</td><td class="num" style="white-space:nowrap"><button class="btn primary sm" onclick="aprovarRequisicao(${r.id})">✔ Aprovar</button> <button class="btn danger sm" onclick="rejeitarRequisicao(${r.id})">✕ Rejeitar</button></td></tr>`).join('')||`<tr><td colspan="8" class="empty" style="padding:24px">Nenhum pedido pendente.</td></tr>`}</tbody></table>`; }
+  box.innerHTML=`<table><thead><tr><th>Nº</th><th>Data</th><th>Obra / OS</th><th>Equipamento / Prefixo</th><th>Solicitante</th><th>Itens</th><th>Observação</th><th></th></tr></thead><tbody>${
+    (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(r.criado_em).getTime())}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}${r.mutuo_estoque_obra_id?'<br><span class="pill aguardando_compra" style="font-size:10px">💱 Mútuo — sai de '+esc(obraName(r.mutuo_estoque_obra_id))+'</span>':''}</td><td>${reqAplicCelHTML(r)}</td><td>${esc(r.solicitante_nome)}</td><td>${r.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td class="muted" style="font-size:12px">${esc(r.observacao||'—')}</td><td class="num" style="white-space:nowrap"><button class="btn primary sm" onclick="aprovarRequisicao(${r.id})">✔ Aprovar</button> <button class="btn danger sm" onclick="rejeitarRequisicao(${r.id})">✕ Rejeitar</button></td></tr>`).join('')||`<tr><td colspan="8" class="empty" style="padding:24px">Nenhum pedido pendente.</td></tr>`}</tbody></table>`; }
 async function drawAprovHist(){ const box=$('#aprovHist'); if(!box)return;
   let q=sb.from('requisicoes').select('*').neq('status','pendente').order('decidido_em',{ascending:false}).limit(40);
   if(!isAdminOuEncAlmox()){
@@ -3354,12 +3354,12 @@ async function drawAprovHist(){ const box=$('#aprovHist'); if(!box)return;
     const {data:sep}=await sb.from('requisicao_itens_status').select('requisicao_id').in('requisicao_id',data.map(r=>r.id)).gt('quantidade_separada',0);
     (sep||[]).forEach(s=>ativos.add(s.requisicao_id));
   }
-  box.innerHTML=`<table><thead><tr><th>Nº</th><th>Obra / OS</th><th>Aplicação</th><th>Solicitante</th><th>Situação</th><th>Decidido por</th><th>Quando</th>${isDanielAdmin()?'<th></th>':''}</tr></thead><tbody>${
+  box.innerHTML=`<table><thead><tr><th>Nº</th><th>Obra / OS</th><th>Equipamento / Prefixo</th><th>Solicitante</th><th>Situação</th><th>Decidido por</th><th>Quando</th>${isDanielAdmin()?'<th></th>':''}</tr></thead><tbody>${
     (data||[]).map(r=>{
       const botoes=!isDanielAdmin()?'':ativos.has(r.id)
         ?`<td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="excluirEventoSeparacao(${r.id})" title="Estorna o estoque separado; libera o Excluir REQ em seguida">Excluir separação</button></td>`
         :`<td class="num" style="white-space:nowrap"><button class="btn danger sm" onclick="excluirRequisicaoAdmin(${r.id})">Excluir REQ</button></td>`;
-      return `<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${esc(r.aplicacao_nome||'—')}</td><td>${esc(r.solicitante_nome)}</td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${r.motivo_rejeicao?`<br><span class="muted" style="font-size:11px">${esc(r.motivo_rejeicao)}</span>`:''}</td><td>${esc(r.decidido_por_nome||'—')}</td><td class="muted" style="font-size:12px">${r.decidido_em?fmtDate(new Date(r.decidido_em).getTime()):'—'}</td>${botoes}</tr>`;
+      return `<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${reqAplicCelHTML(r)}</td><td>${esc(r.solicitante_nome)}</td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${r.motivo_rejeicao?`<br><span class="muted" style="font-size:11px">${esc(r.motivo_rejeicao)}</span>`:''}</td><td>${esc(r.decidido_por_nome||'—')}</td><td class="muted" style="font-size:12px">${r.decidido_em?fmtDate(new Date(r.decidido_em).getTime()):'—'}</td>${botoes}</tr>`;
     }).join('')||`<tr><td colspan="${isDanielAdmin()?8:7}" class="empty" style="padding:24px">Nenhuma decisão ainda.</td></tr>`}</tbody></table>`; }
 async function excluirEventoSeparacao(reqId){
   if(!isDanielAdmin()){toast('Apenas o usuário autorizado pode excluir o evento de separação.','err');return;}
@@ -4424,6 +4424,9 @@ function envioTipoLabel(tipo){ return tipo==='despacho'?'🚚 Despacho':tipo==='
 function reqEquipHTML(r){ const a=r.aplicacao_id?state.aplicacoes.find(x=>x.id===r.aplicacao_id):null;
   if(a)return a.tag?` · ⚙ <span style="color:#a85f00">${esc(a.tag)}</span> <span class="muted" style="font-weight:500;font-size:12px">${esc(a.nome)}</span>`:` · ⚙ ${esc(a.nome)}`;
   return r.aplicacao_nome?` · ⚙ ${esc(r.aplicacao_nome)}`:''; }
+/* Coluna "Aplicação" das telas de aprovação: prefixo (placa/tag) em destaque + nome. */
+function reqAplicCelHTML(r){ const a=r.aplicacao_id?state.aplicacoes.find(x=>x.id===r.aplicacao_id):null;
+  return a&&a.tag?`<b style="color:#a85f00">${esc(a.tag)}</b><br><span class="muted" style="font-size:12px">${esc(r.aplicacao_nome||a.nome)}</span>`:esc(r.aplicacao_nome||'—'); }
 async function renderRetiradaPendente(){
   if(!podeVerRetiradas()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito ao almoxarifado, compras e encarregados/administradores.</div></div>'; return; }
   $('#view').innerHTML=`<div class="panel" style="margin-bottom:14px;display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end"><div class="field" style="flex:1 1 320px;margin:0"><label>Pesquisar</label>
@@ -4502,7 +4505,7 @@ function renderNotificacoes(){
   _notifSepKnown=new Set(); _notifRetKnown=new Set(); _notifFirstLoad=true;
   $('#view').innerHTML=`
     <div class="panel" id="notifHeader" style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:16px">
-      <div><h3 style="margin:0">🔔 Painel de Notificações</h3><p class="desc" style="margin:4px 0 0">Deixe esta tela aberta num monitor. Toca um alarme sempre que uma requisição nova entra em separação ou fica pronta para retirada — o que já está aguardando ao abrir a tela aparece listado, sem alarme; o som toca só para o que chegar depois.</p></div>
+      <div><h3 style="margin:0">🔔 Painel de Notificações</h3><p class="desc" style="margin:4px 0 0">Deixe esta tela aberta num monitor. Toca um alarme sempre que uma requisição nova entra em separação ou fica pronta para retirada — o que já está aguardando ao abrir a tela aparece listado, sem alarme; o som toca só para o que chegar depois.</p><p class="desc" style="margin:6px 0 0">🖥 Para o monitor, use o app próprio do painel, que não desconecta por inatividade: <a href="${esc(new URL('notificacoes/',location.href).href)}" target="_blank" rel="noopener" style="color:#7a5100;font-weight:600">${esc(new URL('notificacoes/',location.href).href)}</a></p></div>
       <button class="btn" onclick="notifModoApresentacao()">🖥 Modo apresentação</button>
     </div>
     <div class="notif-grid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
@@ -5746,7 +5749,9 @@ async function doSignup(){ const nome=$('#suNome').value.trim(); const email=$('
   const {error}=await sb.auth.signUp({email,password:senha,options:{data:{nome},emailRedirectTo:window.location.origin+window.location.pathname}});
   if(error){ $('#authMsg').textContent='Erro: '+error.message; return; }
   $('#authMsg').textContent='Conta criada! Aguarde um administrador ativar seu acesso, depois faça login.'; setAuthMode('login'); }
-async function doLogout(){ await sb.rpc('log_event',{p_acao:'logout'}); await sb.auth.signOut(); }
+/* scope 'local': encerra só a sessão deste navegador. O padrão (global) derrubava o usuário em todos os aparelhos —
+   ex.: a saída por inatividade no computador desconectava o app de Aprovações no celular. */
+async function doLogout(){ await sb.rpc('log_event',{p_acao:'logout'}); await sb.auth.signOut({scope:'local'}); }
 function showGate(){ $('#gate').style.display='flex'; }
 function hideGate(){ $('#gate').style.display='none'; }
 function showPending(){ _appUid=null; const el=$('#authView'); el.innerHTML=`<div class="pendbox"><div class="ico">⏳</div><h3 style="margin-bottom:8px">Conta aguardando aprovação</h3><p style="color:var(--muted);font-size:13px">Um administrador precisa ativar seu usuário antes do primeiro acesso.</p><button class="btn ghost sm" style="margin-top:16px" onclick="doLogout()">Sair</button></div>`; showGate(); }
