@@ -3025,7 +3025,8 @@ function drawBaixaHist(){ const tb=$('#baixaHist'); if(!tb)return; const _o=curO
     else{ info.style.display=''; const tot=todas.reduce((a,m)=>a+(Number(m.valorTotal)||0)*(isMovDevolReq(m)?-1:1),0);
       info.innerHTML=todas.length?`<b>${todas.length}</b> ${todas.length===1?'baixa encontrada':'baixas encontradas'} em todas as obras · total ${money(tot)} <a href="#" onclick="$('#baixaBusca').value='';drawBaixaHist();return false" style="margin-left:8px;color:#7a5100">limpar busca</a>`
         :`Nenhuma baixa encontrada para <b>${esc(String(q).trim())}</b>.${f.req!=null?' A baixa do estoque é gerada na <b>Separação</b>: requisição que ainda não foi separada (ou que só aguarda compra) não aparece aqui.':''} <a href="#" onclick="$('#baixaBusca').value='';drawBaixaHist();return false" style="margin-left:8px;color:#7a5100">limpar busca</a>`; } }
-  tb.innerHTML=list.length?list.map(m=>`<tr><td class="muted" style="font-size:12px">${fmtDate(m.ts)}</td><td class="mono">${m.seq?seqf(m.seq):'—'}${reqIdFromDoc(m.doc)?`<br><a href="#" onclick="abrirRequisicao(${reqIdFromDoc(m.doc)});return false" title="Ver requisição" style="font-size:11px;color:#7a5100;text-decoration:none;white-space:nowrap">REQ-${String(reqIdFromDoc(m.doc)).padStart(5,'0')}</a>`:''}</td><td>${esc(obraName(m.obra))}</td><td>${esc(m.desc)}${m.aplic?`<br><span class="muted" style="font-size:11px">→ ${esc(aplicName(m.aplic))}</span>`:''}${m.os?`<br><span class="muted" style="font-size:11px">OS ${esc(m.os)}</span>`:''}${m.obs?`<br><span class="muted" style="font-size:11px">obs: ${esc(m.obs)}</span>`:''}</td>${isMovDevolReq(m)?`<td class="num pos" title="Devolução de requisição — voltou ao estoque">↩ +${numf(-m.qty)}</td>`:`<td class="num neg">−${numf(m.qty)}</td>`}<td class="num">${money(m.valorTotal)}</td><td class="num">${isMovDevolReq(m)?`<button class="btn ghost sm" title="Comprovante da devolução" onclick="imprimirDevolReq(null,'${m.id}')">🖨</button>`:`<button class="btn ghost sm" title="Comprovante (agrupado)" onclick="reportBaixaGroup('${m.baixaId||m.id}')">🖨</button>`} ${reqIdFromDoc(m.doc)?`<button class="btn ghost sm" title="Ver requisição" onclick="abrirRequisicao(${reqIdFromDoc(m.doc)})">👁</button>`:''}</td></tr>`).join('')+(todas.length>list.length?`<tr class="list-more"><td colspan="7" style="text-align:center;padding:14px"><span class="muted" style="font-size:12px;margin-right:10px">Mostrando ${list.length} de ${todas.length}</span><button class="btn ghost sm" onclick="baixaMais(false)">Mostrar mais</button> <button class="btn ghost sm" onclick="baixaMais(true)">Mostrar todas</button></td></tr>`:''):`<tr><td colspan="7" class="empty" style="padding:24px">${f?'Nada encontrado para esta busca.':'Nenhuma baixa.'}</td></tr>`; }
+  tb.innerHTML=list.length?list.map(m=>`<tr><td class="muted" style="font-size:12px">${fmtDate(m.ts)}</td><td class="mono">${m.seq?seqf(m.seq):'—'}${reqIdFromDoc(m.doc)?`<br><a href="#" onclick="abrirRequisicao(${reqIdFromDoc(m.doc)});return false" title="Ver requisição" style="font-size:11px;color:#7a5100;text-decoration:none;white-space:nowrap">REQ-${String(reqIdFromDoc(m.doc)).padStart(5,'0')}</a>`:''}</td><td>${esc(obraName(m.obra))}</td><td>${esc(m.desc)}${m.aplic?`<br><span class="muted" style="font-size:11px">→ ${esc(aplicName(m.aplic))}</span>`:''}${m.os?`<br><span class="muted" style="font-size:11px">OS ${esc(m.os)}</span>`:''}${m.obs?`<br><span class="muted" style="font-size:11px">obs: ${esc(m.obs)}</span>`:''}${siengePill(m.id)}</td>${isMovDevolReq(m)?`<td class="num pos" title="Devolução de requisição — voltou ao estoque">↩ +${numf(-m.qty)}</td>`:`<td class="num neg">−${numf(m.qty)}</td>`}<td class="num">${money(m.valorTotal)}</td><td class="num">${isMovDevolReq(m)?`<button class="btn ghost sm" title="Comprovante da devolução" onclick="imprimirDevolReq(null,'${m.id}')">🖨</button>`:`<button class="btn ghost sm" title="Comprovante (agrupado)" onclick="reportBaixaGroup('${m.baixaId||m.id}')">🖨</button>`} ${reqIdFromDoc(m.doc)?`<button class="btn ghost sm" title="Ver requisição" onclick="abrirRequisicao(${reqIdFromDoc(m.doc)})">👁</button>`:''}</td></tr>`).join('')+(todas.length>list.length?`<tr class="list-more"><td colspan="7" style="text-align:center;padding:14px"><span class="muted" style="font-size:12px;margin-right:10px">Mostrando ${list.length} de ${todas.length}</span><button class="btn ghost sm" onclick="baixaMais(false)">Mostrar mais</button> <button class="btn ghost sm" onclick="baixaMais(true)">Mostrar todas</button></td></tr>`:''):`<tr><td colspan="7" class="empty" style="padding:24px">${f?'Nada encontrado para esta busca.':'Nenhuma baixa.'}</td></tr>`;
+  siengeHistLista(list.map(m=>m.id)); }
 function reportBaixaGroup(gid){ const ms=state.movements.filter(m=>m.tipo==='baixa'&&(m.baixaId||m.id)===gid); if(!ms.length)return; const m0=ms[0];
   const itens=ms.map(m=>{const p=findProduct(m.code); return {code:m.code,aux:p?p.aux:'',desc:m.desc,qty:m.qty,unit:p?p.unit:'',valor:m.valorUnit};});
   printSignReport({titulo:'Comprovante de Saída de Material',numero:seqf(m0.seq),subtitulo:'Baixa de estoque',data:fmtDate(m0.ts),obra:obraName(m0.obra),aplicacao:aplicName(m0.aplic),doc:m0.doc,obs:m0.obs,itens,assinaturas:['Solicitante','Responsável pelo almoxarifado','Recebedor']}); }
@@ -4706,56 +4707,98 @@ async function exportAuditoria(){ if(!_auditRows.length){toast('Nada para export
 function siengeCodigoAux(aux){ const m=/^\s*(\d+)\s*-\s*(\d+)(?:\s*-\s*(\d+))?\s*$/.exec(String(aux||'')); return m?{insumo:m[1],detalhe:m[2],marca:m[3]||''}:null; }
 function _dataInput(d){ return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10); }
 let _sgExp=null;
-function siengeExportModal(){ const hoje=new Date(); const ini=new Date(hoje.getFullYear(),hoje.getMonth(),1);
+/* Baixas já enviadas ao Sienge (tabelas sienge_envios / sienge_envio_itens — ver scripts/sienge_envios.sql).
+   _sgEnv: id da baixa → {envio,doc,em,por} ou null (consultada e não enviada). */
+const _sgEnv=new Map();
+async function siengeCarregarEnvios(ids,forcar){ const falta=[...new Set(ids.map(String))].filter(id=>forcar||!_sgEnv.has(id)); if(!falta.length)return {error:null};
+  for(let i=0;i<falta.length;i+=150){ const lote=falta.slice(i,i+150);
+    const {data,error}=await sb.from('sienge_envio_itens').select('movimento_id,envio_id,sienge_envios(documento_sienge,criado_em,criado_por_nome)').eq('ativo',true).in('movimento_id',lote);
+    if(error)return {error};
+    lote.forEach(id=>_sgEnv.set(id,null));
+    (data||[]).forEach(r=>{ const e=r.sienge_envios||{}; _sgEnv.set(String(r.movimento_id),{envio:r.envio_id,doc:e.documento_sienge||'',em:e.criado_em,por:e.criado_por_nome||''}); }); }
+  return {error:null}; }
+function siengePill(id){ const e=_sgEnv.get(String(id)); return e?`<br><span class="pill sienge-st ok" style="font-size:10.5px" title="Enviada ao Sienge${e.em?' em '+fmtDate(new Date(e.em).getTime()):''}${e.por?' por '+esc(e.por):''}">✓ Sienge ${esc(e.doc)}</span>`:''; }
+let _sgHistBusca=false;
+function siengeHistLista(ids){ if(_sgHistBusca||!isOnline)return; const falta=ids.filter(id=>!_sgEnv.has(String(id))); if(!falta.length)return;
+  _sgHistBusca=true; siengeCarregarEnvios(falta).then(({error})=>{ _sgHistBusca=false; if(error){ falta.forEach(id=>_sgEnv.set(String(id),null)); return; } if(activeTab==='baixa')drawBaixaHist(); }); }
+function siengeExportModal(){ const hoje=new Date();
   const obras=state.obras.slice().sort((a,b)=>(b.ehEstoque?1:0)-(a.ehEstoque?1:0)||String(a.nome).localeCompare(String(b.nome),'pt-BR'));
   const o=curObra(); const sel=obras.some(x=>x.id===o)?o:((obras.find(x=>x.ehEstoque)||obras[0]||{}).id);
-  modal(`<h3>Baixas para o Sienge</h3><p class="mp">Gera a planilha para importar no movimento de <b>Consumo</b> do Sienge (Movimentos de Estoque → Insumos → Importação).</p>
+  modal(`<h3>Baixas para o Sienge</h3><p class="mp">Gera a planilha para importar no movimento de <b>Consumo</b> do Sienge (Movimentos de Estoque → Insumos → Importação). Depois de importar no Sienge, marque como enviadas: elas não entram de novo nas próximas planilhas.</p>
     <div class="row" style="display:flex;gap:10px;flex-wrap:wrap">
-      <div class="field" style="flex:2;min-width:200px"><label>Obra / estoque</label><select id="sgObra">${obras.map(x=>`<option value="${esc(x.id)}" ${x.id===sel?'selected':''}>${esc(x.nome)}</option>`).join('')}</select></div>
-      <div class="field" style="flex:1;min-width:130px"><label>De</label><input type="date" id="sgDe" value="${_dataInput(ini)}"></div>
+      <div class="field" style="flex:2;min-width:200px"><label>Obra / estoque</label><select id="sgObra" onchange="siengeEnviosLista()">${obras.map(x=>`<option value="${esc(x.id)}" ${x.id===sel?'selected':''}>${esc(x.nome)}</option>`).join('')}</select></div>
+      <div class="field" style="flex:1;min-width:130px"><label>De (vazio = desde o início)</label><input type="date" id="sgDe" value=""></div>
       <div class="field" style="flex:1;min-width:130px"><label>Até</label><input type="date" id="sgAte" value="${_dataInput(hoje)}"></div></div>
+    <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-weight:500;font-size:13px;margin:2px 0 0"><input type="checkbox" id="sgIncluir" style="width:auto"> Incluir baixas já enviadas ao Sienge (só para conferência — não dá para marcar de novo)</label>
     <div id="sgRes" style="margin-top:6px"></div>
-    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px"><button class="btn ghost" onclick="closeModal()">Fechar</button><button class="btn primary" id="sgGerar" onclick="siengeExportGerar()">Gerar</button></div>`); }
-async function siengeExportGerar(){ const box=$('#sgRes'); const obra=$('#sgObra').value; const de=$('#sgDe').value, ate=$('#sgAte').value;
-  if(!de||!ate||de>ate){ toast('Informe o período.','err'); return; }
-  const t0=new Date(de+'T00:00:00').getTime(), t1=new Date(ate+'T23:59:59.999').getTime();
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px"><button class="btn ghost" onclick="closeModal()">Fechar</button><button class="btn primary" id="sgGerar" onclick="siengeExportGerar()">Gerar</button></div>
+    <div class="sechead" style="margin-top:18px"><h3 style="font-size:15px">Envios ao Sienge desta obra</h3></div><div id="sgEnvios" class="tbl-wrap"><div class="empty">Carregando...</div></div>`);
+  siengeEnviosLista(); }
+async function siengeEnviosLista(){ const box=$('#sgEnvios'); if(!box)return; const obra=$('#sgObra').value;
+  const {data,error}=await sb.from('sienge_envios').select('*').eq('obra_id',obra).order('criado_em',{ascending:false}).limit(30);
+  if(!$('#sgEnvios'))return;
+  if(error){ box.innerHTML='<div class="empty">Não foi possível ler os envios: '+esc(error.message)+(/sienge_envios/.test(error.message)?' — rode scripts/sienge_envios.sql no Supabase.':'')+'</div>'; return; }
+  const per=e=>e.periodo_de||e.periodo_ate?[e.periodo_de?e.periodo_de.split('-').reverse().join('/'):'início',e.periodo_ate?e.periodo_ate.split('-').reverse().join('/'):''].join(' a '):'—';
+  box.innerHTML=`<table><thead><tr><th>Quando</th><th>Movimento no Sienge</th><th>Período</th><th class="num">Linhas</th><th class="num">Baixas</th><th>Por</th><th></th></tr></thead><tbody>${(data||[]).map(e=>`<tr${e.cancelado_em?' style="opacity:.55"':''}><td class="muted" style="font-size:12px">${fmtDate(new Date(e.criado_em).getTime())}</td><td><b>${esc(e.documento_sienge)}</b>${e.com_marca?' <span class="muted" style="font-size:11px">(com marca)</span>':''}${e.cancelado_em?`<br><span style="font-size:11px;color:#b03a3a">desfeito por ${esc(e.cancelado_por_nome||'')} em ${fmtDate(new Date(e.cancelado_em).getTime())}: ${esc(e.motivo_cancelamento||'')}</span>`:''}</td><td style="font-size:12px">${per(e)}</td><td class="num">${e.linhas}</td><td class="num">${e.qtd_baixas}</td><td style="font-size:12px">${esc(e.criado_por_nome||'')}</td><td class="num">${!e.cancelado_em&&isAdminOuEncAlmox()?`<button class="btn ghost sm" title="Desfazer: as baixas voltam a ficar pendentes de envio" onclick="siengeDesfazerEnvio(${e.id},'${esc(String(e.documento_sienge).replace(/'/g,''))}')">Desfazer</button>`:''}</td></tr>`).join('')||'<tr><td colspan="7" class="empty" style="padding:16px">Nenhum envio registrado.</td></tr>'}</tbody></table>`; }
+async function siengeDesfazerEnvio(id,doc){ const motivo=prompt('Desfazer o envio '+doc+'? As baixas dele voltam a ficar pendentes de envio ao Sienge.\n\nMotivo (ex.: importação estornada no Sienge):'); if(motivo==null)return;
+  if(!motivo.trim()){ toast('Informe o motivo.','err'); return; }
+  const {error}=await sb.rpc('sienge_desfazer_envio',{p_envio:id,p_motivo:motivo.trim()}); if(error){ toast(error.message,'err'); return; }
+  [..._sgEnv].forEach(([k,v])=>{ if(v&&v.envio===id)_sgEnv.delete(k); });
+  toast('Envio '+doc+' desfeito.','warn'); siengeEnviosLista(); if(_sgExp)siengeExportGerar(); if(activeTab==='baixa')drawBaixaHist(); }
+async function siengeExportGerar(){ const box=$('#sgRes'); if(!box)return; const obra=$('#sgObra').value; const de=$('#sgDe').value, ate=$('#sgAte').value; const incluir=$('#sgIncluir').checked;
+  if(!ate||(de&&de>ate)){ toast('Informe o período.','err'); return; }
+  const t0=de?new Date(de+'T00:00:00').getTime():0, t1=new Date(ate+'T23:59:59.999').getTime();
   box.innerHTML='<div class="empty">Buscando baixas...</div>';
   const {data,error}=await fetchAllRows(()=>sb.from('movimentos_estoque').select('id,ts,seq,code,descricao,qty,valor_unit,valor_total,doc,os,aplic').eq('tipo','baixa').eq('obra',obra).gte('ts',t0).lte('ts',t1).order('ts',{ascending:true}).order('id'));
   if(error){ box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>'; return; }
-  const linhas=new Map(), pend=new Map(), movs=[];
-  (data||[]).forEach(r=>{ const p=findProduct(r.code); const aux=p?p.aux:''; const sc=siengeCodigoAux(aux); const qty=Number(r.qty)||0, vt=Number(r.valor_total)||0;
-    movs.push({r,p,aux,sc});
+  const {error:eEnv}=await siengeCarregarEnvios((data||[]).map(r=>r.id),true);
+  if(eEnv){ box.innerHTML='<div class="empty">Não foi possível conferir as baixas já enviadas ao Sienge: '+esc(eEnv.message)+'</div>'; return; }
+  const linhas=new Map(), pend=new Map(), movs=[]; let jaEnviadas=0;
+  (data||[]).forEach(r=>{ const p=findProduct(r.code); const aux=p?p.aux:''; const sc=siengeCodigoAux(aux); const qty=Number(r.qty)||0, vt=Number(r.valor_total)||0; const env=_sgEnv.get(String(r.id))||null;
+    movs.push({r,p,aux,sc,env});
+    if(env){ jaEnviadas++; if(!incluir)return; }
     if(!sc){ const k=String(r.code); const x=pend.get(k)||{code:r.code,desc:(p&&p.desc)||r.descricao,aux:aux||'',unit:(p&&p.unit)||'',qty:0,valor:0,n:0}; x.qty+=qty; x.valor+=vt; x.n++; pend.set(k,x); return; }
-    const k=[sc.insumo,sc.detalhe,sc.marca].join('-'); const x=linhas.get(k)||{...sc,descs:new Set(),unit:(p&&p.unit)||'',qty:0,valor:0,n:0};
-    x.descs.add((p&&p.desc)||r.descricao); x.qty+=qty; x.valor+=vt; x.n++; linhas.set(k,x); });
+    const k=[sc.insumo,sc.detalhe,sc.marca].join('-'); const x=linhas.get(k)||{...sc,descs:new Set(),unit:(p&&p.unit)||'',qty:0,valor:0,n:0,movIds:[]};
+    x.descs.add((p&&p.desc)||r.descricao); x.qty+=qty; x.valor+=vt; x.n++; x.movIds.push(String(r.id)); linhas.set(k,x); });
   const r4=n=>Math.round(n*10000)/10000;
   const todas=[...linhas.values()].map(x=>({...x,qty:r4(x.qty),preco:x.qty>0?r4(x.valor/x.qty):0})).sort((a,b)=>Number(a.insumo)-Number(b.insumo)||Number(a.detalhe)-Number(b.detalhe)||Number(a.marca||0)-Number(b.marca||0));
   const ok=todas.filter(x=>x.qty>0), zeradas=todas.filter(x=>x.qty<=0);
-  _sgExp={obra,de,ate,ok,zeradas,pend:[...pend.values()].filter(x=>Math.abs(x.qty)>1e-9),movs};
+  _sgExp={obra,de,ate,incluir,ok,zeradas,pend:[...pend.values()].filter(x=>Math.abs(x.qty)>1e-9),movs,baixados:{}};
   if(!movs.length){ box.innerHTML='<div class="empty">Nenhuma baixa nesse período.</div>'; return; }
   const semMarca=ok.filter(x=>!x.marca), comMarca=ok.filter(x=>x.marca);
   const ordem=m=>`<ol style="margin:4px 0 0 18px;padding:0">${['Código do insumo','Detalhe',...(m?['Marca']:[]),'Quantidade','Preço unitário'].map(c=>'<li>'+c+'</li>').join('')}</ol>`;
-  const btnArq=(m,lst)=>lst.length?`<div style="flex:1;min-width:220px;border:1px solid #e3ddd0;border-radius:8px;padding:10px"><b>${m?'Itens com marca':'Itens sem marca'}</b> · ${lst.length} linha(s)<div class="muted" style="font-size:12px;margin-top:4px">No Sienge, em <b>Conteúdo da coluna</b>, clique em ADICIONAR nesta ordem:</div>${ordem(m)}<button class="btn dark sm" style="margin-top:8px" onclick="siengeExportArquivo(${m?1:0})">↓ Planilha de importação</button></div>`:'';
-  box.innerHTML=`<div style="font-size:13px;margin:4px 0 10px"><b>${movs.length}</b> baixa(s) no período → <b>${ok.length}</b> linha(s) para o Sienge.
-      ${_sgExp.pend.length?`<br><span style="color:#b03a3a">⚠ ${_sgExp.pend.length} produto(s) sem código do Sienge no cadastro (Cód. auxiliar no formato INSUMO-DETALHE ou INSUMO-DETALHE-MARCA) ficaram de fora — veja a aba “Pendências” do relatório.</span>`:''}
-      ${zeradas.length?`<br><span class="muted">${zeradas.length} item(ns) zerado(s) por devolução não entram na importação.</span>`:''}</div>
+  const marcar=m=>incluir?'<div class="muted" style="font-size:11.5px;margin-top:8px">Para marcar como enviadas, desmarque “Incluir baixas já enviadas” e gere de novo.</div>'
+    :`<div id="sgMarca${m?1:0}" style="margin-top:10px;border-top:1px dashed #e3ddd0;padding-top:8px"><div class="muted" style="font-size:12px">Importou no Sienge? Informe o nº do movimento e marque:</div>
+      <div style="display:flex;gap:6px;margin-top:4px"><input id="sgDoc${m?1:0}" placeholder="ex.: REQ / 11601" style="flex:1;min-width:0"><button class="btn primary sm" onclick="siengeMarcarEnviadas(${m?1:0})">✓ Marcar como enviadas</button></div></div>`;
+  const btnArq=(m,lst)=>lst.length?`<div style="flex:1;min-width:240px;border:1px solid #e3ddd0;border-radius:8px;padding:10px"><b>${m?'Itens com marca':'Itens sem marca'}</b> · ${lst.length} linha(s) · ${lst.reduce((a,x)=>a+x.movIds.length,0)} baixa(s)<div class="muted" style="font-size:12px;margin-top:4px">No Sienge, em <b>Conteúdo da coluna</b>, clique em ADICIONAR nesta ordem:</div>${ordem(m)}<button class="btn dark sm" style="margin-top:8px" onclick="siengeExportArquivo(${m?1:0})">↓ Planilha de importação</button>${marcar(m)}</div>`:'';
+  box.innerHTML=`<div style="font-size:13px;margin:4px 0 10px"><b>${movs.length}</b> baixa(s) no período${jaEnviadas?` · <span style="color:#1c7a52">${jaEnviadas} já enviada(s) ao Sienge${incluir?' (incluídas)':' (fora da planilha)'}</span>`:''} → <b>${ok.length}</b> linha(s) para o Sienge.
+      ${_sgExp.pend.length?`<br><span style="color:#b03a3a">⚠ ${_sgExp.pend.length} produto(s) sem código do Sienge no cadastro (Cód. auxiliar no formato INSUMO-DETALHE ou INSUMO-DETALHE-MARCA) ficaram de fora e continuam pendentes — veja a aba “Pendências” do relatório.</span>`:''}
+      ${zeradas.length?`<br><span class="muted">${zeradas.length} item(ns) zerado(s) ou negativo(s) por devolução não entram na importação.</span>`:''}</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap">${btnArq(false,semMarca)}${btnArq(true,comMarca)}</div>
-    ${semMarca.length&&comMarca.length?'<p class="muted" style="font-size:12px;margin:8px 0 0">As duas planilhas têm colunas diferentes: importe uma, depois troque o Conteúdo da coluna e importe a outra (no mesmo movimento ou em outro).</p>':''}
+    ${semMarca.length&&comMarca.length?'<p class="muted" style="font-size:12px;margin:8px 0 0">As duas planilhas têm colunas diferentes: importe uma, depois troque o Conteúdo da coluna e importe a outra (no mesmo movimento ou em outro). Marque cada uma depois de importar.</p>':''}
     <div style="margin-top:10px"><button class="btn ghost sm" onclick="siengeExportRelatorio()">↓ Relatório de conferência (.xlsx)</button></div>
-    <div class="tbl-wrap" style="margin-top:10px;max-height:280px;overflow:auto"><table><thead><tr><th>Insumo</th><th>Detalhe</th><th>Marca</th><th>Produto(s) no estoque</th><th class="num">Qtd</th><th class="num">Preço un.</th></tr></thead><tbody>${ok.map(x=>`<tr><td class="mono">${esc(x.insumo)}</td><td class="mono">${esc(x.detalhe)}</td><td class="mono">${esc(x.marca||'—')}</td><td style="font-size:12px">${[...x.descs].map(esc).join('<br>')}</td><td class="num">${numf(x.qty)} ${esc(x.unit)}</td><td class="num">${money(x.preco)}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">Nenhum item com código do Sienge.</td></tr>'}</tbody></table></div>`; }
+    <div class="tbl-wrap" style="margin-top:10px;max-height:280px;overflow:auto"><table><thead><tr><th>Insumo</th><th>Detalhe</th><th>Marca</th><th>Produto(s) no estoque</th><th class="num">Qtd</th><th class="num">Preço un.</th></tr></thead><tbody>${ok.map(x=>`<tr><td class="mono">${esc(x.insumo)}</td><td class="mono">${esc(x.detalhe)}</td><td class="mono">${esc(x.marca||'—')}</td><td style="font-size:12px">${[...x.descs].map(esc).join('<br>')}</td><td class="num">${numf(x.qty)} ${esc(x.unit)}</td><td class="num">${money(x.preco)}</td></tr>`).join('')||`<tr><td colspan="6" class="empty">${jaEnviadas&&!incluir?'Nada pendente: as baixas com código do Sienge deste período já foram enviadas.':'Nenhum item com código do Sienge.'}</td></tr>`}</tbody></table></div>`; }
+async function siengeMarcarEnviadas(comMarca){ if(!_sgExp||_sgExp.incluir)return; const inp=$('#sgDoc'+comMarca); const doc=inp?inp.value.trim():'';
+  if(!doc){ toast('Informe o nº do movimento no Sienge (ex.: REQ / 11601).','err'); if(inp)inp.focus(); return; }
+  const lst=_sgExp.ok.filter(x=>!!x.marca===!!comMarca); const ids=lst.flatMap(x=>x.movIds); if(!ids.length)return;
+  if(!_sgExp.baixados[comMarca]&&!confirm('Você ainda não baixou esta planilha nesta tela. Marcar mesmo assim '+ids.length+' baixa(s) como enviadas no movimento '+doc+'?'))return;
+  const {error}=await sb.rpc('sienge_marcar_envio',{p_obra:_sgExp.obra,p_de:_sgExp.de||null,p_ate:_sgExp.ate||null,p_documento:doc,p_com_marca:!!comMarca,p_linhas:lst.length,p_movimentos:ids});
+  if(error){ toast(error.message,'err'); return; }
+  toast(ids.length+' baixa(s) marcadas como enviadas ao Sienge ('+doc+').','ok');
+  await siengeExportGerar(); siengeEnviosLista(); if(activeTab==='baixa')drawBaixaHist(); }
 function _sgNum(v){ return /^\d+$/.test(String(v))?Number(v):v; }
-function _sgNomeArq(){ return [obraName(_sgExp.obra).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^\w\-]+/g,'_').replace(/_+/g,'_'),_sgExp.de,_sgExp.ate].join('_'); }
+function _sgNomeArq(){ return [obraName(_sgExp.obra).normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^\w\-]+/g,'_').replace(/_+/g,'_'),_sgExp.de||'inicio',_sgExp.ate].join('_'); }
 async function siengeExportArquivo(comMarca){ if(!_sgExp)return;
   try{ await ensureXLSX(); }catch(e){ toast('Não foi possível carregar o gerador de Excel (verifique a conexão).','err'); return; }
   const lst=_sgExp.ok.filter(x=>!!x.marca===!!comMarca);
   const aoa=lst.map(x=>[_sgNum(x.insumo),_sgNum(x.detalhe),...(comMarca?[_sgNum(x.marca)]:[]),x.qty,x.preco]);
   const ws=XLSX.utils.aoa_to_sheet(aoa); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Importacao');
-  XLSX.writeFile(wb,'sienge_consumo_'+(comMarca?'com_marca_':'sem_marca_')+_sgNomeArq()+'.xlsx'); }
+  XLSX.writeFile(wb,'sienge_consumo_'+(comMarca?'com_marca_':'sem_marca_')+_sgNomeArq()+'.xlsx'); _sgExp.baixados[comMarca]=true; }
 async function siengeExportRelatorio(){ if(!_sgExp)return;
   try{ await ensureXLSX(); }catch(e){ toast('Não foi possível carregar o gerador de Excel (verifique a conexão).','err'); return; }
   const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(_sgExp.ok.concat(_sgExp.zeradas).map(x=>({Insumo:_sgNum(x.insumo),Detalhe:_sgNum(x.detalhe),Marca:x.marca?_sgNum(x.marca):'',Quantidade:x.qty,Unidade:x.unit,'Preço unitário':x.preco,'Valor total':Math.round(x.valor*100)/100,'Produtos no estoque':[...x.descs].join(' | '),'Nº de baixas':x.n,Situação:x.qty>0?'Importar':'Zerado por devolução'}))),'Resumo Sienge');
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(_sgExp.movs.map(({r,p,aux,sc})=>({Data:fmtDate(Number(r.ts)),'Nº saída':r.seq?seqf(r.seq):'',Requisição:reqIdFromDoc(r.doc)?'REQ-'+String(reqIdFromDoc(r.doc)).padStart(5,'0'):'',Documento:r.doc||'','Cód. estoque':r.code,'Cód. auxiliar':aux||'',Produto:(p&&p.desc)||r.descricao,Quantidade:Number(r.qty)||0,Unidade:(p&&p.unit)||'','Valor unit.':Number(r.valor_unit)||0,'Valor total':Number(r.valor_total)||0,Aplicação:r.aplic?aplicName(r.aplic):'',OS:r.os||'','Vai para o Sienge':sc?'Sim':'Não — sem código do Sienge'}))),'Baixas');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(_sgExp.ok.concat(_sgExp.zeradas).map(x=>({Insumo:_sgNum(x.insumo),Detalhe:_sgNum(x.detalhe),Marca:x.marca?_sgNum(x.marca):'',Quantidade:x.qty,Unidade:x.unit,'Preço unitário':x.preco,'Valor total':Math.round(x.valor*100)/100,'Produtos no estoque':[...x.descs].join(' | '),'Nº de baixas':x.n,Situação:x.qty>0?'Importar':'Zerado/negativo por devolução'}))),'Resumo Sienge');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(_sgExp.movs.map(({r,p,aux,sc,env})=>({Data:fmtDate(Number(r.ts)),'Nº saída':r.seq?seqf(r.seq):'',Requisição:reqIdFromDoc(r.doc)?'REQ-'+String(reqIdFromDoc(r.doc)).padStart(5,'0'):'',Documento:r.doc||'','Cód. estoque':r.code,'Cód. auxiliar':aux||'',Produto:(p&&p.desc)||r.descricao,Quantidade:Number(r.qty)||0,Unidade:(p&&p.unit)||'','Valor unit.':Number(r.valor_unit)||0,'Valor total':Number(r.valor_total)||0,Aplicação:r.aplic?aplicName(r.aplic):'',OS:r.os||'','Vai para o Sienge':!sc?'Não — sem código do Sienge':(env&&!_sgExp.incluir?'Não — já enviada':'Sim'),'Enviada ao Sienge':env?env.doc+(env.em?' em '+fmtDate(new Date(env.em).getTime()):''):''}))),'Baixas');
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(_sgExp.pend.length?_sgExp.pend.map(x=>({'Cód. estoque':x.code,'Cód. auxiliar atual':x.aux,Produto:x.desc,Quantidade:Math.round(x.qty*10000)/10000,Unidade:x.unit,'Valor total':Math.round(x.valor*100)/100,'Nº de baixas':x.n,'O que fazer':'Cadastrar o Cód. auxiliar como INSUMO-DETALHE ou INSUMO-DETALHE-MARCA do Sienge'})):[{Pendências:'Nenhuma'}]),'Pendências');
   XLSX.writeFile(wb,'relatorio_baixas_sienge_'+_sgNomeArq()+'.xlsx'); }
 
