@@ -2827,7 +2827,7 @@ function renderBaixa(){
     <button id="bmMan" onclick="setBaixaMode('manual')">Manual / Saída de material</button></div></div>
   <div id="baixaPane"></div>
   <div class="sechead" style="margin-top:24px"><h3>Últimas baixas</h3>
-    <div class="search" style="flex:1;min-width:240px;max-width:480px"><span class="si">⌕</span><input id="baixaBusca" placeholder="Buscar: REQ-00136, nº da saída, produto, equipamento, OS..." oninput="baixaBuscaInput()"></div></div>
+    <div class="search" style="flex:1;min-width:240px;max-width:480px"><span class="si">⌕</span><input id="baixaBusca" placeholder="Buscar: REQ-00136, nº da saída, produto, equipamento, OS..." oninput="baixaBuscaInput()"></div>${isAlmoxarife()?'<button class="btn dark sm" onclick="siengeExportModal()" title="Gerar a planilha de importação das baixas no movimento de Consumo do Sienge">⇪ Baixas para o Sienge</button>':''}</div>
   <div id="baixaBuscaInfo" style="font-size:12.5px;color:#6a6357;margin:-6px 0 10px;display:none"></div>
   <div class="tbl-wrap"><table><thead><tr><th>Data</th><th>Nº</th><th>Obra</th><th>Produto</th><th class="num">Qtd</th><th class="num">Total</th><th></th></tr></thead><tbody id="baixaHist"></tbody></table></div>
   <div class="sechead" style="margin-top:24px"><h3>Minhas solicitações pendentes de aprovação</h3></div>
@@ -4696,6 +4696,68 @@ async function exportAuditoria(){ if(!_auditRows.length){toast('Nada para export
   const rows=_auditRows.map(r=>({Quando:fmtDate(new Date(r.criado_em).getTime()),Usuario:r.usuario_nome,Papel:r.papel,Acao:r.acao,Entidade:r.entidade,EntidadeId:r.entidade_id,Detalhes:r.detalhes?JSON.stringify(r.detalhes):''}));
   const ws=XLSX.utils.json_to_sheet(rows); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Auditoria');
   XLSX.writeFile(wb,'auditoria_estoque_'+new Date().toISOString().slice(0,10)+'.xlsx'); }
+
+/* ===== Exportação das baixas para o Sienge =====
+   Gera a planilha que o Sienge aceita em Suprimentos > Estoque > Movimentos de Estoque > Cadastros > (movimento de
+   Consumo) > Insumos > Importação: XLSX sem cabeçalho, sem fórmulas, uma linha por insumo/detalhe/marca.
+   O código do Sienge vem do "Cód. auxiliar" do produto, no formato INSUMO-DETALHE ou INSUMO-DETALHE-MARCA
+   (ex.: 4666-216, 4679-106-37). Vários produtos do estoque podem ter o mesmo código do Sienge: as quantidades somam.
+   Devoluções de requisição (baixa com quantidade negativa) abatem da mesma linha. */
+function siengeCodigoAux(aux){ const m=/^\s*(\d+)\s*-\s*(\d+)(?:\s*-\s*(\d+))?\s*$/.exec(String(aux||'')); return m?{insumo:m[1],detalhe:m[2],marca:m[3]||''}:null; }
+function _dataInput(d){ return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10); }
+let _sgExp=null;
+function siengeExportModal(){ const hoje=new Date(); const ini=new Date(hoje.getFullYear(),hoje.getMonth(),1);
+  const obras=state.obras.slice().sort((a,b)=>(b.ehEstoque?1:0)-(a.ehEstoque?1:0)||String(a.nome).localeCompare(String(b.nome),'pt-BR'));
+  const o=curObra(); const sel=obras.some(x=>x.id===o)?o:((obras.find(x=>x.ehEstoque)||obras[0]||{}).id);
+  modal(`<h3>Baixas para o Sienge</h3><p class="mp">Gera a planilha para importar no movimento de <b>Consumo</b> do Sienge (Movimentos de Estoque → Insumos → Importação).</p>
+    <div class="row" style="display:flex;gap:10px;flex-wrap:wrap">
+      <div class="field" style="flex:2;min-width:200px"><label>Obra / estoque</label><select id="sgObra">${obras.map(x=>`<option value="${esc(x.id)}" ${x.id===sel?'selected':''}>${esc(x.nome)}</option>`).join('')}</select></div>
+      <div class="field" style="flex:1;min-width:130px"><label>De</label><input type="date" id="sgDe" value="${_dataInput(ini)}"></div>
+      <div class="field" style="flex:1;min-width:130px"><label>Até</label><input type="date" id="sgAte" value="${_dataInput(hoje)}"></div></div>
+    <div id="sgRes" style="margin-top:6px"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px"><button class="btn ghost" onclick="closeModal()">Fechar</button><button class="btn primary" id="sgGerar" onclick="siengeExportGerar()">Gerar</button></div>`); }
+async function siengeExportGerar(){ const box=$('#sgRes'); const obra=$('#sgObra').value; const de=$('#sgDe').value, ate=$('#sgAte').value;
+  if(!de||!ate||de>ate){ toast('Informe o período.','err'); return; }
+  const t0=new Date(de+'T00:00:00').getTime(), t1=new Date(ate+'T23:59:59.999').getTime();
+  box.innerHTML='<div class="empty">Buscando baixas...</div>';
+  const {data,error}=await fetchAllRows(()=>sb.from('movimentos_estoque').select('id,ts,seq,code,descricao,qty,valor_unit,valor_total,doc,os,aplic').eq('tipo','baixa').eq('obra',obra).gte('ts',t0).lte('ts',t1).order('ts',{ascending:true}).order('id'));
+  if(error){ box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>'; return; }
+  const linhas=new Map(), pend=new Map(), movs=[];
+  (data||[]).forEach(r=>{ const p=findProduct(r.code); const aux=p?p.aux:''; const sc=siengeCodigoAux(aux); const qty=Number(r.qty)||0, vt=Number(r.valor_total)||0;
+    movs.push({r,p,aux,sc});
+    if(!sc){ const k=String(r.code); const x=pend.get(k)||{code:r.code,desc:(p&&p.desc)||r.descricao,aux:aux||'',unit:(p&&p.unit)||'',qty:0,valor:0,n:0}; x.qty+=qty; x.valor+=vt; x.n++; pend.set(k,x); return; }
+    const k=[sc.insumo,sc.detalhe,sc.marca].join('-'); const x=linhas.get(k)||{...sc,descs:new Set(),unit:(p&&p.unit)||'',qty:0,valor:0,n:0};
+    x.descs.add((p&&p.desc)||r.descricao); x.qty+=qty; x.valor+=vt; x.n++; linhas.set(k,x); });
+  const r4=n=>Math.round(n*10000)/10000;
+  const todas=[...linhas.values()].map(x=>({...x,qty:r4(x.qty),preco:x.qty>0?r4(x.valor/x.qty):0})).sort((a,b)=>Number(a.insumo)-Number(b.insumo)||Number(a.detalhe)-Number(b.detalhe)||Number(a.marca||0)-Number(b.marca||0));
+  const ok=todas.filter(x=>x.qty>0), zeradas=todas.filter(x=>x.qty<=0);
+  _sgExp={obra,de,ate,ok,zeradas,pend:[...pend.values()].filter(x=>Math.abs(x.qty)>1e-9),movs};
+  if(!movs.length){ box.innerHTML='<div class="empty">Nenhuma baixa nesse período.</div>'; return; }
+  const semMarca=ok.filter(x=>!x.marca), comMarca=ok.filter(x=>x.marca);
+  const ordem=m=>`<ol style="margin:4px 0 0 18px;padding:0">${['Código do insumo','Detalhe',...(m?['Marca']:[]),'Quantidade','Preço unitário'].map(c=>'<li>'+c+'</li>').join('')}</ol>`;
+  const btnArq=(m,lst)=>lst.length?`<div style="flex:1;min-width:220px;border:1px solid #e3ddd0;border-radius:8px;padding:10px"><b>${m?'Itens com marca':'Itens sem marca'}</b> · ${lst.length} linha(s)<div class="muted" style="font-size:12px;margin-top:4px">No Sienge, em <b>Conteúdo da coluna</b>, clique em ADICIONAR nesta ordem:</div>${ordem(m)}<button class="btn dark sm" style="margin-top:8px" onclick="siengeExportArquivo(${m?1:0})">↓ Planilha de importação</button></div>`:'';
+  box.innerHTML=`<div style="font-size:13px;margin:4px 0 10px"><b>${movs.length}</b> baixa(s) no período → <b>${ok.length}</b> linha(s) para o Sienge.
+      ${_sgExp.pend.length?`<br><span style="color:#b03a3a">⚠ ${_sgExp.pend.length} produto(s) sem código do Sienge no cadastro (Cód. auxiliar no formato INSUMO-DETALHE ou INSUMO-DETALHE-MARCA) ficaram de fora — veja a aba “Pendências” do relatório.</span>`:''}
+      ${zeradas.length?`<br><span class="muted">${zeradas.length} item(ns) zerado(s) por devolução não entram na importação.</span>`:''}</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">${btnArq(false,semMarca)}${btnArq(true,comMarca)}</div>
+    ${semMarca.length&&comMarca.length?'<p class="muted" style="font-size:12px;margin:8px 0 0">As duas planilhas têm colunas diferentes: importe uma, depois troque o Conteúdo da coluna e importe a outra (no mesmo movimento ou em outro).</p>':''}
+    <div style="margin-top:10px"><button class="btn ghost sm" onclick="siengeExportRelatorio()">↓ Relatório de conferência (.xlsx)</button></div>
+    <div class="tbl-wrap" style="margin-top:10px;max-height:280px;overflow:auto"><table><thead><tr><th>Insumo</th><th>Detalhe</th><th>Marca</th><th>Produto(s) no estoque</th><th class="num">Qtd</th><th class="num">Preço un.</th></tr></thead><tbody>${ok.map(x=>`<tr><td class="mono">${esc(x.insumo)}</td><td class="mono">${esc(x.detalhe)}</td><td class="mono">${esc(x.marca||'—')}</td><td style="font-size:12px">${[...x.descs].map(esc).join('<br>')}</td><td class="num">${numf(x.qty)} ${esc(x.unit)}</td><td class="num">${money(x.preco)}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">Nenhum item com código do Sienge.</td></tr>'}</tbody></table></div>`; }
+function _sgNum(v){ return /^\d+$/.test(String(v))?Number(v):v; }
+function _sgNomeArq(){ return [obraName(_sgExp.obra).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^\w\-]+/g,'_').replace(/_+/g,'_'),_sgExp.de,_sgExp.ate].join('_'); }
+async function siengeExportArquivo(comMarca){ if(!_sgExp)return;
+  try{ await ensureXLSX(); }catch(e){ toast('Não foi possível carregar o gerador de Excel (verifique a conexão).','err'); return; }
+  const lst=_sgExp.ok.filter(x=>!!x.marca===!!comMarca);
+  const aoa=lst.map(x=>[_sgNum(x.insumo),_sgNum(x.detalhe),...(comMarca?[_sgNum(x.marca)]:[]),x.qty,x.preco]);
+  const ws=XLSX.utils.aoa_to_sheet(aoa); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Importacao');
+  XLSX.writeFile(wb,'sienge_consumo_'+(comMarca?'com_marca_':'sem_marca_')+_sgNomeArq()+'.xlsx'); }
+async function siengeExportRelatorio(){ if(!_sgExp)return;
+  try{ await ensureXLSX(); }catch(e){ toast('Não foi possível carregar o gerador de Excel (verifique a conexão).','err'); return; }
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(_sgExp.ok.concat(_sgExp.zeradas).map(x=>({Insumo:_sgNum(x.insumo),Detalhe:_sgNum(x.detalhe),Marca:x.marca?_sgNum(x.marca):'',Quantidade:x.qty,Unidade:x.unit,'Preço unitário':x.preco,'Valor total':Math.round(x.valor*100)/100,'Produtos no estoque':[...x.descs].join(' | '),'Nº de baixas':x.n,Situação:x.qty>0?'Importar':'Zerado por devolução'}))),'Resumo Sienge');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(_sgExp.movs.map(({r,p,aux,sc})=>({Data:fmtDate(Number(r.ts)),'Nº saída':r.seq?seqf(r.seq):'',Requisição:reqIdFromDoc(r.doc)?'REQ-'+String(reqIdFromDoc(r.doc)).padStart(5,'0'):'',Documento:r.doc||'','Cód. estoque':r.code,'Cód. auxiliar':aux||'',Produto:(p&&p.desc)||r.descricao,Quantidade:Number(r.qty)||0,Unidade:(p&&p.unit)||'','Valor unit.':Number(r.valor_unit)||0,'Valor total':Number(r.valor_total)||0,Aplicação:r.aplic?aplicName(r.aplic):'',OS:r.os||'','Vai para o Sienge':sc?'Sim':'Não — sem código do Sienge'}))),'Baixas');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(_sgExp.pend.length?_sgExp.pend.map(x=>({'Cód. estoque':x.code,'Cód. auxiliar atual':x.aux,Produto:x.desc,Quantidade:Math.round(x.qty*10000)/10000,Unidade:x.unit,'Valor total':Math.round(x.valor*100)/100,'Nº de baixas':x.n,'O que fazer':'Cadastrar o Cód. auxiliar como INSUMO-DETALHE ou INSUMO-DETALHE-MARCA do Sienge'})):[{Pendências:'Nenhuma'}]),'Pendências');
+  XLSX.writeFile(wb,'relatorio_baixas_sienge_'+_sgNomeArq()+'.xlsx'); }
 
 /* ===== TRANSFERÊNCIA ===== */
 let trCart=[];
