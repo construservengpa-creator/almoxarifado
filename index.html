@@ -461,7 +461,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     <div class="navgrp-hd" data-grp-toggle="fluxo"><span class="navgrp-hd-l">Fluxo de Requisição<span class="badge" id="navBadgeFluxo" style="display:none"></span></span><span class="navgrp-chev">▾</span></div>
     <div class="navgrp-body" id="navgrpBody-fluxo">
       <button data-tab="notificacoes" data-role="notif_acesso"><span class="ic">🔔</span><span>Painel de Notificações</span></button>
-      <button data-tab="aprovacoes" data-role="encarregado"><span class="ic">✔</span><span>Aprovações</span><span class="badge" id="navBadgeAprov" style="display:none"></span></button>
+      <button data-tab="aprovacoes" data-role="aprovador"><span class="ic">✔</span><span>Aprovações</span><span class="badge" id="navBadgeAprov" style="display:none"></span></button>
       <button data-tab="separacao" data-role="almoxarife"><span class="ic">📦</span><span>Separação</span><span class="badge" id="navBadgeSeparacao" style="display:none"></span></button>
       <button data-tab="compras" data-role="separacao_acesso"><span class="ic">🛒</span><span>Compras</span><span class="badge" id="navBadgeCompras" style="display:none"></span></button>
       <button data-tab="expedicao" data-role="almoxarife"><span class="ic">🚚</span><span>Expedição</span><span class="badge" id="navBadgeExped" style="display:none"></span></button>
@@ -547,7 +547,18 @@ function isAlmoxarife(){ return !!profile && (profile.papel==='admin'||profile.s
 function isCompras(){ return !!profile && (profile.papel==='admin'||profile.setor==='compras') && profile.ativo; }
 function isFrotas(){ return !!profile && (profile.papel==='admin'||profile.setor==='frotas') && profile.ativo; }
 function isEncFrotas(){ return !!profile && profile.papel==='encarregado' && profile.setor==='frotas' && profile.ativo; }
-function podeAprovarObra(obraId){ if(isAdminOuEncAlmox())return true; if(!isEncarregado())return false;
+/* Quem aprova requisições: marcado por usuário em Administração → Usuários ("Aprova requisições").
+   A marcação fica em state.config.aprovadores ({id do usuário: true/false}, documento compartilhado) e vale também
+   no app de Aprovações. Sem marcação, vale o padrão do papel: admin e encarregado aprovam, os demais não.
+   Admin sempre aprova. Quem aprova e não é admin/encarregado do almoxarifado só aprova as obras vinculadas a ele. */
+function aprovaPorPadrao(u){ return !!u&&(u.papel==='admin'||u.papel==='encarregado'); }
+function usuarioAprova(u){ if(!u||!u.ativo)return false; if(u.papel==='admin')return true;
+  const m=(state.config&&state.config.aprovadores)||{}; return Object.prototype.hasOwnProperty.call(m,u.id)?!!m[u.id]:aprovaPorPadrao(u); }
+function podeAprovar(){ return usuarioAprova(profile); }
+function podeAprovarObra(obraId){ if(!podeAprovar())return false; if(isAdminOuEncAlmox())return true;
+  const vinc=Array.isArray(profile.obras_vinculadas)?profile.obras_vinculadas:[]; return vinc.includes(obraId); }
+/* Inventário: segue a regra antiga (papel encarregado + obras vinculadas), independente da marcação de aprovação de requisições. */
+function podeOperarObraInv(obraId){ if(isAdminOuEncAlmox())return true; if(!isEncarregado())return false;
   const vinc=Array.isArray(profile.obras_vinculadas)?profile.obras_vinculadas:[]; return vinc.includes(obraId); }
 function podeVerCompras(){ return isAlmoxarife()||isCompras()||isFrotas(); }
 /* Operar retirada/expedição: almoxarifado e encarregados. Ver (só leitura): também o setor de compras */
@@ -562,7 +573,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-15T12:00:00-03:00';
+const APP_VERSION='2026-10-15T15:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -751,6 +762,7 @@ function subscribeRealtime(){
     state.movements=prevMovements||[]; state.estoque=prevEstoque||{};
     normalizeState();
     restaurarObraLocal(prevObra); /* atualização de outro usuário não troca a obra selecionada aqui */
+    if(profile)applyRoleNav();
     refreshBadge(); refreshAprovBadge(); refreshGlobalAlerts();
     refreshTelaAtual();
     if(activeTab==='ajuste'&&prevAjLib!==ajusteManualLiberado()&&(!podeFazerAjusteManual()||!usuarioInteragindo())){ closeModal(); renderAjuste(); }
@@ -1454,13 +1466,13 @@ function refreshFluxoGroupBadge(){ const ids=['navBadgeAprov','navBadgeSeparacao
 function applyRoleNav(){
   document.querySelectorAll('#nav button[data-role]').forEach(b=>{
     const need=b.dataset.role;
-    const ok=need==='auditoria'?(isEncarregado()&&!isEncAlmox()):need==='sem_encalmox'?!isEncAlmox():need==='admin'?isAdmin():need==='almoxarife'?isAlmoxarife():need==='compras'?isCompras():need==='separacao_acesso'?podeVerCompras():need==='retiradas_acesso'?podeVerRetiradas():need==='notif_acesso'?podeVerNotificacoes():isEncarregado()&&!(isEncFrotas()&&ABAS_BLOQUEADAS_ENCFROTAS.includes(b.dataset.tab));
+    const ok=need==='auditoria'?(isEncarregado()&&!isEncAlmox()):need==='sem_encalmox'?!isEncAlmox():need==='admin'?isAdmin():need==='almoxarife'?isAlmoxarife():need==='compras'?isCompras():need==='separacao_acesso'?podeVerCompras():need==='retiradas_acesso'?podeVerRetiradas():need==='notif_acesso'?podeVerNotificacoes():need==='aprovador'?podeAprovar():isEncarregado()&&!(isEncFrotas()&&ABAS_BLOQUEADAS_ENCFROTAS.includes(b.dataset.tab));
     b.style.display=ok?'':'none';
   });
   $('#uAvatar').textContent=(profile.nome||'?').trim().charAt(0).toUpperCase();
   $('#uNome').textContent=profile.nome||profile.email; $('#uPapel').textContent=papelLabel(profile.papel)+(profile.setor?' · '+setorLabel(profile.setor):'');
 }
-async function refreshAprovBadge(){ if(!isEncarregado())return; const b=$('#navBadgeAprov'); if(!b)return;
+async function refreshAprovBadge(){ if(!podeAprovar())return; const b=$('#navBadgeAprov'); if(!b)return;
   let count=0;
   if(isAdminOuEncAlmox()){ const r=await sb.from('requisicoes').select('id',{count:'exact',head:true}).eq('status','pendente'); count=r.count||0; }
   else{ const vinc=Array.isArray(profile.obras_vinculadas)?profile.obras_vinculadas:[]; if(vinc.length){ const r=await sb.from('requisicoes').select('id',{count:'exact',head:true}).eq('status','pendente').in('obra_id',vinc); count=r.count||0; } }
@@ -3237,7 +3249,7 @@ async function renderInventario(){
   invDraw(); refreshInvBadge();
 }
 function invDraw(){
-  const linhas=invCalcLote(invRows.filter(r=>podeAprovarObra(r.obra)));
+  const linhas=invCalcLote(invRows.filter(r=>podeOperarObraInv(r.obra)));
   if(!linhas.length){ $('#view').innerHTML=invOrfaosHTML()+'<div class="panel"><h3>Inventário</h3><p class="desc">Nenhum ajuste aguardando autorização. Os ajustes aparecem aqui depois que o encarregado aprova as divergências e os itens fora da lista na tela de <b>Revisão</b> da contagem.</p><button class="btn ghost sm" onclick="renderInventario()">Atualizar</button></div>'; return; }
   const grupos={}; linhas.forEach(l=>(grupos[l.ciclo.id]=grupos[l.ciclo.id]||[]).push(l));
   const marcados=linhas.filter(l=>!l.erro&&invSel[l.key]!==false);
@@ -3270,7 +3282,7 @@ function invDraw(){
 function invToggle(key,v){ invSel[key]=!!v; invDraw(); }
 function invSetModo(key,v){ invModo[key]=v; invDraw(); }
 function invLancar(){
-  const linhas=invCalcLote(invRows.filter(r=>podeAprovarObra(r.obra)&&invSel[r.key]!==false)).filter(l=>!l.erro);
+  const linhas=invCalcLote(invRows.filter(r=>podeOperarObraInv(r.obra)&&invSel[r.key]!==false)).filter(l=>!l.erro);
   if(!linhas.length){ toast('Nenhum ajuste selecionado.','err'); return; }
   const novos=linhas.filter(l=>l.criar).length;
   requireSupervisor('Autorizar e lançar '+linhas.length+' ajuste(s) de inventário no estoque'+(novos?' ('+novos+' produto(s) novo(s))':''),async()=>{
@@ -3320,7 +3332,7 @@ async function cancelarRequisicao(id){
 
 /* ===== APROVAÇÕES (encarregado / admin) ===== */
 async function renderAprovacoes(){
-  if(!isEncarregado()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito a encarregados/administradores.</div></div>'; return; }
+  if(!podeAprovar()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Seu usuário não está marcado para aprovar requisições. Peça ao administrador (Administração → Usuários → "Aprova requisições").</div></div>'; return; }
   const vinc=Array.isArray(profile.obras_vinculadas)?profile.obras_vinculadas:[];
   const aviso=(!isAdminOuEncAlmox()&&!vinc.length)?`<div class="empty" style="padding:14px 18px;margin-bottom:18px;text-align:left;background:#fff3da;border-radius:10px">⚠ Você ainda não tem nenhuma obra (centro de custo) vinculada. Peça a um administrador para vincular suas obras em Administração → Usuários.</div>`:
     (!isAdminOuEncAlmox()?`<div class="muted" style="font-size:12px;margin-bottom:14px">Mostrando apenas requisições das obras vinculadas a você: ${vinc.map(id=>esc(obraName(id))).join(', ')}.</div>`:'');
@@ -5508,16 +5520,18 @@ async function renderAdmin(){
   if(uerr)toast('Erro ao carregar usuários: '+uerr.message,'err');
   _adminUsersCache=users||[];
   const uRows=(users||[]).map(u=>{ const vinc=Array.isArray(u.obras_vinculadas)?u.obras_vinculadas:[];
-    const obrasCell=u.papel==='encarregado'?`<button class="btn ghost sm" onclick="abrirObrasVinculadas('${u.id}')">🏗 ${vinc.length?vinc.length+' vinculada(s)':'Nenhuma — não aprova nada'}</button>`:'<span class="muted">—</span>';
+    const aprova=usuarioAprova(u);
+    const obrasCell=(aprova||u.papel==='encarregado')&&u.papel!=='admin'?`<button class="btn ghost sm" onclick="abrirObrasVinculadas('${u.id}')">🏗 ${vinc.length?vinc.length+' vinculada(s)':'Nenhuma — não aprova nada'}</button>`:'<span class="muted">—</span>';
     return `<tr>
     <td>${esc(u.nome||'—')}<div class="muted" style="font-size:11px">${esc(u.email)}</div></td>
     <td><select id="up_${u.id}" ${u.id===profile.id?'disabled':''} style="width:auto"><option value="operador"${u.papel==='operador'?' selected':''}>Operador</option><option value="encarregado"${u.papel==='encarregado'?' selected':''}>Encarregado</option><option value="admin"${u.papel==='admin'?' selected':''}>Admin</option></select></td>
     <td><select id="us_${u.id}" style="width:auto"><option value=""${!u.setor?' selected':''}>—</option><option value="almoxarifado"${u.setor==='almoxarifado'?' selected':''}>Almoxarifado</option><option value="compras"${u.setor==='compras'?' selected':''}>Compras</option><option value="frotas"${u.setor==='frotas'?' selected':''}>Frotas</option></select></td>
     <td>${obrasCell}</td>
+    <td><label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:500;margin:0" title="${u.papel==='admin'?'Admin sempre aprova':'Marque para permitir que este usuário aprove requisições (no sistema e no app de Aprovações)'}"><input type="checkbox" id="uap_${u.id}" ${aprova||u.papel==='admin'?'checked':''} ${u.papel==='admin'?'disabled':''} style="width:auto"> Aprova</label></td>
     <td class="num"><label style="display:flex;align-items:center;gap:6px;justify-content:flex-end;text-transform:none;font-weight:500;margin:0"><input type="checkbox" id="ua_${u.id}" ${u.ativo?'checked':''} ${u.id===profile.id?'disabled':''} style="width:auto"> Ativo</label></td>
     <td class="num">${u.id===profile.id?'<span class="muted">você</span>':`<button class="btn primary sm" onclick="saveUserRole('${u.id}')">Salvar</button>`}</td></tr>`;}).join('');
-  let html=`<div class="panel"><h3>👤 Usuários</h3><p class="desc">Cadastros novos ficam <b>inativos</b> até você aprovar. <b>Papel</b> define a permissão — operador (solicita e consulta), encarregado (aprova requisições, faz entradas/baixas), admin (tudo). <b>Setor</b> é independente do papel e define a função — almoxarifado (separa e embala), compras/frotas (aparecem pra atribuição de compra de faltantes). Um <b>encarregado</b> só vê e aprova requisições das <b>obras (centro de custo) vinculadas</b> a ele — sem nenhuma vinculada, não aprova nenhuma. Admin sempre aprova de qualquer obra.</p>
-    <div class="tbl-wrap"><table><thead><tr><th>Usuário</th><th>Papel</th><th>Setor</th><th>Obras vinculadas</th><th class="num">Situação</th><th></th></tr></thead><tbody>${uRows||'<tr><td colspan="6" class="empty">Nenhum usuário.</td></tr>'}</tbody></table></div></div>
+  let html=`<div class="panel"><h3>👤 Usuários</h3><p class="desc">Cadastros novos ficam <b>inativos</b> até você aprovar. <b>Papel</b> define a permissão — operador (solicita e consulta), encarregado (aprova requisições, faz entradas/baixas), admin (tudo). <b>Setor</b> é independente do papel e define a função — almoxarifado (separa e embala), compras/frotas (aparecem pra atribuição de compra de faltantes). <b>Aprova requisições</b> define quem aprova (no sistema e no app de Aprovações): vem marcado para encarregados e pode ser marcado para qualquer outro usuário. Quem aprova só vê e aprova requisições das <b>obras (centro de custo) vinculadas</b> a ele — sem nenhuma vinculada, não aprova nenhuma. Admin sempre aprova de qualquer obra; o encarregado do almoxarifado, se marcado, também.</p>
+    <div class="tbl-wrap"><table><thead><tr><th>Usuário</th><th>Papel</th><th>Setor</th><th>Obras vinculadas</th><th>Aprova requisições</th><th class="num">Situação</th><th></th></tr></thead><tbody>${uRows||'<tr><td colspan="7" class="empty">Nenhum usuário.</td></tr>'}</tbody></table></div></div>
   <div class="panel"><h3>🧮 Recalcular custo médio</h3><p class="desc">Refaz o custo médio de cada produto pelo histórico de movimentações, com as regras atuais: entradas pelo custo gravado na nota (com frete e impostos quando houver), base no saldo de todas as obras, saldo negativo conta como zero e notas excluídas não contam. Mostra <b>antes × depois</b> e só grava os produtos que você marcar. Para incluir frete e impostos de notas antigas, use antes <b>Reprocessar XML</b> no detalhe da nota.</p>
     <button class="btn primary" onclick="recalcAbrir()">Calcular</button></div>
   <div class="panel"><h3>Excluir nota fiscal</h3><p class="desc">As entradas da nota são <b>estornadas do estoque</b> da obra correspondente.</p>
@@ -5533,7 +5547,7 @@ function abrirObrasVinculadas(userId){
   const u=_adminUsersCache.find(x=>x.id===userId); if(!u)return;
   const vinc=Array.isArray(u.obras_vinculadas)?u.obras_vinculadas:[];
   const opts=state.obras.map(o=>`<label style="display:flex;align-items:center;gap:8px;padding:6px 0;text-transform:none;font-weight:500"><input type="checkbox" class="ovChk" value="${esc(o.id)}" ${vinc.includes(o.id)?'checked':''} style="width:auto"> ${esc(o.nome)}</label>`).join('')||'<div class="empty">Nenhuma obra cadastrada.</div>';
-  modal(`<h3>Obras vinculadas — ${esc(u.nome||u.email)}</h3><p class="mp">Este encarregado só verá e poderá aprovar requisições das obras (centros de custo) marcadas abaixo. Sem nenhuma marcada, não aprova nenhuma requisição.</p>
+  modal(`<h3>Obras vinculadas — ${esc(u.nome||u.email)}</h3><p class="mp">Este usuário só verá e poderá aprovar requisições das obras (centros de custo) marcadas abaixo. Sem nenhuma marcada, não aprova nenhuma requisição.</p>
     <div style="max-height:320px;overflow-y:auto;border:1px solid #e4dfd4;border-radius:8px;padding:10px 14px;margin-bottom:14px">${opts}</div>
     <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="salvarObrasVinculadas('${userId}')">Salvar</button></div>`);
 }
@@ -5545,9 +5559,17 @@ async function salvarObrasVinculadas(userId){
   closeModal(); toast('Obras vinculadas atualizadas.','ok'); renderAdmin();
 }
 async function saveUserRole(id){ const papel=$('#up_'+id).value; const setor=$('#us_'+id).value||null; const ativo=$('#ua_'+id).checked;
+  const apEl=$('#uap_'+id), aprova=papel==='admin'||!!(apEl&&apEl.checked);
   const {error}=await sb.from('profiles').update({papel,setor,ativo}).eq('id',id);
   if(error){toast('Erro: '+error.message,'err');return;}
-  await sb.rpc('log_event',{p_acao:'usuario_atualizado',p_entidade:'profiles',p_entidade_id:id,p_detalhes:{papel,setor,ativo}});
+  /* grava a marcação "Aprova requisições" só quando ela difere do padrão do papel (assim, mudar o papel depois continua natural) */
+  if(!state.config)state.config={supHash:null};
+  const m={...(state.config.aprovadores||{})}, antes=Object.prototype.hasOwnProperty.call(m,id)?m[id]:undefined;
+  if(papel==='admin'||aprova===aprovaPorPadrao({papel}))delete m[id]; else m[id]=aprova;
+  if(m[id]!==antes){ state.config.aprovadores=m; const u=_adminUsersCache.find(x=>x.id===id);
+    const err=await save('Aprovação de requisições '+(aprova?'LIBERADA':'RETIRADA')+': '+((u&&(u.nome||u.email))||id));
+    if(err){toast('Usuário salvo, mas a marcação de aprovação não foi gravada: '+(err.message||err),'err');return;} }
+  await sb.rpc('log_event',{p_acao:'usuario_atualizado',p_entidade:'profiles',p_entidade_id:id,p_detalhes:{papel,setor,ativo,aprova_requisicoes:aprova}});
   _comprasAssignees=null; toast('Usuário atualizado.','ok'); renderAdmin(); }
 /* Estorno do custo médio da nota (antes de tirar o saldo): se o custo não mudou desde a entrada, volta ao custo anterior
    gravado; senão retira a entrada da média — (saldo × custo atual − qtd × custo de entrada) ÷ (saldo − qtd). */
@@ -5773,7 +5795,7 @@ function onAuthReady(){
   const p=(async()=>{
     profile=await loadProfile();
     if(!profile||!profile.ativo){ showPending(); return; }
-    hideGate(); applyRoleNav(); initNavGrps(); const pDev=refreshDevolucoesBloqueio().catch(()=>{}); const pLot=loadLotes().catch(e=>console.warn('loadLotes',e)); await load(); await pDev; await pLot; loadPhotos().then(()=>{ refreshTelaAtual(); migrarFotosAntigas(); }); loadFotosExt().then(mudou=>{ if(mudou&&!usuarioInteragindo())refreshTelaAtual(); }); loadReposAbertas().then(()=>refreshTelaAtual()); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); checkEntregaParcial().then(()=>refreshRetiradasBadge()); _comprovOk=null; _comprovPend={confirmar:[],receber:[]}; _comprovUsers=null; refreshComprovPend().then(()=>{ refreshComprovBadge(); processarLinkRecebimento(); }); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge();
+    hideGate(); applyRoleNav(); initNavGrps(); const pDev=refreshDevolucoesBloqueio().catch(()=>{}); const pLot=loadLotes().catch(e=>console.warn('loadLotes',e)); await load(); applyRoleNav(); /* a marcação "Aprova requisições" vem do documento carregado agora */ await pDev; await pLot; loadPhotos().then(()=>{ refreshTelaAtual(); migrarFotosAntigas(); }); loadFotosExt().then(mudou=>{ if(mudou&&!usuarioInteragindo())refreshTelaAtual(); }); loadReposAbertas().then(()=>refreshTelaAtual()); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); checkEntregaParcial().then(()=>refreshRetiradasBadge()); _comprovOk=null; _comprovPend={confirmar:[],receber:[]}; _comprovUsers=null; refreshComprovPend().then(()=>{ refreshComprovBadge(); processarLinkRecebimento(); }); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge();
     _bootedUid=uid; go(abaInicial());
     if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); startVersionWatch(); }
   })();
