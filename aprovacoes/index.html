@@ -59,6 +59,7 @@ main{padding:8px 16px 0;max-width:640px;margin:0 auto}
 .obra{font-weight:600;font-size:15.5px;margin:4px 0 2px}
 .meta{color:var(--mu);font-size:12.5px}
 .meta b{color:var(--tx);font-weight:500}
+.meta b.pref{color:var(--ac);font-weight:600;font-family:var(--f-mono);font-size:12px}
 .tag{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;margin:6px 4px 0 0}
 .tag.mutuo{background:rgba(125,180,232,.15);color:var(--info)}
 .tag.falta{background:rgba(242,166,90,.15);color:var(--warn)}
@@ -303,6 +304,19 @@ async function _atualizar(){
   if(aba==='pend')await desenharPendentes(); else await desenharHistorico();
 }
 
+/* Prefixo (placa/tag) do equipamento: vem do cadastro de Aplicações, que fica no documento compartilhado (app_kv).
+   Busca só o array de aplicações (não o documento inteiro) e guarda por 5 min. */
+const STATE_KEY='controle-estoque-obras-v1'; let _tags=null, _tagsTs=0;
+async function tagsAplicacoes(){
+  if(_tags&&Date.now()-_tagsTs<300000)return _tags;
+  try{ const {data,error}=await sb.from('app_kv').select('aplicacoes:value->aplicacoes').eq('key',STATE_KEY).maybeSingle(); if(error)throw error;
+    const m={}; ((data&&data.aplicacoes)||[]).forEach(a=>{ if(a&&a.id&&a.tag)m[a.id]=String(a.tag); }); _tags=m; _tagsTs=Date.now();
+  }catch(e){ console.warn('tagsAplicacoes',e); if(!_tags)_tags={}; }
+  return _tags;
+}
+function equipHTML(r,tags,vazio){ const t=r.aplicacao_id&&tags[r.aplicacao_id];
+  return t?'⚙ Prefixo <b class="pref">'+esc(t)+'</b> · '+esc(r.aplicacao_nome||''):esc(r.aplicacao_nome||vazio); }
+
 /* saldo disponível = saldo da obra − bloqueado por devolução ao fornecedor em aberto */
 async function saldosPara(reqs){
   const obras=[...new Set(reqs.map(obraEstoque))]; const codes=[...new Set(reqs.flatMap(r=>(r.itens||[]).map(i=>String(i.code))))];
@@ -321,9 +335,9 @@ async function saldosPara(reqs){
 
 async function desenharPendentes(){
   const box=$('#lista');
-  let q=filtroObras(sb.from('requisicoes').select('id,obra_id,obra_nome,ordem_servico,aplicacao_nome,solicitante_nome,observacao,itens,criado_em,status,mutuo_estoque_obra_id').eq('status','pendente').order('criado_em',{ascending:true}));
+  let q=filtroObras(sb.from('requisicoes').select('id,obra_id,obra_nome,ordem_servico,aplicacao_id,aplicacao_nome,solicitante_nome,observacao,itens,criado_em,status,mutuo_estoque_obra_id').eq('status','pendente').order('criado_em',{ascending:true}));
   if(!q){ pendentes=[]; contar(); box.innerHTML='<div class="empty"><b>Nenhuma obra vinculada</b>Peça ao administrador para vincular suas obras.</div>'; return; }
-  const {data,error}=await q;
+  const [{data,error},tags]=await Promise.all([q,tagsAplicacoes()]);
   if(error){ box.innerHTML='<div class="empty"><b>Erro ao carregar</b>'+esc(error.message)+'</div>'; return; }
   pendentes=data||[]; contar();
   if(!pendentes.length){ box.innerHTML='<div class="empty"><b>Tudo em dia ✓</b>Nenhuma requisição aguardando aprovação.</div>'; return; }
@@ -336,7 +350,7 @@ async function desenharPendentes(){
     return `<article class="card" id="r${r.id}">
       <div class="card-hd"><span class="req">${reqN(r.id)}</span><span class="when">${quando(r.criado_em)}</span></div>
       <div class="obra">${esc(r.obra_nome)}</div>
-      <div class="meta">${r.ordem_servico?'OS <b>'+esc(r.ordem_servico)+'</b> · ':''}${esc(r.aplicacao_nome||'Sem aplicação')}</div>
+      <div class="meta">${r.ordem_servico?'OS <b>'+esc(r.ordem_servico)+'</b> · ':''}${equipHTML(r,tags,'Sem aplicação')}</div>
       <div class="meta">Solicitante: <b>${esc(r.solicitante_nome||'—')}</b></div>
       ${r.mutuo_estoque_obra_id?`<span class="tag mutuo">💱 Mútuo — sai do estoque de outra empresa</span>`:''}
       ${nFalta?`<span class="tag falta">${nFalta} item(ns) sem saldo suficiente → vira compra</span>`:'<span class="tag ok">Saldo suficiente</span>'}
@@ -350,15 +364,15 @@ function contar(){ const n=pendentes.length, b=$('#nPend'); b.hidden=!n; b.textC
 
 async function desenharHistorico(){
   const box=$('#lista');
-  let q=filtroObras(sb.from('requisicoes').select('id,obra_nome,ordem_servico,aplicacao_nome,solicitante_nome,status,decidido_por_nome,decidido_em,motivo_rejeicao').neq('status','pendente').not('decidido_em','is',null).order('decidido_em',{ascending:false}).limit(30));
+  let q=filtroObras(sb.from('requisicoes').select('id,obra_nome,ordem_servico,aplicacao_id,aplicacao_nome,solicitante_nome,status,decidido_por_nome,decidido_em,motivo_rejeicao').neq('status','pendente').not('decidido_em','is',null).order('decidido_em',{ascending:false}).limit(30));
   if(!q){ box.innerHTML='<div class="empty"><b>Nenhuma obra vinculada</b></div>'; return; }
-  const {data,error}=await q;
+  const [{data,error},tags]=await Promise.all([q,tagsAplicacoes()]);
   if(error){ box.innerHTML='<div class="empty"><b>Erro ao carregar</b>'+esc(error.message)+'</div>'; return; }
   if(!(data||[]).length){ box.innerHTML='<div class="empty"><b>Nada por aqui</b>Nenhuma requisição decidida ainda.</div>'; return; }
   box.innerHTML=data.map(r=>`<article class="card">
       <div class="card-hd"><span class="req">${reqN(r.id)}</span><span class="when">${quando(r.decidido_em)}</span></div>
       <div class="obra">${esc(r.obra_nome)}</div>
-      <div class="meta">${r.ordem_servico?'OS <b>'+esc(r.ordem_servico)+'</b> · ':''}${esc(r.aplicacao_nome||'')} · ${esc(r.solicitante_nome||'')}</div>
+      <div class="meta">${r.ordem_servico?'OS <b>'+esc(r.ordem_servico)+'</b> · ':''}${equipHTML(r,tags,'')} · ${esc(r.solicitante_nome||'')}</div>
       <span class="tag ${r.status==='rejeitada'?'rej':r.status==='cancelada'?'falta':'ok'}">${r.status==='rejeitada'?'Rejeitada':r.status==='cancelada'?'Cancelada':'Aprovada'}</span>
       <div class="meta" style="margin-top:6px">por ${esc(r.decidido_por_nome||'—')}</div>
       ${r.motivo_rejeicao?`<div class="obs">${esc(r.motivo_rejeicao)}</div>`:''}
