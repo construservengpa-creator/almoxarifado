@@ -174,7 +174,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   .pill.faturado{background:#e6effc;color:#2766b8} .pill.embarcado{background:#f0e6fc;color:#6b3fa0} .pill.recebido{background:#e3f7ee;color:#1c7a52}
   .pill.romaneio_emitido{background:#fff3da;color:#a8731a} .pill.retirado{background:#e3f7ee;color:#1c7a52}
   .pill.disponivel{background:#e3f7ee;color:#1c7a52} .pill.faltante{background:#fde8e8;color:#c0392b}
-  .pill.pendente_verificacao{background:#eee;color:#777} .pill.comprado{background:#e6effc;color:#2766b8} .pill.solicitada{background:#e6effc;color:#2766b8} .pill.recebida{background:#e3f7ee;color:#1c7a52}
+  .pill.pendente_verificacao{background:#eee;color:#777} .pill.comprado{background:#e6effc;color:#2766b8} .pill.solicitada{background:#e6effc;color:#2766b8} .pill.sienge-st.ok{background:#e3f7ee;color:#1c7a52} .pill.sienge-st.info{background:#eef1f6;color:#3d5a80} .pill.sienge-st.bad{background:#fdeaea;color:#b03a3a} .pill.sienge-st.wait{background:#f3f0e8;color:#8a7a55} .pill.recebida{background:#e3f7ee;color:#1c7a52}
   .stepper{display:flex;align-items:center;gap:0;margin:10px 0}
   .stepper .st{display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;position:relative}
   .stepper .st .dot{width:22px;height:22px;border-radius:50%;background:#e2e2e2;color:#888;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;z-index:1}
@@ -573,7 +573,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-15T19:00:00-03:00';
+const APP_VERSION='2026-10-15T21:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -4952,7 +4952,78 @@ function reposAberta(obra,code){ return _reposAbertas?_reposAbertas.get(obra+'|'
 function reposAbertasDoCodigo(code){ if(!_reposAbertas)return []; const c=String(code); return [..._reposAbertas.values()].filter(r=>String(r.code)===c); }
 function reposPill(code,obra,fallback){ const l=(!obra||obra==='__all')?reposAbertasDoCodigo(code):[reposAberta(obra,code)].filter(Boolean);
   if(!l.length)return fallback; const r=l[0];
-  return `<span class="pill solicitada" title="Compra solicitada no Sienge ${esc(r.numero_solicitacao_sienge)} por ${esc(r.solicitado_por_nome||'')} em ${fmtDate(new Date(r.criado_em).getTime())}">🛒 Solicitada · ${esc(r.numero_solicitacao_sienge)}</span>`; }
+  return `<span class="pill solicitada" data-sienge-sol="${esc(r.numero_solicitacao_sienge)}" data-sienge-code="${esc(String(r.code))}" style="cursor:pointer" onclick="event.stopPropagation();siengeAbrir(this.dataset.siengeSol,this.dataset.siengeCode)" title="Compra solicitada no Sienge ${esc(r.numero_solicitacao_sienge)} por ${esc(r.solicitado_por_nome||'')} em ${fmtDate(new Date(r.criado_em).getTime())} — clique para ver a situação no Painel de Suprimentos">🛒 Solicitada · ${esc(r.numero_solicitacao_sienge)}</span>`; }
+
+/* ===== Situação da solicitação no Sienge (via Painel de Suprimentos) =====
+   O Painel guarda a última importação do relatório do Sienge (tabela sienge_itens). A função status-solicitacoes
+   do Painel confere o login do estoque e devolve os itens das solicitações pedidas. Cada selo "🛒 Solicitada · Nº"
+   que aparece na tela ganha, ao lado, a situação do item correspondente (pedido, previsão, entregue/NF) e, ao
+   clicar, abre todos os itens da solicitação. O item do Sienge é achado pela descrição: o "detalhe" do Sienge
+   precisa bater com a descrição do produto — números (ISO 150, 80W, códigos) pesam mais e, se não batem, derrubam. */
+const PAINEL_STATUS_API='https://xuukjnpkltvgzjfgivnd.supabase.co/functions/v1/status-solicitacoes';
+const _siengeCache=new Map(); let _siengeImportadoEm=null, _siengeErro=null, _siengeBuscando=null;
+const SIENGE_TTL=5*60*1000;
+async function siengeBuscar(nums){
+  const falta=[...new Set(nums.map(n=>String(n||'').replace(/\D/g,'')).filter(Boolean))].filter(n=>{ const c=_siengeCache.get(n); return !c||Date.now()-c.ts>SIENGE_TTL; });
+  if(!falta.length)return true;
+  try{ const {data:sd}=await sb.auth.getSession(); const tk=sd&&sd.session&&sd.session.access_token; if(!tk)return false;
+    const res=await fetch(PAINEL_STATUS_API,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+tk},body:JSON.stringify({solicitacoes:falta})});
+    const r=await res.json().catch(()=>({})); if(!res.ok)throw new Error(r.error||('HTTP '+res.status));
+    const por={}; (r.itens||[]).forEach(i=>{ (por[i.num_solicitacao]=por[i.num_solicitacao]||[]).push(i); });
+    falta.forEach(n=>_siengeCache.set(n,{ts:Date.now(),itens:por[n]||[]})); _siengeImportadoEm=r.importadoEm||_siengeImportadoEm; _siengeErro=null; return true;
+  }catch(e){ _siengeErro=(e&&e.message)||String(e); console.warn('Painel de Suprimentos:',e); return false; } }
+function _siengeTokens(t){ return String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().split(/[^A-Z0-9]+/).filter(w=>w.length>=2||/^\d$/.test(w)); }
+const SIENGE_GENERICAS=new Set(['DE','DA','DO','DAS','DOS','COM','PARA','EM','LT','LTS','UN','PC','PCS','KG','BB','BB20L','BD20L','BD20','BB20','20L','20LT','1X20LT','GL','LITRO','LITROS','OLEO','LUBRIFICANTE','FILTRO']);
+/* nota de 0 a 1: quanto do "detalhe" do Sienge aparece na descrição do produto */
+function siengeNota(desc,it){ const d=new Set(_siengeTokens(desc));
+  const alvo=[...new Set(_siengeTokens((it.detalhe||'')+' '+String(it.descricao_insumo||'').replace(/^\d+\s*-\s*/,'')))].filter(w=>!SIENGE_GENERICAS.has(w));
+  if(!alvo.length)return 0; let tot=0, ok=0, numFalta=false;
+  alvo.forEach(w=>{ const peso=/\d/.test(w)?3:1; tot+=peso; if(d.has(w))ok+=peso; else if(/\d/.test(w))numFalta=true; });
+  const n=ok/tot; return numFalta?n*0.5:n; }
+function siengeMelhorItem(code,itens){ const p=findProduct(code); if(!p||!itens.length)return null;
+  const notas=itens.map(it=>({it,n:siengeNota(p.desc,it)})).sort((a,b)=>b.n-a.n);
+  return notas[0].n>=0.6?notas[0].it:null; }
+function _dm(d){ return d?new Date(String(d).slice(0,10)+'T00:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}):''; }
+/* situação de um item do Sienge: {cls, txt} */
+function siengeSituacao(it){ const hoje=new Date().toISOString().slice(0,10);
+  const entregue=!!it.data_entrega_obra||/totalmente entregue/i.test(it.situacao_pedido||'');
+  if(entregue)return {cls:'ok',txt:'✅ Entregue'+(it.data_entrega_obra?' '+_dm(it.data_entrega_obra):'')+(it.num_nota_fiscal?' · '+String(it.num_nota_fiscal).replace(/^NFE\//i,'NF '):'')};
+  if(/cancel/i.test((it.situacao_pedido||'')+' '+(it.situacao_solicitacao||'')+' '+(it.situacao_autorizacao_item||'')))return {cls:'bad',txt:'✕ Cancelado no Sienge'};
+  if(it.num_pedido){ const atras=it.previsao_entrega&&String(it.previsao_entrega).slice(0,10)<hoje;
+    return {cls:atras?'bad':'info',txt:(atras?'⏰ Atrasado · ':'🚚 ')+'Pedido '+it.num_pedido+(it.previsao_entrega?' · prev. '+_dm(it.previsao_entrega):'')+(Number(it.qtd_entregue)>0?' · parcial':'')}; }
+  return {cls:'wait',txt:'⏳ Aguardando pedido'+(it.situacao_solicitacao?' · '+it.situacao_solicitacao:'')}; }
+function siengeResumoSol(itens){ if(!itens.length)return {cls:'wait',txt:'Não encontrada no Painel'};
+  const ent=itens.filter(i=>siengeSituacao(i).cls==='ok').length; return {cls:ent===itens.length?'ok':'info',txt:'Sienge: '+ent+' de '+itens.length+' item(ns) entregue(s)'}; }
+let _siengeDecorando=false;
+async function siengeDecorar(){ if(_siengeDecorando)return; _siengeDecorando=true;
+  try{ const pills=[...document.querySelectorAll('[data-sienge-sol]:not([data-sienge-ok])')]; if(!pills.length)return;
+    const ok=await siengeBuscar(pills.map(p=>p.dataset.siengeSol)); if(!ok)return;
+    pills.forEach(p=>{ if(!p.isConnected||p.dataset.siengeOk)return; p.dataset.siengeOk='1';
+      const c=_siengeCache.get(String(p.dataset.siengeSol).replace(/\D/g,'')); const itens=c?c.itens:[];
+      const it=siengeMelhorItem(p.dataset.siengeCode,itens); const st=it?siengeSituacao(it):siengeResumoSol(itens);
+      const el=document.createElement('span'); el.className='pill sienge-st '+st.cls; el.textContent=st.txt; el.style.cursor='pointer';
+      el.title=(it?'Item do Sienge: '+(it.detalhe||it.descricao_insumo||''):'Nenhum item da solicitação bateu com a descrição deste produto')+' — clique para ver a solicitação';
+      el.onclick=ev=>{ ev.stopPropagation(); siengeAbrir(p.dataset.siengeSol,p.dataset.siengeCode); };
+      p.insertAdjacentElement('afterend',el); p.insertAdjacentText('afterend',' '); });
+  } finally { _siengeDecorando=false; } }
+/* decora os selos assim que aparecem na tela (qualquer aba) */
+(function(){ let t=null; const obs=new MutationObserver(()=>{ if(!document.querySelector('[data-sienge-sol]:not([data-sienge-ok])'))return; clearTimeout(t); t=setTimeout(siengeDecorar,300); });
+  const go=()=>obs.observe(document.body,{childList:true,subtree:true}); if(document.body)go(); else document.addEventListener('DOMContentLoaded',go); })();
+async function siengeAbrir(num,code){ const n=String(num||'').replace(/\D/g,'');
+  modal(`<h3>Solicitação Sienge ${esc(num)}</h3><div class="empty" style="padding:22px">Consultando o Painel de Suprimentos…</div>`);
+  _siengeCache.delete(n); const ok=await siengeBuscar([n]);
+  const c=_siengeCache.get(n), itens=c?c.itens:[], p=code?findProduct(code):null, melhor=code?siengeMelhorItem(code,itens):null;
+  const imp=_siengeImportadoEm?fmtDate(new Date(_siengeImportadoEm).getTime()):'—';
+  const corpo=!ok?`<div class="empty" style="padding:22px">Não foi possível consultar o Painel de Suprimentos${_siengeErro?': '+esc(_siengeErro):''}.</div>`
+    :!itens.length?`<div class="empty" style="padding:22px">A solicitação ${esc(num)} não está na última importação do Sienge no Painel (${esc(imp)}). Confira o número ou se o relatório já foi importado.</div>`
+    :`<div class="tbl-wrap" style="max-height:60vh;overflow:auto"><table><thead><tr><th>Item no Sienge</th><th class="num">Qtd</th><th>Pedido / fornecedor</th><th>Situação</th></tr></thead><tbody>${itens.map(it=>{ const st=siengeSituacao(it), eh=it===melhor;
+      return `<tr${eh?' style="background:#fff3da"':''}><td>${eh?'<b>➜ </b>':''}${esc(it.detalhe||'')}<div class="muted" style="font-size:11px">${esc(it.descricao_insumo||'')}</div></td>
+        <td class="num" style="white-space:nowrap">${numf(Number(it.qtd_solicitada)||0)} ${esc(it.unidade||'')}${Number(it.qtd_entregue)>0?'<div class="muted" style="font-size:11px">entregue '+numf(Number(it.qtd_entregue))+'</div>':''}</td>
+        <td>${it.num_pedido?'<span class="mono">'+esc(it.num_pedido)+'</span>':'—'}<div class="muted" style="font-size:11px">${esc(String(it.fornecedor||'').replace(/^\d+\s*-\s*/,''))}</div></td>
+        <td><span class="pill sienge-st ${st.cls}">${esc(st.txt)}</span>${it.comprador?'<div class="muted" style="font-size:11px">Comprador: '+esc(it.comprador)+'</div>':''}</td></tr>`; }).join('')}</tbody></table></div>`;
+  modal(`<h3>Solicitação Sienge ${esc(num)}</h3>
+    <p class="mp">${itens[0]?esc(itens[0].obra||'')+' · ':''}Situação do Sienge pela última importação no Painel de Suprimentos: <b>${esc(imp)}</b>.${p?'<br>Produto do estoque: <b>'+esc(p.desc)+'</b>'+(melhor?' — item correspondente destacado.':' — <span style="color:#a05050">nenhum item da solicitação bateu com a descrição; confira na lista.</span>'):''}</p>
+    ${corpo}<div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn primary" onclick="closeModal()">Fechar</button></div>`); }
 function reposHintCode(code){ const l=reposAbertasDoCodigo(code); if(!l.length)return '';
   return `<div style="font-size:11px;color:#2766b8;margin-top:2px">📦 Reposição já solicitada: ${l.map(r=>esc(r.numero_solicitacao_sienge)+' ('+numf(r.quantidade)+' · '+esc(r.obra_nome||obraName(r.obra_id))+')').join(', ')}</div>`; }
 function reposTabelaFaltando(e){ const m=(e&&e.message)||''; return !!e&&(e.code==='42P01'||e.code==='PGRST205'||(/reposicoes_estoque/.test(m)&&/(could not find|does not exist|não existe|schema cache)/i.test(m))); }
