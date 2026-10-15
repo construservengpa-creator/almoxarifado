@@ -4984,16 +4984,9 @@ function siengeNota(desc,it){ const d=new Set(_siengeTokens(desc));
    agrupa essas linhas para mostrar todos os pedidos juntos */
 function _siengeChave(it){ const n=t=>String(t||'').trim().replace(/\s+/g,' ').toUpperCase(); return [it.num_solicitacao,n(it.detalhe),n(it.descricao_insumo),Number(it.qtd_solicitada)||0].join('|'); }
 function siengeAgrupar(itens){ const m=new Map(); itens.forEach(it=>{ const k=_siengeChave(it); if(!m.has(k))m.set(k,[]); m.get(k).push(it); }); return [...m.values()]; }
-/* código do insumo do Sienge no cadastro do produto: o "aux" começa por ele (ex.: 12568-39-700 → 12568) */
-function _siengeInsumoProduto(p){ const m=String(p.aux||'').trim().match(/^(\d{3,6})-/); return m?m[1]:''; }
-function _siengeInsumoItem(it){ const m=String(it.descricao_insumo||'').trim().match(/^(\d+)\s*-/); return m?m[1]:''; }
 function siengeMelhorGrupo(code,itens){ const p=findProduct(code); if(!p||!itens.length)return null;
   const notas=siengeAgrupar(itens).map(g=>({g,n:siengeNota(p.desc,g[0])})).sort((a,b)=>b.n-a.n);
-  if(notas[0].n>=0.6)return notas[0].g;
-  /* nome não bateu: usa o código do insumo, se só um item da solicitação for desse insumo */
-  const ins=_siengeInsumoProduto(p); if(!ins)return null;
-  const mesmo=notas.filter(x=>_siengeInsumoItem(x.g[0])===ins);
-  return mesmo.length===1?mesmo[0].g:null; }
+  return notas[0].n>=0.6?notas[0].g:null; }
 /* uma linha por pedido: nº, fornecedor, quantidade a entregar e previsão */
 function siengePedidosHTML(g){ if(!g||!g.some(it=>it.num_pedido))return '';
   return '<div class="sienge-ped" style="font-size:11px;color:#5a544a;margin-top:3px;line-height:1.45">'+g.filter(it=>it.num_pedido).map(it=>{ const st=siengeSituacao(it);
@@ -5050,7 +5043,7 @@ async function siengeAbrir(num,code){ const n=String(num||'').replace(/\D/g,'');
         <td class="num" style="white-space:nowrap">${numf(Number(it.qtd_solicitada)||0)} ${esc(it.unidade||'')}${Number(it.qtd_entregue)>0?'<div class="muted" style="font-size:11px">entregue '+numf(Number(it.qtd_entregue))+'</div>':''}</td>
         <td>${ped}</td><td>${sit}</td></tr>`; }).join('')}</tbody></table></div>`;
   modal(`<h3>Solicitação Sienge ${esc(num)}</h3>
-    <p class="mp">${itens[0]?esc(itens[0].obra||'')+' · ':''}Situação do Sienge pela última importação no Painel de Suprimentos: <b>${esc(imp)}</b>.${p?'<br>Produto do estoque: <b>'+esc(p.desc)+'</b>'+(melhor?' — item correspondente destacado'+(siengeNota(p.desc,melhor[0])<0.6?' (pelo código do insumo '+esc(_siengeInsumoProduto(p))+')':'')+'.':' — <span style="color:#a05050">nenhum item da solicitação bateu com a descrição; confira na lista.</span>'):''}</p>
+    <p class="mp">${itens[0]?esc(itens[0].obra||'')+' · ':''}Situação do Sienge pela última importação no Painel de Suprimentos: <b>${esc(imp)}</b>.${p?'<br>Produto do estoque: <b>'+esc(p.desc)+'</b>'+(melhor?' — item correspondente destacado.':' — <span style="color:#a05050">nenhum item da solicitação bateu com a descrição; confira na lista.</span>'):''}</p>
     ${corpo}<div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn primary" onclick="closeModal()">Fechar</button></div>`); }
 function reposHintCode(code){ const l=reposAbertasDoCodigo(code); if(!l.length)return '';
   return `<div style="font-size:11px;color:#2766b8;margin-top:2px">📦 Reposição já solicitada: ${l.map(r=>esc(r.numero_solicitacao_sienge)+' ('+numf(r.quantidade)+' · '+esc(r.obra_nome||obraName(r.obra_id))+')').join(', ')}</div>`; }
