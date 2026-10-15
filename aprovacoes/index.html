@@ -233,11 +233,14 @@ let user=null, profile=null, aba='pend', pendentes=[], canal=null;
 
 /* ---------- permissões (iguais às do sistema) ---------- */
 const isAdmin=()=>!!profile&&profile.papel==='admin'&&profile.ativo;
-const isEncarregado=()=>!!profile&&(profile.papel==='admin'||profile.papel==='encarregado')&&profile.ativo;
+/* quem aprova: marcação "Aprova requisições" de Administração → Usuários (state.config.aprovadores no app_kv);
+   sem marcação vale o papel — admin e encarregado aprovam. Admin sempre aprova. */
+let aprovadores={};
+const podeAprovar=()=>!!profile&&profile.ativo&&(profile.papel==='admin'||(Object.prototype.hasOwnProperty.call(aprovadores,profile.id)?!!aprovadores[profile.id]:profile.papel==='encarregado'));
 const isEncAlmox=()=>!!profile&&profile.papel==='encarregado'&&profile.setor==='almoxarifado'&&profile.ativo;
-const veTodas=()=>isAdmin()||isEncAlmox();
+const veTodas=()=>podeAprovar()&&(isAdmin()||isEncAlmox());
 const vinculadas=()=>Array.isArray(profile&&profile.obras_vinculadas)?profile.obras_vinculadas:[];
-const podeAprovarObra=obraId=>veTodas()||(isEncarregado()&&vinculadas().includes(obraId));
+const podeAprovarObra=obraId=>veTodas()||(podeAprovar()&&vinculadas().includes(obraId));
 const obraEstoque=r=>r.mutuo_estoque_obra_id?r.mutuo_estoque_obra_id:r.obra_id;
 
 /* ---------- login ---------- */
@@ -246,8 +249,11 @@ async function carregarPerfil(){
   if(error)throw new Error('Não foi possível carregar o seu perfil: '+error.message);
   if(!data)throw new Error('Usuário sem cadastro no sistema de estoque — peça ao administrador.');
   if(!data.ativo)throw new Error('Seu usuário ainda não foi liberado pelo administrador.');
-  if(!(data.papel==='admin'||data.papel==='encarregado'))throw new Error('Este aplicativo é para quem aprova requisições (encarregados e administradores). Seu papel no cadastro é "'+(data.papel||'—')+'" — peça ao administrador para mudar em Administração → Usuários.');
+  const {data:kv,error:e2}=await sb.from('app_kv').select('aprov:value->config->aprovadores').eq('key','controle-estoque-obras-v1').maybeSingle();
+  if(e2)throw new Error('Não foi possível conferir a sua permissão de aprovação: '+e2.message);
+  aprovadores=(kv&&kv.aprov&&typeof kv.aprov==='object')?kv.aprov:{};
   profile=data;
+  if(!podeAprovar()){ profile=null; throw new Error('Seu usuário não está marcado para aprovar requisições. Peça ao administrador: Administração → Usuários → "Aprova requisições".'); }
 }
 async function iniciar(){
   const {data}=await sb.auth.getSession();
@@ -272,7 +278,7 @@ $('#bSair').onclick=async()=>{ await sb.auth.signOut({scope:'local'}); user=null
 /* ---------- app ---------- */
 function mostrarApp(){
   $('#vLogin').hidden=true; $('#vApp').hidden=false;
-  $('#who').textContent=(profile.nome||profile.email)+(isAdmin()?' · Admin':isEncAlmox()?' · Encarregado do almoxarifado':' · Encarregado');
+  $('#who').textContent=(profile.nome||profile.email)+(isAdmin()?' · Admin':isEncAlmox()?' · Encarregado do almoxarifado':profile.papel==='encarregado'?' · Encarregado':' · Aprovador');
   $('#escopo').textContent=veTodas()?'Requisições de todas as obras.':(vinculadas().length?'Somente das obras (centros de custo) vinculadas a você.':'Você ainda não tem obra vinculada — peça ao administrador.');
   if(!canal){
     /* Só recarrega quando a mudança interessa a esta tela: requisição pendente (nova ou alterada) ou uma das que estão
