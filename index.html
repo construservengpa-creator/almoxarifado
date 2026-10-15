@@ -5029,22 +5029,30 @@ async function siengeDecorar(){ if(_siengeDecorando)return; _siengeDecorando=tru
 /* decora os selos assim que aparecem na tela (qualquer aba) */
 (function(){ let t=null; const obs=new MutationObserver(()=>{ if(!document.querySelector('[data-sienge-sol]:not([data-sienge-ok])'))return; clearTimeout(t); t=setTimeout(siengeDecorar,300); });
   const go=()=>obs.observe(document.body,{childList:true,subtree:true}); if(document.body)go(); else document.addEventListener('DOMContentLoaded',go); })();
-async function siengeAbrir(num,code){ const n=String(num||'').replace(/\D/g,'');
-  modal(`<h3>Solicitação Sienge ${esc(num)}</h3><div class="empty" style="padding:22px">Consultando o Painel de Suprimentos…</div>`);
-  _siengeCache.delete(n); const ok=await siengeBuscar([n]);
+/* modo: undefined = abre consultando de novo e mostra só o item do produto; 'todos' / 'item' = alterna sem consultar */
+async function siengeAbrir(num,code,modo){ const n=String(num||'').replace(/\D/g,'');
+  let ok=true;
+  if(!modo||!_siengeCache.has(n)){ modal(`<h3>Solicitação Sienge ${esc(num)}</h3><div class="empty" style="padding:22px">Consultando o Painel de Suprimentos…</div>`);
+    _siengeCache.delete(n); ok=await siengeBuscar([n]); }
   const c=_siengeCache.get(n), itens=c?c.itens:[], p=code?findProduct(code):null, melhor=code?siengeMelhorGrupo(code,itens):null;
+  const grupos=siengeAgrupar(itens), todos=!p||modo==='todos';
+  /* sem item que bata com o produto: mostra os mais parecidos (até 3) */
+  const parecidos=p&&!melhor?grupos.map(g=>({g,n:siengeNota(p.desc,g[0])})).filter(x=>x.n>=0.25).sort((a,b)=>b.n-a.n).slice(0,3).map(x=>x.g):[];
+  const vis=todos?grupos:melhor?[melhor]:parecidos;
+  const btnAlt=p&&grupos.length>1?`<button class="btn ghost sm" data-sol="${esc(num)}" data-code="${esc(String(code))}" onclick="siengeAbrir(this.dataset.sol,this.dataset.code,'${todos?'item':'todos'}')">${todos?'Mostrar só o item deste produto':'Ver todos os '+grupos.length+' itens da solicitação'}</button>`:'';
   const imp=_siengeImportadoEm?fmtDate(new Date(_siengeImportadoEm).getTime()):'—';
   const corpo=!ok?`<div class="empty" style="padding:22px">Não foi possível consultar o Painel de Suprimentos${_siengeErro?': '+esc(_siengeErro):''}.</div>`
     :!itens.length?`<div class="empty" style="padding:22px">A solicitação ${esc(num)} não está na última importação do Sienge no Painel (${esc(imp)}). Confira o número ou se o relatório já foi importado.</div>`
-    :`<div class="tbl-wrap" style="max-height:60vh;overflow:auto"><table><thead><tr><th>Item no Sienge</th><th class="num">Qtd</th><th>Pedido / fornecedor</th><th>Situação</th></tr></thead><tbody>${siengeAgrupar(itens).map(g=>{ const it=g[0], eh=g===melhor, varios=g.length>1;
+    :!vis.length?`<div class="empty" style="padding:22px">Nenhum item da solicitação ${esc(num)} corresponde a este produto pela descrição.</div>`
+    :`<div class="tbl-wrap" style="max-height:60vh;overflow:auto"><table><thead><tr><th>Item no Sienge</th><th class="num">Qtd</th><th>Pedido / fornecedor</th><th>Situação</th></tr></thead><tbody>${vis.map(g=>{ const it=g[0], eh=todos&&g===melhor, varios=g.length>1;
       const ped=g.map(x=>`<div${varios?' style="margin-bottom:6px"':''}>${x.num_pedido?'<span class="mono">'+esc(x.num_pedido)+'</span>':'—'}${varios&&x.num_pedido?' <span class="muted" style="font-size:11px">· saldo '+numf(_siengeSaldo(x))+' '+esc(x.unidade||'')+'</span>':''}<div class="muted" style="font-size:11px">${esc(String(x.fornecedor||'').replace(/^\d+\s*-\s*/,''))}</div></div>`).join('');
       const sit=g.map(x=>{ const st=siengeSituacao(x); return `<div${varios?' style="margin-bottom:6px"':''}><span class="pill sienge-st ${st.cls}">${esc(st.txt)}</span>${x.comprador?'<div class="muted" style="font-size:11px">Comprador: '+esc(x.comprador)+'</div>':''}</div>`; }).join('');
       return `<tr${eh?' style="background:#fff3da"':''}><td>${eh?'<b>➜ </b>':''}${esc(it.detalhe||'')}<div class="muted" style="font-size:11px">${esc(it.descricao_insumo||'')}${varios?' · <b>'+g.length+' pedidos</b>':''}</div></td>
         <td class="num" style="white-space:nowrap">${numf(Number(it.qtd_solicitada)||0)} ${esc(it.unidade||'')}${Number(it.qtd_entregue)>0?'<div class="muted" style="font-size:11px">entregue '+numf(Number(it.qtd_entregue))+'</div>':''}</td>
         <td>${ped}</td><td>${sit}</td></tr>`; }).join('')}</tbody></table></div>`;
   modal(`<h3>Solicitação Sienge ${esc(num)}</h3>
-    <p class="mp">${itens[0]?esc(itens[0].obra||'')+' · ':''}Situação do Sienge pela última importação no Painel de Suprimentos: <b>${esc(imp)}</b>.${p?'<br>Produto do estoque: <b>'+esc(p.desc)+'</b>'+(melhor?' — item correspondente destacado.':' — <span style="color:#a05050">nenhum item da solicitação bateu com a descrição; confira na lista.</span>'):''}</p>
-    ${corpo}<div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn primary" onclick="closeModal()">Fechar</button></div>`); }
+    <p class="mp">${itens[0]?esc(itens[0].obra||'')+' · ':''}Situação do Sienge pela última importação no Painel de Suprimentos: <b>${esc(imp)}</b>.${p?'<br>Produto do estoque: <b>'+esc(p.desc)+'</b>'+(todos?(melhor?' — item correspondente destacado.':' — <span style="color:#a05050">nenhum item da solicitação bateu com a descrição.</span>'):melhor?'':parecidos.length?' — <span style="color:#a05050">nenhum item bateu exatamente com a descrição; abaixo, os mais parecidos.</span>':''):''}</p>
+    ${corpo}<div style="display:flex;justify-content:space-between;gap:8px;margin-top:14px;flex-wrap:wrap"><div>${btnAlt}</div><button class="btn primary" onclick="closeModal()">Fechar</button></div>`); }
 function reposHintCode(code){ const l=reposAbertasDoCodigo(code); if(!l.length)return '';
   return `<div style="font-size:11px;color:#2766b8;margin-top:2px">📦 Reposição já solicitada: ${l.map(r=>esc(r.numero_solicitacao_sienge)+' ('+numf(r.quantidade)+' · '+esc(r.obra_nome||obraName(r.obra_id))+')').join(', ')}</div>`; }
 function reposTabelaFaltando(e){ const m=(e&&e.message)||''; return !!e&&(e.code==='42P01'||e.code==='PGRST205'||(/reposicoes_estoque/.test(m)&&/(could not find|does not exist|não existe|schema cache)/i.test(m))); }
