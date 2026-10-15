@@ -4984,9 +4984,21 @@ function siengeNota(desc,it){ const d=new Set(_siengeTokens(desc));
    agrupa essas linhas para mostrar todos os pedidos juntos */
 function _siengeChave(it){ const n=t=>String(t||'').trim().replace(/\s+/g,' ').toUpperCase(); return [it.num_solicitacao,n(it.detalhe),n(it.descricao_insumo),Number(it.qtd_solicitada)||0].join('|'); }
 function siengeAgrupar(itens){ const m=new Map(); itens.forEach(it=>{ const k=_siengeChave(it); if(!m.has(k))m.set(k,[]); m.get(k).push(it); }); return [...m.values()]; }
+/* código do insumo do Sienge no cadastro do produto: o "aux" começa por ele (ex.: 12568-39-700 → 12568) */
+function _siengeInsumoProduto(p){ const m=String(p.aux||'').trim().match(/^(\d{3,6})-/); return m?m[1]:''; }
+function _siengeInsumoItem(it){ const m=String(it.descricao_insumo||'').trim().match(/^(\d+)\s*-/); return m?m[1]:''; }
 function siengeMelhorGrupo(code,itens){ const p=findProduct(code); if(!p||!itens.length)return null;
   const notas=siengeAgrupar(itens).map(g=>({g,n:siengeNota(p.desc,g[0])})).sort((a,b)=>b.n-a.n);
-  return notas[0].n>=0.6?notas[0].g:null; }
+  if(notas[0].n>=0.6)return notas[0].g;
+  /* nome não bateu: usa o código do insumo, se só um item da solicitação for desse insumo */
+  const ins=_siengeInsumoProduto(p); if(!ins)return null;
+  const mesmo=notas.filter(x=>_siengeInsumoItem(x.g[0])===ins);
+  return mesmo.length===1?mesmo[0].g:null; }
+/* uma linha por pedido: nº, fornecedor, quantidade a entregar e previsão */
+function siengePedidosHTML(g){ if(!g||!g.some(it=>it.num_pedido))return '';
+  return '<div class="sienge-ped" style="font-size:11px;color:#5a544a;margin-top:3px;line-height:1.45">'+g.filter(it=>it.num_pedido).map(it=>{ const st=siengeSituacao(it);
+    const q=st.cls==='ok'?'entregue '+numf(Number(it.qtd_entregue)||_siengeSaldo(it)):numf(_siengeSaldo(it))+' a entregar';
+    return '<div>'+(st.cls==='ok'?'✅':st.cls==='bad'?'⏰':'🚚')+' <b>'+esc(it.num_pedido)+'</b> · '+esc(String(it.fornecedor||'').replace(/^\d+\s*-\s*/,'')||'fornecedor não informado')+' · <b>'+q+'</b> '+esc(it.unidade||'')+(st.cls!=='ok'&&it.previsao_entrega?' · prev. '+_dm(it.previsao_entrega):'')+'</div>'; }).join('')+'</div>'; }
 function _dm(d){ return d?new Date(String(d).slice(0,10)+'T00:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}):''; }
 /* situação de um item do Sienge: {cls, txt} */
 function siengeSituacao(it){ const hoje=new Date().toISOString().slice(0,10);
@@ -5018,7 +5030,8 @@ async function siengeDecorar(){ if(_siengeDecorando)return; _siengeDecorando=tru
       const el=document.createElement('span'); el.className='pill sienge-st '+st.cls; el.textContent=st.txt; el.style.cursor='pointer';
       el.title=(it?'Item do Sienge: '+(it.detalhe||it.descricao_insumo||''):'Nenhum item da solicitação bateu com a descrição deste produto')+' — clique para ver a solicitação';
       el.onclick=ev=>{ ev.stopPropagation(); siengeAbrir(p.dataset.siengeSol,p.dataset.siengeCode); };
-      p.insertAdjacentElement('afterend',el); p.insertAdjacentText('afterend',' '); });
+      p.insertAdjacentElement('afterend',el); p.insertAdjacentText('afterend',' ');
+      if(g&&g.length>1){ const d=document.createElement('div'); d.innerHTML=siengePedidosHTML(g); if(d.firstChild)el.insertAdjacentElement('afterend',d.firstChild); } });
   } finally { _siengeDecorando=false; } }
 /* decora os selos assim que aparecem na tela (qualquer aba) */
 (function(){ let t=null; const obs=new MutationObserver(()=>{ if(!document.querySelector('[data-sienge-sol]:not([data-sienge-ok])'))return; clearTimeout(t); t=setTimeout(siengeDecorar,300); });
@@ -5037,7 +5050,7 @@ async function siengeAbrir(num,code){ const n=String(num||'').replace(/\D/g,'');
         <td class="num" style="white-space:nowrap">${numf(Number(it.qtd_solicitada)||0)} ${esc(it.unidade||'')}${Number(it.qtd_entregue)>0?'<div class="muted" style="font-size:11px">entregue '+numf(Number(it.qtd_entregue))+'</div>':''}</td>
         <td>${ped}</td><td>${sit}</td></tr>`; }).join('')}</tbody></table></div>`;
   modal(`<h3>Solicitação Sienge ${esc(num)}</h3>
-    <p class="mp">${itens[0]?esc(itens[0].obra||'')+' · ':''}Situação do Sienge pela última importação no Painel de Suprimentos: <b>${esc(imp)}</b>.${p?'<br>Produto do estoque: <b>'+esc(p.desc)+'</b>'+(melhor?' — item correspondente destacado.':' — <span style="color:#a05050">nenhum item da solicitação bateu com a descrição; confira na lista.</span>'):''}</p>
+    <p class="mp">${itens[0]?esc(itens[0].obra||'')+' · ':''}Situação do Sienge pela última importação no Painel de Suprimentos: <b>${esc(imp)}</b>.${p?'<br>Produto do estoque: <b>'+esc(p.desc)+'</b>'+(melhor?' — item correspondente destacado'+(siengeNota(p.desc,melhor[0])<0.6?' (pelo código do insumo '+esc(_siengeInsumoProduto(p))+')':'')+'.':' — <span style="color:#a05050">nenhum item da solicitação bateu com a descrição; confira na lista.</span>'):''}</p>
     ${corpo}<div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn primary" onclick="closeModal()">Fechar</button></div>`); }
 function reposHintCode(code){ const l=reposAbertasDoCodigo(code); if(!l.length)return '';
   return `<div style="font-size:11px;color:#2766b8;margin-top:2px">📦 Reposição já solicitada: ${l.map(r=>esc(r.numero_solicitacao_sienge)+' ('+numf(r.quantidade)+' · '+esc(r.obra_nome||obraName(r.obra_id))+')').join(', ')}</div>`; }
@@ -5096,7 +5109,7 @@ async function drawReposicao(){ const box=$('#comprasBody'); if(!box)return;
       ${pode?`<div style="display:flex;gap:6px"><button class="btn ghost sm" onclick="reposEditarSienge(${gi})">✎ Nº Sienge</button>${podeRec&&pendG?`<button class="btn primary sm" onclick="reposLancarNota(${gi},null)" title="Abre a Entrada / Nota Fiscal com todos os itens pendentes desta solicitação">📄 Lançar nota</button>`:''}</div>`:''}</div>
       <table><thead><tr><th>Código</th><th>Produto</th><th class="num">Solicitado</th><th class="num">Entregue</th><th class="num">Pendente</th><th class="num">Saldo atual</th><th>Notas vinculadas</th><th></th></tr></thead><tbody>${
       g.itens.map(r=>{ const p=findProduct(r.code); const un=reposUn(r); const ent=Number(r.quantidade_recebida)||0; const pen=reposPend(r);
-        return `<tr><td class="mono" style="font-size:12px">${esc(r.code)}</td><td>${esc(r.descricao||(p?p.desc:''))}</td>
+        return `<tr><td class="mono" style="font-size:12px">${esc(r.code)}</td><td>${esc(r.descricao||(p?p.desc:''))}<div style="margin-top:3px"><span data-sienge-sol="${esc(r.numero_solicitacao_sienge)}" data-sienge-code="${esc(String(r.code))}" style="display:none"></span></div></td>
           <td class="num" style="white-space:nowrap">${numf(r.quantidade)} ${esc(un)}</td>
           <td class="num" style="white-space:nowrap">${ent>0?`<b style="color:#1c7a52">${numf(ent)}</b>`:'<span class="muted">0</span>'}</td>
           <td class="num" style="white-space:nowrap">${pen>0?`<b style="color:#a8731a">${numf(pen)}</b>`:'0'}${ent>0&&pen>0?' <span class="pill pendente">parcial</span>':''}</td>
