@@ -573,7 +573,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-15T21:00:00-03:00';
+const APP_VERSION='2026-10-16T08:30:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
@@ -787,7 +787,9 @@ window.addEventListener('offline',()=>{ isOnline=false; updateOfflineBadge(); to
 /* Telas que se atualizam sozinhas quando outro usuário (ou esta aba) grava algo.
    A atualização NÃO troca de tela e preserva filtros, busca, rolagem e foco; se a pessoa estiver
    digitando/com um campo em foco, ou com uma janela (modal) aberta, espera ela terminar. */
-const LIVE_REFRESH_TABS=['painel','obras','aplic','produtos','consulta','relatorios'];
+/* 'produtos' fica de fora: lá a pessoa ordena/filtra para fazer ajustes em série, e o redesenho a cada
+   gravação desfazia a ordenação. A tela tem o botão "↻ Atualizar" para buscar as mudanças quando quiser. */
+const LIVE_REFRESH_TABS=['painel','obras','aplic','consulta','relatorios'];
 let _liveRefreshTimer=null;
 function modalAberto(){ const mr=document.getElementById('modalRoot'); return !!(mr&&mr.children.length); }
 function usuarioInteragindo(){ const a=document.activeElement, v=document.getElementById('view');
@@ -2583,7 +2585,11 @@ async function requisicaoAplicacaoDireta({obra,itens,numero,forn,aplic,os}){
 
 /* ===== PRODUTOS ===== */
 function renderProdutos(){
-  $('#topActions').innerHTML=`${obraSelectorHTML(true)} <button class="btn ghost sm" onclick="newProductModal()">+ Produto</button> <button class="btn dark sm" onclick="labelsModal()">🏷 Etiquetas</button>`;
+  /* redesenho da própria tela (após editar um produto, "↻ Atualizar"): mantém busca, "incluir zerados",
+     ordenação, quantidade de linhas carregadas e rolagem */
+  const redesenho=!!document.getElementById('prodRows');
+  const y0=window.scrollY, w0=[...document.querySelectorAll('#view .tbl-wrap')].map(e=>[e.scrollTop,e.scrollLeft]);
+  $('#topActions').innerHTML=`${obraSelectorHTML(true)} <button class="btn ghost sm" title="Buscar saldos e cadastros atualizados, mantendo filtros e ordenação" onclick="renderProdutos()">↻ Atualizar</button> <button class="btn ghost sm" onclick="newProductModal()">+ Produto</button> <button class="btn dark sm" onclick="labelsModal()">🏷 Etiquetas</button>`;
   const o=curObra(); const all=o==='__all'; const sal=c=>all?totalSaldo(c):saldoOf(o,c);
   let html=`<div class="sechead"><h3>Produtos${all?' (saldo total)':' · saldo em '+esc(obraName(o))}</h3><span class="muted" style="font-size:11.5px">${all?'Mín/Máx: padrão do produto (vale nas obras sem valor próprio)':'Mín/Máx desta obra — em cinza/itálico = padrão do produto'}</span>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -2593,12 +2599,20 @@ function renderProdutos(){
   if(!state.products.length){ html+=`<div class="tbl-wrap"><div class="empty"><div class="ico">≣</div>Nenhum produto.</div></div>`; $('#view').innerHTML=html; return; }
   html+=`<div class="tbl-wrap"><table class="fixa"><colgroup><col style="width:70px"><col style="width:170px"><col style="width:110px"><col><col style="width:90px"><col style="width:100px"><col style="width:100px"><col style="width:110px"><col style="width:100px"><col style="width:96px"></colgroup><thead><tr><th>Foto</th><th>Cód. barras</th><th>Cód. aux.</th><th>Produto</th><th class="num">Saldo</th><th class="num">Mín</th><th class="num">Máx</th><th class="num">Custo</th><th class="num">Venda</th><th></th></tr></thead><tbody id="prodRows"></tbody></table></div>`;
   $('#view').innerHTML=html;
-  const draw=()=>{ const q=($('#prodSearch').value||'').toLowerCase(); const zero=$('#prodZero').checked;
+  if(window._prodQ!=null)$('#prodSearch').value=window._prodQ;
+  if(window._prodZero!=null)$('#prodZero').checked=window._prodZero;
+  const draw=()=>{ window._prodQ=$('#prodSearch').value||''; window._prodZero=$('#prodZero').checked;
+    const q=window._prodQ.toLowerCase(); const zero=window._prodZero;
     let list=state.products.filter(p=>{ const s=sal(p.code);
       if(!zero && !(s>0))return false;
       if(q && !(p.desc.toLowerCase().includes(q)||String(p.code).includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.fab&&String(p.fab).toLowerCase().includes(q))||(p.ref&&p.ref.toLowerCase().includes(q))||(p.grupo&&p.grupo.toLowerCase().includes(q))||(p.localizacao&&p.localizacao.toLowerCase().includes(q))||(p.endereco&&p.endereco.toLowerCase().includes(q))))return false;
       return true; });
     const sig=[q,zero,curObra()].join('|'); if(window._prodSig!==sig){ window._prodSig=sig; window._prodLim=LIST_PAGE; }
+    /* ordenação pelo cabeçalho: feita na lista inteira (não só nas linhas já carregadas) e mantida entre redesenhos */
+    const ord=window._prodOrd, chave=ord&&PROD_ORD_CHAVES[ord.idx];
+    if(chave){ const k=p=>chave(p,sal(p.code),all?null:limDe(p,o)), dir=ord.asc?1:-1;
+      list=list.map(p=>[k(p),p]).sort((a,b)=>{ const A=a[0],B=b[0];
+        return (typeof A==='number'&&typeof B==='number')?(A-B)*dir:String(A).localeCompare(String(B),'pt-BR')*dir; }).map(x=>x[1]); }
     const full=list; list=full.slice(0,window._prodLim||LIST_PAGE);
     const ed=podeEditarLimites();
     $('#prodRows').innerHTML=list.map(p=>{const s=sal(p.code);const st=statusOf(p,s,o); const L=limDe(p,o);
@@ -2616,10 +2630,23 @@ function renderProdutos(){
       <td class="num">${p.preco?money(p.preco):'—'}</td>
       <td class="num" style="white-space:nowrap"><button class="btn ghost sm" title="Editar (custo, venda, foto, equipamento)" onclick="editProductModal('${esc(p.code)}')">✎</button> <button class="btn danger sm" title="Excluir (supervisor)" onclick="delProduct('${esc(p.code)}')">✕</button></td></tr>`;}).join('')+listMoreRow(10,list.length,full.length,'prodMais')||`<tr><td colspan="10" class="empty" style="padding:28px">Nada encontrado.</td></tr>`;
     watchListMore($('#prodRows'),'prodMais');
+    { const ths=[...$('#prodRows').closest('table').querySelectorAll('thead th')];
+      ths.forEach(h=>{const i=h.querySelector('.si-sort'); if(i)i.remove();});
+      if(chave&&ths[ord.idx]){ const ind=document.createElement('span'); ind.className='si-sort'; ind.style.cssText='font-size:9px;opacity:.6;margin-left:3px'; ind.textContent=ord.asc?'▲':'▼'; ths[ord.idx].appendChild(ind); } }
     withBarcode(()=>list.forEach(p=>{try{JsBarcode('#bc_'+CSS.escape(p.code),String(p.code),{format:'CODE128',width:1.3,height:32,fontSize:0,margin:2,displayValue:false});}catch(e){}})); };
   window.prodMais=all=>{ window._prodLim=all?Infinity:(window._prodLim||LIST_PAGE)+LIST_PAGE*2; draw(); };
+  window.prodOrdenar=idx=>{ if(!PROD_ORD_CHAVES[idx])return; const a=window._prodOrd;
+    window._prodOrd={idx,asc:!(a&&a.idx===idx&&a.asc)}; draw(); };
   draw(); ['prodSearch','prodZero'].forEach(id=>{const el=$('#'+id); if(el){el.oninput=draw; el.onchange=draw;}});
+  if(redesenho)requestAnimationFrame(()=>{ window.scrollTo(0,y0); document.querySelectorAll('#view .tbl-wrap').forEach((e,i)=>{ if(w0[i]){ e.scrollTop=w0[i][0]; e.scrollLeft=w0[i][1]; } }); });
 }
+/* colunas da tabela de Produtos que podem ser ordenadas (índice da coluna → valor de comparação) */
+const PROD_ORD_CHAVES={
+  1:p=>String(p.code), 2:p=>String(p.aux||''), 3:p=>String(p.desc||''),
+  4:(p,s)=>Number(s)||0,
+  5:(p,s,L)=>L&&!L.off?(Number(L.min)||0):(Number(p.min)||0),
+  6:(p,s,L)=>L&&!L.off?(Number(L.max)||0):(Number(p.max)||0),
+  7:p=>Number(p.custo)||0, 8:p=>Number(p.preco)||0 };
 function setField(code,f,v){ const p=findProduct(code); if(!p)return;
   if((f==='min'||f==='max')&&!podeEditarLimites()){ toast('Somente admin e almoxarifado alteram mínimo/máximo.','err'); return; }
   p[f]=parseFloat(v)||0; save();
@@ -6781,6 +6808,7 @@ function cellKey(txt){ txt=(txt||'').replace(/\s+/g,' ').trim().replace(/\u2212/
   return {n:null,s:txt.toLowerCase()}; }
 document.addEventListener('click',function(e){ const th=e.target.closest('th'); if(!th)return; const table=th.closest('table'); if(!table||!table.closest('.tbl-wrap'))return;
   const tbody=table.tBodies[0]; if(!tbody)return; const ths=[...th.parentNode.children]; const idx=ths.indexOf(th);
+  if(tbody.id==='prodRows'&&typeof window.prodOrdenar==='function'){ window.prodOrdenar(idx); return; }
   let rows=[...tbody.rows].filter(r=>r.cells.length>1 && !r.querySelector('.empty')); if(rows.length<2)return;
   const cellTxt=r=>{ const c=r.cells[idx]; if(!c)return ''; const f=c.querySelector('input,select,textarea'); return f?(f.value||''):c.textContent; };
   const asc=!(table.dataset.sc==idx && table.dataset.sd==='asc'); table.dataset.sc=idx; table.dataset.sd=asc?'asc':'desc';
