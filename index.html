@@ -188,6 +188,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   .userbox .av{width:30px;height:30px;border-radius:50%;background:var(--amber);color:#1a1206;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0}
   .userbox .nm{font-size:12.5px;font-weight:600;line-height:1.3} .userbox .rl{font-size:10.5px;color:var(--muted2);text-transform:uppercase;letter-spacing:.4px}
   .userbox button{margin-left:auto;background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px}
+  .app-ver{padding:0 18px 10px;font-size:10.5px;color:var(--muted2);letter-spacing:.2px}
   .authwrap{max-width:400px;width:100%}
   .authtabs{display:flex;gap:6px;margin-bottom:18px}
   .authtabs button{flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--muted);padding:9px;border-radius:8px;font-family:inherit;font-weight:600;font-size:13px;cursor:pointer}
@@ -495,6 +496,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     <button title="Trocar senha" onclick="trocarSenhaModal()">🔑</button>
     <button title="Sair" onclick="doLogout()">⏻</button>
   </div>
+  <div class="app-ver" id="appVer" title="Versão publicada do aplicativo"></div>
 </aside>
 <main>
   <div id="globalAlerts" class="noprint"></div>
@@ -573,8 +575,12 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-16T08:30:00-03:00';
+const APP_VERSION='2026-10-16T14:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
+/* versão exibida no rodapé do menu lateral (ex.: "Versão 16/10/2026 08:30") */
+function textoVersao(v){ const d=new Date(v); if(isNaN(d))return 'Versão '+v;
+  return 'Versão '+d.toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}).replace(',',''); }
+(function(){ const el=document.getElementById('appVer'); if(el)el.textContent=textoVersao(APP_VERSION); })();
 function startVersionWatch(){
   clearInterval(_versionCheckTimer);
   _versionCheckTimer=setInterval(checkAppVersion,60*1000);
