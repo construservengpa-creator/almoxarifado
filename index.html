@@ -575,7 +575,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-16T14:00:00-03:00';
+const APP_VERSION='2026-10-16T16:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 /* versão exibida no rodapé do menu lateral (ex.: "Versão 16/10/2026 08:30") */
 function textoVersao(v){ const d=new Date(v); if(isNaN(d))return 'Versão '+v;
@@ -4791,46 +4791,55 @@ async function siengeExportGerar(){ const box=$('#sgRes'); if(!box)return; const
     movs.push({r,p,aux,sc,env});
     if(env){ jaEnviadas++; if(!incluir)return; }
     if(!sc){ const k=String(r.code); const x=pend.get(k)||{code:r.code,desc:(p&&p.desc)||r.descricao,aux:aux||'',unit:(p&&p.unit)||'',qty:0,valor:0,n:0}; x.qty+=qty; x.valor+=vt; x.n++; pend.set(k,x); return; }
-    const k=[sc.insumo,sc.detalhe,sc.marca].join('-'); const x=linhas.get(k)||{...sc,descs:new Set(),unit:(p&&p.unit)||'',qty:0,valor:0,n:0,movIds:[]};
+    const aplic=r.aplic||''; const k=aplic+'|'+[sc.insumo,sc.detalhe,sc.marca].join('-'); const x=linhas.get(k)||{...sc,aplic,descs:new Set(),unit:(p&&p.unit)||'',qty:0,valor:0,n:0,movIds:[]};
     x.descs.add((p&&p.desc)||r.descricao); x.qty+=qty; x.valor+=vt; x.n++; x.movIds.push(String(r.id)); linhas.set(k,x); });
   const r4=n=>Math.round(n*10000)/10000;
   const todas=[...linhas.values()].map(x=>({...x,qty:r4(x.qty),preco:x.qty>0?r4(x.valor/x.qty):0})).sort((a,b)=>Number(a.insumo)-Number(b.insumo)||Number(a.detalhe)-Number(b.detalhe)||Number(a.marca||0)-Number(b.marca||0));
   const ok=todas.filter(x=>x.qty>0), zeradas=todas.filter(x=>x.qty<=0);
-  _sgExp={obra,de,ate,incluir,ok,zeradas,pend:[...pend.values()].filter(x=>Math.abs(x.qty)>1e-9),movs,baixados:{}};
+  /* No Sienge cada movimento de Consumo é de UMA aplicação: uma planilha (e um "marcar como enviadas") por aplicação. */
+  const gm=new Map(); ok.forEach(x=>{ if(!gm.has(x.aplic))gm.set(x.aplic,{aplic:x.aplic,nome:x.aplic?(aplicName(x.aplic)||x.aplic):'(sem aplicação)',ok:[]}); gm.get(x.aplic).ok.push(x); });
+  const grupos=[...gm.values()].sort((a,b)=>(a.aplic?0:1)-(b.aplic?0:1)||a.nome.localeCompare(b.nome,'pt-BR'));
+  _sgExp={obra,de,ate,incluir,ok,zeradas,grupos,pend:[...pend.values()].filter(x=>Math.abs(x.qty)>1e-9),movs,baixados:{}};
   if(!movs.length){ box.innerHTML='<div class="empty">Nenhuma baixa nesse período.</div>'; return; }
-  const semMarca=ok.filter(x=>!x.marca), comMarca=ok.filter(x=>x.marca);
   const ordem=m=>`<ol style="margin:4px 0 0 18px;padding:0">${['Código do insumo','Detalhe',...(m?['Marca']:[]),'Quantidade','Preço unitário'].map(c=>'<li>'+c+'</li>').join('')}</ol>`;
-  const marcar=m=>incluir?'<div class="muted" style="font-size:11.5px;margin-top:8px">Para marcar como enviadas, desmarque “Incluir baixas já enviadas” e gere de novo.</div>'
-    :`<div id="sgMarca${m?1:0}" style="margin-top:10px;border-top:1px dashed #e3ddd0;padding-top:8px"><div class="muted" style="font-size:12px">Importou no Sienge? Informe o nº do movimento e marque:</div>
-      <div style="display:flex;gap:6px;margin-top:4px"><input id="sgDoc${m?1:0}" placeholder="ex.: REQ / 11601" style="flex:1;min-width:0"><button class="btn primary sm" onclick="siengeMarcarEnviadas(${m?1:0})">✓ Marcar como enviadas</button></div></div>`;
-  const btnArq=(m,lst)=>lst.length?`<div style="flex:1;min-width:240px;border:1px solid #e3ddd0;border-radius:8px;padding:10px"><b>${m?'Itens com marca':'Itens sem marca'}</b> · ${lst.length} linha(s) · ${lst.reduce((a,x)=>a+x.movIds.length,0)} baixa(s)<div class="muted" style="font-size:12px;margin-top:4px">No Sienge, em <b>Conteúdo da coluna</b>, clique em ADICIONAR nesta ordem:</div>${ordem(m)}<button class="btn dark sm" style="margin-top:8px" onclick="siengeExportArquivo(${m?1:0})">↓ Planilha de importação</button>${marcar(m)}</div>`:'';
+  const marcar=(g,m)=>incluir?'<div class="muted" style="font-size:11.5px;margin-top:8px">Para marcar como enviadas, desmarque “Incluir baixas já enviadas” e gere de novo.</div>'
+    :`<div style="margin-top:10px;border-top:1px dashed #e3ddd0;padding-top:8px"><div class="muted" style="font-size:12px">Importou no Sienge? Informe o nº do movimento e marque:</div>
+      <div style="display:flex;gap:6px;margin-top:4px"><input id="sgDoc${g}_${m?1:0}" placeholder="ex.: REQ / 11601" style="flex:1;min-width:0"><button class="btn primary sm" onclick="siengeMarcarEnviadas(${g},${m?1:0})">✓ Marcar como enviadas</button></div></div>`;
+  const btnArq=(g,m,lst)=>lst.length?`<div style="flex:1;min-width:240px;border:1px solid #e3ddd0;border-radius:8px;padding:10px;background:#fff"><b>${m?'Itens com marca':'Itens sem marca'}</b> · ${lst.length} linha(s) · ${lst.reduce((a,x)=>a+x.movIds.length,0)} baixa(s)<div class="muted" style="font-size:12px;margin-top:4px">No Sienge, em <b>Conteúdo da coluna</b>, clique em ADICIONAR nesta ordem:</div>${ordem(m)}<button class="btn dark sm" style="margin-top:8px" onclick="siengeExportArquivo(${g},${m?1:0})">↓ Planilha de importação</button>${marcar(g,m)}</div>`:'';
+  const blocoAplic=(gr,g)=>{ const sm=gr.ok.filter(x=>!x.marca), cm=gr.ok.filter(x=>x.marca);
+    return `<div style="border:1px solid #d9d2c3;border-radius:10px;padding:10px;margin-top:10px;background:#faf8f3">
+      <div style="font-size:13.5px;margin-bottom:8px"><b>Aplicação: ${esc(gr.nome)}</b> <span class="muted" style="font-size:12px">· ${gr.ok.length} linha(s) · ${gr.ok.reduce((a,x)=>a+x.movIds.length,0)} baixa(s)</span>${gr.aplic?'':'<br><span style="color:#b03a3a;font-size:12px">⚠ Baixas sem aplicação informada: confira a aplicação antes de importar no Sienge.</span>'}</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">${btnArq(g,false,sm)}${btnArq(g,true,cm)}</div>
+      ${sm.length&&cm.length?'<p class="muted" style="font-size:12px;margin:8px 0 0">As duas planilhas têm colunas diferentes: importe uma, depois troque o Conteúdo da coluna e importe a outra. Marque cada uma depois de importar.</p>':''}</div>`; };
   box.innerHTML=`<div style="font-size:13px;margin:4px 0 10px"><b>${movs.length}</b> baixa(s) no período${jaEnviadas?` · <span style="color:#1c7a52">${jaEnviadas} já enviada(s) ao Sienge${incluir?' (incluídas)':' (fora da planilha)'}</span>`:''} → <b>${ok.length}</b> linha(s) para o Sienge.
       ${_sgExp.pend.length?`<br><span style="color:#b03a3a">⚠ ${_sgExp.pend.length} produto(s) sem código do Sienge no cadastro (Cód. auxiliar no formato INSUMO-DETALHE ou INSUMO-DETALHE-MARCA) ficaram de fora e continuam pendentes — veja a aba “Pendências” do relatório.</span>`:''}
-      ${zeradas.length?`<br><span class="muted">${zeradas.length} item(ns) zerado(s) ou negativo(s) por devolução não entram na importação.</span>`:''}</div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap">${btnArq(false,semMarca)}${btnArq(true,comMarca)}</div>
-    ${semMarca.length&&comMarca.length?'<p class="muted" style="font-size:12px;margin:8px 0 0">As duas planilhas têm colunas diferentes: importe uma, depois troque o Conteúdo da coluna e importe a outra (no mesmo movimento ou em outro). Marque cada uma depois de importar.</p>':''}
+      ${zeradas.length?`<br><span class="muted">${zeradas.length} item(ns) zerado(s) ou negativo(s) por devolução não entram na importação.</span>`:''}
+      ${grupos.length>1?`<br><b>${grupos.length} aplicações</b> — no Sienge, faça um movimento de Consumo para cada aplicação, com a planilha dela.`:''}</div>
+    ${grupos.map(blocoAplic).join('')}
     <div style="margin-top:10px"><button class="btn ghost sm" onclick="siengeExportRelatorio()">↓ Relatório de conferência (.xlsx)</button></div>
-    <div class="tbl-wrap" style="margin-top:10px;max-height:280px;overflow:auto"><table><thead><tr><th>Insumo</th><th>Detalhe</th><th>Marca</th><th>Produto(s) no estoque</th><th class="num">Qtd</th><th class="num">Preço un.</th></tr></thead><tbody>${ok.map(x=>`<tr><td class="mono">${esc(x.insumo)}</td><td class="mono">${esc(x.detalhe)}</td><td class="mono">${esc(x.marca||'—')}</td><td style="font-size:12px">${[...x.descs].map(esc).join('<br>')}</td><td class="num">${numf(x.qty)} ${esc(x.unit)}</td><td class="num">${money(x.preco)}</td></tr>`).join('')||`<tr><td colspan="6" class="empty">${jaEnviadas&&!incluir?'Nada pendente: as baixas com código do Sienge deste período já foram enviadas.':'Nenhum item com código do Sienge.'}</td></tr>`}</tbody></table></div>`; }
-async function siengeMarcarEnviadas(comMarca){ if(!_sgExp||_sgExp.incluir)return; const inp=$('#sgDoc'+comMarca); const doc=inp?inp.value.trim():'';
+    <div class="tbl-wrap" style="margin-top:10px;max-height:280px;overflow:auto"><table><thead><tr><th>Aplicação</th><th>Insumo</th><th>Detalhe</th><th>Marca</th><th>Produto(s) no estoque</th><th class="num">Qtd</th><th class="num">Preço un.</th></tr></thead><tbody>${grupos.flatMap(gr=>gr.ok.map(x=>[gr,x])).map(([gr,x])=>`<tr><td style="font-size:12px">${esc(gr.nome)}</td><td class="mono">${esc(x.insumo)}</td><td class="mono">${esc(x.detalhe)}</td><td class="mono">${esc(x.marca||'—')}</td><td style="font-size:12px">${[...x.descs].map(esc).join('<br>')}</td><td class="num">${numf(x.qty)} ${esc(x.unit)}</td><td class="num">${money(x.preco)}</td></tr>`).join('')||`<tr><td colspan="7" class="empty">${jaEnviadas&&!incluir?'Nada pendente: as baixas com código do Sienge deste período já foram enviadas.':'Nenhum item com código do Sienge.'}</td></tr>`}</tbody></table></div>`; }
+async function siengeMarcarEnviadas(g,comMarca){ if(!_sgExp||_sgExp.incluir)return; const gr=_sgExp.grupos[g]; if(!gr)return;
+  const inp=$('#sgDoc'+g+'_'+comMarca); const doc=inp?inp.value.trim():'';
   if(!doc){ toast('Informe o nº do movimento no Sienge (ex.: REQ / 11601).','err'); if(inp)inp.focus(); return; }
-  const lst=_sgExp.ok.filter(x=>!!x.marca===!!comMarca); const ids=lst.flatMap(x=>x.movIds); if(!ids.length)return;
-  if(!_sgExp.baixados[comMarca]&&!confirm('Você ainda não baixou esta planilha nesta tela. Marcar mesmo assim '+ids.length+' baixa(s) como enviadas no movimento '+doc+'?'))return;
+  const lst=gr.ok.filter(x=>!!x.marca===!!comMarca); const ids=lst.flatMap(x=>x.movIds); if(!ids.length)return;
+  if(!_sgExp.baixados[g+'_'+comMarca]&&!confirm('Você ainda não baixou a planilha de '+gr.nome+' nesta tela. Marcar mesmo assim '+ids.length+' baixa(s) como enviadas no movimento '+doc+'?'))return;
   const {error}=await sb.rpc('sienge_marcar_envio',{p_obra:_sgExp.obra,p_de:_sgExp.de||null,p_ate:_sgExp.ate||null,p_documento:doc,p_com_marca:!!comMarca,p_linhas:lst.length,p_movimentos:ids});
   if(error){ toast(error.message,'err'); return; }
-  toast(ids.length+' baixa(s) marcadas como enviadas ao Sienge ('+doc+').','ok');
+  toast(ids.length+' baixa(s) de '+gr.nome+' marcadas como enviadas ao Sienge ('+doc+').','ok');
   await siengeExportGerar(); siengeEnviosLista(); if(activeTab==='baixa')drawBaixaHist(); }
 function _sgNum(v){ return /^\d+$/.test(String(v))?Number(v):v; }
-function _sgNomeArq(){ return [obraName(_sgExp.obra).normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^\w\-]+/g,'_').replace(/_+/g,'_'),_sgExp.de||'inicio',_sgExp.ate].join('_'); }
-async function siengeExportArquivo(comMarca){ if(!_sgExp)return;
+function _sgNomeArq(aplic){ const limpa=t=>String(t).normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^\w\-]+/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'');
+  return [limpa(obraName(_sgExp.obra)),...(aplic?[limpa(aplic)]:[]),_sgExp.de||'inicio',_sgExp.ate].join('_'); }
+async function siengeExportArquivo(g,comMarca){ if(!_sgExp)return; const gr=_sgExp.grupos[g]; if(!gr)return;
   try{ await ensureXLSX(); }catch(e){ toast('Não foi possível carregar o gerador de Excel (verifique a conexão).','err'); return; }
-  const lst=_sgExp.ok.filter(x=>!!x.marca===!!comMarca);
+  const lst=gr.ok.filter(x=>!!x.marca===!!comMarca);
   const aoa=lst.map(x=>[_sgNum(x.insumo),_sgNum(x.detalhe),...(comMarca?[_sgNum(x.marca)]:[]),x.qty,x.preco]);
   const ws=XLSX.utils.aoa_to_sheet(aoa); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Importacao');
-  XLSX.writeFile(wb,'sienge_consumo_'+(comMarca?'com_marca_':'sem_marca_')+_sgNomeArq()+'.xlsx'); _sgExp.baixados[comMarca]=true; }
+  XLSX.writeFile(wb,'sienge_consumo_'+(comMarca?'com_marca_':'sem_marca_')+_sgNomeArq(gr.nome)+'.xlsx'); _sgExp.baixados[g+'_'+comMarca]=true; }
 async function siengeExportRelatorio(){ if(!_sgExp)return;
   try{ await ensureXLSX(); }catch(e){ toast('Não foi possível carregar o gerador de Excel (verifique a conexão).','err'); return; }
   const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(_sgExp.ok.concat(_sgExp.zeradas).map(x=>({Insumo:_sgNum(x.insumo),Detalhe:_sgNum(x.detalhe),Marca:x.marca?_sgNum(x.marca):'',Quantidade:x.qty,Unidade:x.unit,'Preço unitário':x.preco,'Valor total':Math.round(x.valor*100)/100,'Produtos no estoque':[...x.descs].join(' | '),'Nº de baixas':x.n,Situação:x.qty>0?'Importar':'Zerado/negativo por devolução'}))),'Resumo Sienge');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(_sgExp.ok.concat(_sgExp.zeradas).map(x=>({Aplicação:x.aplic?(aplicName(x.aplic)||x.aplic):'(sem aplicação)',Insumo:_sgNum(x.insumo),Detalhe:_sgNum(x.detalhe),Marca:x.marca?_sgNum(x.marca):'',Quantidade:x.qty,Unidade:x.unit,'Preço unitário':x.preco,'Valor total':Math.round(x.valor*100)/100,'Produtos no estoque':[...x.descs].join(' | '),'Nº de baixas':x.n,Situação:x.qty>0?'Importar':'Zerado/negativo por devolução'}))),'Resumo Sienge');
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(_sgExp.movs.map(({r,p,aux,sc,env})=>({Data:fmtDate(Number(r.ts)),'Nº saída':r.seq?seqf(r.seq):'',Requisição:reqIdFromDoc(r.doc)?'REQ-'+String(reqIdFromDoc(r.doc)).padStart(5,'0'):'',Documento:r.doc||'','Cód. estoque':r.code,'Cód. auxiliar':aux||'',Produto:(p&&p.desc)||r.descricao,Quantidade:Number(r.qty)||0,Unidade:(p&&p.unit)||'','Valor unit.':Number(r.valor_unit)||0,'Valor total':Number(r.valor_total)||0,Aplicação:r.aplic?aplicName(r.aplic):'',OS:r.os||'','Vai para o Sienge':!sc?'Não — sem código do Sienge':(env&&!_sgExp.incluir?'Não — já enviada':'Sim'),'Enviada ao Sienge':env?env.doc+(env.em?' em '+fmtDate(new Date(env.em).getTime()):''):''}))),'Baixas');
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(_sgExp.pend.length?_sgExp.pend.map(x=>({'Cód. estoque':x.code,'Cód. auxiliar atual':x.aux,Produto:x.desc,Quantidade:Math.round(x.qty*10000)/10000,Unidade:x.unit,'Valor total':Math.round(x.valor*100)/100,'Nº de baixas':x.n,'O que fazer':'Cadastrar o Cód. auxiliar como INSUMO-DETALHE ou INSUMO-DETALHE-MARCA do Sienge'})):[{Pendências:'Nenhuma'}]),'Pendências');
   XLSX.writeFile(wb,'relatorio_baixas_sienge_'+_sgNomeArq()+'.xlsx'); }
