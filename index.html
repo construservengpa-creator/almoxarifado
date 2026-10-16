@@ -575,7 +575,7 @@ const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação (ex.: data/hora
    da publicação). É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-16T16:00:00-03:00';
+const APP_VERSION='2026-10-16T17:00:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 /* versão exibida no rodapé do menu lateral (ex.: "Versão 16/10/2026 08:30") */
 function textoVersao(v){ const d=new Date(v); if(isNaN(d))return 'Versão '+v;
@@ -4835,7 +4835,11 @@ async function siengeExportArquivo(g,comMarca){ if(!_sgExp)return; const gr=_sgE
   const lst=gr.ok.filter(x=>!!x.marca===!!comMarca);
   const aoa=lst.map(x=>[_sgNum(x.insumo),_sgNum(x.detalhe),...(comMarca?[_sgNum(x.marca)]:[]),x.qty,x.preco]);
   const ws=XLSX.utils.aoa_to_sheet(aoa); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Importacao');
-  XLSX.writeFile(wb,'sienge_consumo_'+(comMarca?'com_marca_':'sem_marca_')+_sgNomeArq(gr.nome)+'.xlsx'); _sgExp.baixados[g+'_'+comMarca]=true; }
+  /* nome do arquivo: Exporte_<prefixo da aplicação (placa/tag)>; sem prefixo cadastrado, usa o nome da aplicação.
+     A planilha com marca (colunas diferentes) leva "_marca" no fim para não sobrescrever a outra. */
+  const ap=gr.aplic?state.aplicacoes.find(a=>a.id===gr.aplic):null;
+  const pref=String((ap&&(ap.tag||ap.nome))||(gr.aplic?gr.nome:'sem aplicacao')).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^\w\-]+/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'');
+  XLSX.writeFile(wb,'Exporte_'+pref+(comMarca?'_marca':'')+'.xlsx'); _sgExp.baixados[g+'_'+comMarca]=true; }
 async function siengeExportRelatorio(){ if(!_sgExp)return;
   try{ await ensureXLSX(); }catch(e){ toast('Não foi possível carregar o gerador de Excel (verifique a conexão).','err'); return; }
   const wb=XLSX.utils.book_new();
