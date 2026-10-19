@@ -61,6 +61,7 @@ main{padding:16px;max-width:1600px;margin:0 auto}
 .regras{display:flex;flex-direction:column;gap:6px}
 .regra{display:flex;gap:8px;align-items:center;justify-content:space-between;background:var(--s2);border:1px solid transparent;border-radius:9px;padding:7px 10px;text-align:left;width:100%}
 .regra.sel{border-color:var(--ac)}
+.regra:disabled{opacity:.4;cursor:default}
 .regra .n{font:700 13px var(--f-mono)}
 .tag{display:inline-block;font-size:11px;font-weight:700;border-radius:6px;padding:1px 7px;white-space:nowrap}
 .tag.E{background:rgba(242,109,91,.18);color:var(--bad)}
@@ -178,6 +179,7 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
       <div class="seg" id="segMed" hidden><button data-m="qtd" class="on">Quantidade</button><button data-m="valor">Valor (R$)</button></div>
       <p class="info" id="info"></p>
       <button class="btn" id="bChip" hidden title="Tirar este filtro"></button>
+      <button class="btn" id="bLimpa" hidden>✕ Limpar filtros</button>
     </div>
     <div id="vGraf" class="graf" hidden></div>
     <div class="cols2" id="vTab">
@@ -244,13 +246,15 @@ const REGRAS={
   EMISSAO_FUT:   ['E','Emissão com data futura'],
   RECEB_ANTES:   ['E','Recebimento antes da emissão'],
   LANC_RECUSADA: ['E','Lançada (tem título) com operação não realizada ou desconhecida'],
-  LANC_SEM_CONF: ['A','Lançada (tem título) sem confirmação da operação no manifesto'],
+  LANC_SEM_CONF: ['A','Lançada (tem título) sem nenhuma manifestação'],
   CONF_SEM_LANC: ['A','Operação confirmada e ainda sem lançamento há mais de {d} dias'],
   PEND_DIAS:     ['A','Sem manifestação ou só com ciência há mais de {d} dias'],
-  PRAZO_180:     ['A','Mais de 180 dias da emissão sem manifestação conclusiva (prazo da SEFAZ)'],
+  PRAZO_180:     ['A','Sem lançamento e sem manifestação conclusiva há mais de 180 dias da emissão'],
   CNPJ_EMIT:     ['A','CNPJ do emitente inválido'],
   NUM_SERIE:     ['A','Número/Série fora do formato "número/série"'],
   MANIF_DESC:    ['A','Manifesto com texto não reconhecido'],
+  UF_CHAVE:      ['I','UF do emitente vazia — preenchida pela chave de acesso'],
+  NS_CHAVE:      ['I','Número/Série vazio — preenchido pela chave de acesso'],
   UF_PADRAO:     ['I','UF do emitente vazia — preenchida com PA (como no Power Query)']
 };
 const STATUS_ORDEM=['Lançado','Apenas Confirmação','Pendente','Aguardando Confirmação','Não realizada','Desconhecida'];
@@ -351,8 +355,14 @@ function tratar(lidas,dias){
     const o={linha,oc:[]}, add=(c,extra)=>o.oc.push({c,extra});
     o.emitente=String(raw('emitente')??'').trim();
     o.cnpjEmit=String(raw('cnpjEmit')??'').trim();
+    // Chave de acesso: cUF(2) AAMM(4) CNPJ(14) modelo(2) série(3) número(9) tpEmis(1) código(8) DV(1)
+    let ch=raw('chave'); ch=ch==null?'':(typeof ch==='number'?ch.toLocaleString('fullwide',{useGrouping:false}):String(ch));
+    o.chave=soAlnum(ch);
+    const chOk=!chaveNumero&&o.chave.length===44, ufCh=chOk?UF_COD[+o.chave.slice(0,2)]:null;
+    // Notas sem manifestação vêm do relatório sem UF e sem Número/Série: completa pela chave quando ela é válida
+    // (o Power Query põe "PA" fixo na UF; aqui só cai no PA se a chave não ajudar).
     o.ufEmit=String(raw('ufEmit')??'').trim().toUpperCase();
-    if(!o.ufEmit){ o.ufEmit='PA'; add('UF_PADRAO'); }
+    if(!o.ufEmit){ if(ufCh){ o.ufEmit=ufCh; add('UF_CHAVE'); }else{ o.ufEmit='PA'; add('UF_PADRAO'); } }
     o.destinatarioOrig=String(raw('destinatario')??'').trim();
     o.cnpjDest=String(raw('cnpjDest')??'').trim();
     o.ufDest=String(raw('ufDest')??'').trim();
@@ -365,7 +375,8 @@ function tratar(lidas,dias){
     o.titulo=paraNum(raw('titulo'))||0;
     const ns=String(raw('numSerie')??'').trim(), p=ns.split('/');
     o.numero=(p[0]||'').trim(); o.serie=(p[1]||'').trim();
-    if(!ns||p.length!==2||!/^\d+$/.test(o.numero)||!/^\d+$/.test(o.serie))add('NUM_SERIE');
+    if(!o.numero&&!o.serie&&chOk){ o.numero=String(+o.chave.slice(25,34)); o.serie=String(+o.chave.slice(22,25)); add('NS_CHAVE'); }
+    else if(!ns||p.length!==2||!/^\d+$/.test(o.numero)||!/^\d+$/.test(o.serie))add('NUM_SERIE');
 
     const cd=soAlnum(o.cnpjDest);
     o.empresa=EMPRESAS[cd]||null;
@@ -374,18 +385,15 @@ function tratar(lidas,dias){
     const ce=soAlnum(o.cnpjEmit);
     if(ce&&!cnpjValido(ce))add('CNPJ_EMIT',o.cnpjEmit);
 
-    // Chave de acesso: cUF(2) AAMM(4) CNPJ(14) modelo(2) série(3) número(9) tpEmis(1) código(8) DV(1)
-    let ch=raw('chave'); ch=ch==null?'':(typeof ch==='number'?ch.toLocaleString('fullwide',{useGrouping:false}):String(ch));
-    o.chave=soAlnum(ch);
     if(!o.chave)add('CHAVE_VAZIA');
     else if(chaveNumero)add('CHAVE_NUMERO');
     else if(o.chave.length!==44)add('CHAVE_TAM',o.chave.length+' caracteres');
     else{
       if(dvMod11(o.chave.slice(0,43),9)!==+o.chave[43])add('CHAVE_DV');
-      const uf=UF_COD[+o.chave.slice(0,2)];
-      if(uf&&o.ufEmit&&uf!==o.ufEmit)add('CHAVE_UF',`chave: ${uf}, relatório: ${o.ufEmit}`);
-      const cnpjCh=o.chave.slice(6,20);
-      if(ce&&cnpjCh!==ce.padStart(14,'0'))add('CHAVE_CNPJ',`chave: ${fmtCNPJ(cnpjCh)}`);
+      if(ufCh&&o.ufEmit&&ufCh!==o.ufEmit)add('CHAVE_UF',`chave: ${ufCh}, relatório: ${o.ufEmit}`);
+      // Séries 890 a 899 = NF-e avulsa, emitida pela SEFAZ: a chave leva o CNPJ da SEFAZ, não o do emitente.
+      const cnpjCh=o.chave.slice(6,20), avulsa=+o.chave.slice(22,25)>=890&&+o.chave.slice(22,25)<=899;
+      if(ce&&!avulsa&&cnpjCh!==ce.padStart(14,'0'))add('CHAVE_CNPJ',`chave: ${fmtCNPJ(cnpjCh)}`);
       if(o.chave.slice(20,22)!=='55')add('CHAVE_MOD','modelo '+o.chave.slice(20,22));
       if(/^\d+$/.test(o.serie)&&+o.chave.slice(22,25)!==+o.serie)add('CHAVE_SERIE',`chave: ${+o.chave.slice(22,25)}`);
       if(/^\d+$/.test(o.numero)&&+o.chave.slice(25,34)!==+o.numero)add('CHAVE_NUM',`chave: ${+o.chave.slice(25,34)}`);
@@ -407,12 +415,12 @@ function tratar(lidas,dias){
     o.idade=idade;
     if(o.titulo>0){
       if(o.manifCod==='NAO_REAL'||o.manifCod==='DESC')add('LANC_RECUSADA',o.manifesto);
-      else if(o.manifCod==='SEM'||o.manifCod==='CIENCIA')add('LANC_SEM_CONF',o.manifesto);
+      else if(o.manifCod==='SEM')add('LANC_SEM_CONF',o.manifesto);
     }else{
       if(o.manifCod==='CONF'&&idade>dias)add('CONF_SEM_LANC',idade+' dias');
       if((o.manifCod==='SEM'||o.manifCod==='CIENCIA')&&idade>dias)add('PEND_DIAS',idade+' dias');
     }
-    if(o.emissao&&(o.manifCod==='SEM'||o.manifCod==='CIENCIA')&&(hoje-o.emissao)/864e5>180)add('PRAZO_180');
+    if(!(o.titulo>0)&&o.emissao&&(o.manifCod==='SEM'||o.manifCod==='CIENCIA')&&(hoje-o.emissao)/864e5>180)add('PRAZO_180');
     return o;
   });
 
@@ -470,13 +478,13 @@ function processar(){
   desenhar();
 }
 
-function filtradas(){
+function filtradas(semRegra){
   const b=norm($('#fBusca').value), emp=$('#fEmp').value, st=$('#fSt').value, val=$('#fVal').value;
   return ROWS.filter(o=>{
     if(emp&&(o.empresa||'(não cadastrada)')!==emp)return false;
     if(st&&o.status!==st)return false;
     if(val&&!(val==='EA'?o.nivel!=='OK':o.nivel===val))return false;
-    if(F.regra&&!o.oc.some(x=>x.c===F.regra))return false;
+    if(!semRegra&&F.regra&&!o.oc.some(x=>x.c===F.regra))return false;
     if(F.kpi&&!F.kpi(o))return false;
     if(F.graf&&!predF(F.graf)(o))return false;
     if(b&&!norm([o.emitente,o.cnpjEmit,o.numero,o.chave,o.titulo,o.empresa,o.natureza,o.manifesto].join(' ')).includes(b))return false;
@@ -503,10 +511,12 @@ function desenhar(){
   $('#kpis').querySelectorAll('.kpi').forEach(b=>b.onclick=()=>{ const i=+b.dataset.k; if(F.kpiI===i&&F.kpi||i===0){F.kpi='';F.kpiI=null;}else{F.kpi=ks[i][2];F.kpiI=i;} LIMITE=300; desenhar(); });
 
   // Regras
-  const cnt={}; ROWS.forEach(o=>new Set(o.oc.map(x=>x.c)).forEach(c=>cnt[c]=(cnt[c]||0)+1));
-  const ordem={E:0,A:1,I:2}, regras=Object.keys(cnt).sort((a,b)=>ordem[REGRAS[a][0]]-ordem[REGRAS[b][0]]||cnt[b]-cnt[a]);
-  $('#regras').innerHTML=regras.length?regras.map(c=>`<button class="regra${F.regra===c?' sel':''}" data-c="${c}"><span><span class="tag ${REGRAS[c][0]}">${{E:'Erro',A:'Alerta',I:'Info'}[REGRAS[c][0]]}</span> ${esc(txtRegra(c,dias()))}</span><span class="n">${intf(cnt[c])}</span></button>`).join('')
-    :'<p class="info" style="margin:0">Nenhuma ocorrência — todas as notas passaram nas conferências. ✅</p>';
+  // Contagem dentro dos outros filtros ativos (sem o da própria regra), para o número bater com a lista ao clicar.
+  const cnt={}; ROWS.forEach(o=>new Set(o.oc.map(x=>x.c)).forEach(c=>cnt[c]=0));
+  filtradas(true).forEach(o=>new Set(o.oc.map(x=>x.c)).forEach(c=>cnt[c]++));
+  const ordem={E:0,A:1,I:2}, regras=Object.keys(cnt).sort((a,b)=>(!cnt[a])-(!cnt[b])||ordem[REGRAS[a][0]]-ordem[REGRAS[b][0]]||cnt[b]-cnt[a]);
+  $('#regras').innerHTML=(temFiltro()?'<p class="info" style="margin:0 0 4px">Contagem dentro dos filtros atuais.</p>':'')+(regras.length?regras.map(c=>`<button class="regra${F.regra===c?' sel':''}" data-c="${c}"${cnt[c]||F.regra===c?'':' disabled title="Nenhuma nota com esta ocorrência nos filtros atuais"'}><span><span class="tag ${REGRAS[c][0]}">${{E:'Erro',A:'Alerta',I:'Info'}[REGRAS[c][0]]}</span> ${esc(txtRegra(c,dias()))}</span><span class="n">${intf(cnt[c])}</span></button>`).join('')
+    :'<p class="info" style="margin:0">Nenhuma ocorrência — todas as notas passaram nas conferências. ✅</p>');
   $('#regras').querySelectorAll('.regra').forEach(b=>b.onclick=()=>{ F.regra=F.regra===b.dataset.c?'':b.dataset.c; LIMITE=300; desenhar(); });
 
   // Tabela
@@ -534,6 +544,7 @@ function desenhar(){
   $('#tb').querySelectorAll('tr[data-l]').forEach(tr=>tr.onclick=()=>detalhe(ROWS.find(o=>o.linha===+tr.dataset.l)));
   $('#info').textContent=`Mostrando ${intf(vis.length)} de ${intf(lst.length)} notas filtradas · ${brl(soma(lst))}`+(lst.length<ROWS.length?` (total do arquivo: ${intf(ROWS.length)})`:'');
   $('#bMais').hidden=lst.length<=LIMITE||VISTA!=='tab';
+  $('#bLimpa').hidden=!temFiltro();
   $('#bChip').hidden=!F.graf; if(F.graf)$('#bChip').textContent='📊 '+F.graf.d+'  ✕';
   $('#vTab').hidden=VISTA!=='tab'; $('#vGraf').hidden=VISTA!=='graf'; $('#segMed').hidden=VISTA!=='graf';
   if(VISTA==='graf'){ $('#info').textContent=`Gráficos sobre ${intf(lst.length)} notas filtradas · ${brl(soma(lst))}`; graficos(lst); }
@@ -652,6 +663,8 @@ $('#vGraf').addEventListener('click',e=>{ const el=e.target.closest('[data-f]');
   $('#dlgB').querySelectorAll('tr[data-l]').forEach(tr=>tr.onclick=()=>detalhe(ROWS.find(o=>o.linha===+tr.dataset.l)));
   $('#bVerTab').onclick=()=>{ F.graf=f; VISTA='tab'; $('#segVista').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x.dataset.v==='tab')); $('#dlg').close(); LIMITE=300; desenhar(); };
   if(!$('#dlg').open)$('#dlg').showModal(); });
+function temFiltro(){ return !!($('#fBusca').value||$('#fEmp').value||$('#fSt').value||$('#fVal').value||F.regra||F.kpi||F.graf); }
+$('#bLimpa').onclick=()=>{ $('#fBusca').value=''; $('#fEmp').value=''; $('#fSt').value=''; $('#fVal').value=''; F={kpi:'',regra:''}; LIMITE=300; desenhar(); };
 $('#bChip').onclick=()=>{ F.graf=null; LIMITE=300; desenhar(); };
 $('#segVista').onclick=e=>{ const b=e.target.closest('button'); if(!b)return; VISTA=b.dataset.v; $('#segVista').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); lsSet('validador-nf-vista',VISTA); desenhar(); };
 $('#segMed').onclick=e=>{ const b=e.target.closest('button'); if(!b)return; MED=b.dataset.m; $('#segMed').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); desenhar(); };
