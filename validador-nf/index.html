@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1E2024">
+<title>Capivara Validador NF · AMETA</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="../favicon-32.png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&family=Oswald:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#1E2024; --s1:#272A30; --s2:#30343B; --line:#3B4048; --tx:#ECEDEF; --mu:#9AA1AC;
+  --ac:#F5C433; --ac-ink:#1E2024; --ok:#62C48F; --bad:#F26D5B; --info:#7DB4E8; --warn:#F2A65A;
+  --f-head:'Oswald','Arial Narrow',sans-serif;
+  --f-body:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --f-mono:'JetBrains Mono',ui-monospace,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.45 var(--f-body)}
+body{min-height:100dvh}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+[hidden]{display:none!important}
+
+.cap-selo{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:38px;height:38px;border-radius:22%;background:#F5C433;color:#1A1E24}
+.cap-selo svg{width:100%;height:100%;display:block}
+
+.top{display:flex;align-items:center;gap:14px;padding:14px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.top h1{font:600 clamp(18px,2vw,26px)/1.1 var(--f-head);letter-spacing:.06em;text-transform:uppercase;margin:0;flex:1;min-width:200px}
+.top h1 small{display:block;font:500 12.5px var(--f-body);color:var(--mu);text-transform:none;letter-spacing:0;margin-top:3px}
+.btn{border:1px solid var(--line);background:var(--s1);border-radius:10px;padding:9px 14px;font-weight:600;white-space:nowrap}
+.btn.pri{background:var(--ac);color:var(--ac-ink);border-color:var(--ac)}
+.btn:disabled{opacity:.5;cursor:default}
+main{padding:16px;max-width:1600px;margin:0 auto}
+
+.drop{border:2px dashed var(--line);border-radius:14px;padding:46px 16px;text-align:center;background:var(--s1);cursor:pointer}
+.drop.on{border-color:var(--ac);background:#33302A}
+.drop h2{font:600 22px var(--f-head);text-transform:uppercase;letter-spacing:.05em;margin:0 0 6px}
+.drop p{color:var(--mu);margin:4px 0}
+.drop code{font-family:var(--f-mono);font-size:12.5px;color:var(--ac)}
+.msg{margin:12px 0;padding:10px 14px;border-radius:10px;background:var(--s1);border-left:4px solid var(--info)}
+.msg.bad{border-left-color:var(--bad)}
+
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:0 0 14px}
+.kpi{background:var(--s1);border:1px solid var(--line);border-radius:12px;padding:12px 14px;cursor:pointer;text-align:left}
+.kpi .l{font-size:12px;color:var(--mu);text-transform:uppercase;letter-spacing:.04em}
+.kpi .v{font:700 22px var(--f-mono);margin-top:2px}
+.kpi .s{font-size:12px;color:var(--mu)}
+.kpi.bad .v{color:var(--bad)} .kpi.warn .v{color:var(--warn)} .kpi.ok .v{color:var(--ok)} .kpi.ac .v{color:var(--ac)}
+.kpi.sel{outline:2px solid var(--ac)}
+
+.cols2{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;align-items:start}
+@media(max-width:1100px){.cols2{grid-template-columns:minmax(0,1fr)}}
+.box{background:var(--s1);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.box h3{font:600 15px var(--f-head);text-transform:uppercase;letter-spacing:.05em;margin:0 0 10px}
+.regras{display:flex;flex-direction:column;gap:6px}
+.regra{display:flex;gap:8px;align-items:center;justify-content:space-between;background:var(--s2);border:1px solid transparent;border-radius:9px;padding:7px 10px;text-align:left;width:100%}
+.regra.sel{border-color:var(--ac)}
+.regra .n{font:700 13px var(--f-mono)}
+.tag{display:inline-block;font-size:11px;font-weight:700;border-radius:6px;padding:1px 7px;white-space:nowrap}
+.tag.E{background:rgba(242,109,91,.18);color:var(--bad)}
+.tag.A{background:rgba(242,166,90,.18);color:var(--warn)}
+.tag.I{background:rgba(125,180,232,.18);color:var(--info)}
+.tag.OK{background:rgba(98,196,143,.18);color:var(--ok)}
+.tag.st{background:var(--s2);color:var(--tx);font-weight:600}
+
+.filtros{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}
+.filtros input,.filtros select{background:var(--s1);border:1px solid var(--line);border-radius:9px;padding:8px 10px;min-width:0}
+.filtros input{flex:1 1 220px}
+.filtros select{flex:0 1 auto;max-width:100%}
+.info{color:var(--mu);font-size:12.5px;margin:0 0 8px}
+
+.tw{overflow:auto;border:1px solid var(--line);border-radius:12px;max-height:70vh}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:7px 9px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap;vertical-align:top}
+th{position:sticky;top:0;background:var(--s2);font-weight:600;cursor:pointer;user-select:none;z-index:1}
+th.num,td.num{text-align:right}
+td.mono{font-family:var(--f-mono);font-size:12px}
+tbody tr{cursor:pointer}
+tbody tr:hover{background:var(--s1)}
+tr.lvE td:first-child{box-shadow:inset 4px 0 var(--bad)}
+tr.lvA td:first-child{box-shadow:inset 4px 0 var(--warn)}
+tr.lvOK td:first-child{box-shadow:inset 4px 0 var(--ok)}
+td.oc{white-space:normal;min-width:260px;max-width:420px;color:var(--mu);font-size:12.5px}
+.mais{display:block;margin:10px auto 0}
+
+dialog{background:var(--s1);color:var(--tx);border:1px solid var(--line);border-radius:14px;padding:0;width:min(720px,calc(100vw - 32px));max-height:85vh}
+dialog::backdrop{background:rgba(0,0,0,.55)}
+.dlg-h{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.dlg-h h3{margin:0;font:600 17px var(--f-head);text-transform:uppercase;letter-spacing:.04em}
+.dlg-b{padding:12px 16px;overflow:auto}
+.dl{display:grid;grid-template-columns:170px minmax(0,1fr);gap:4px 12px;font-size:13px}
+.dl dt{color:var(--mu)} .dl dd{margin:0;word-break:break-all}
+.ocl{list-style:none;padding:0;margin:0 0 14px;display:flex;flex-direction:column;gap:6px}
+.ocl li{background:var(--s2);border-radius:9px;padding:8px 10px;display:flex;gap:8px;align-items:baseline}
+.cfg{display:flex;align-items:center;gap:8px;color:var(--mu);font-size:12.5px}
+.cfg input{width:64px;background:var(--s2);border:1px solid var(--line);border-radius:8px;padding:5px 8px}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="capivaraSilhueta" viewBox="0 0 64 64"><g fill="currentColor"><rect x="12" y="40" width="6" height="12" rx="2.5"/><rect x="22" y="41" width="5.5" height="11" rx="2.5"/><rect x="35.5" y="40" width="6" height="12" rx="2.5"/><circle cx="41.5" cy="18.8" r="2.7"/><path fill-rule="evenodd" d="M10 44C5.5 40 5.5 30 9.5 25.5C13.5 20 21 17 28.5 17.8C33 18.3 35.5 20 38 20L44 19.6C50.5 19.8 55.5 21 58.5 23.5C60.8 25.5 61 31 59.5 33.5C58.3 35.2 55.5 35.8 52.5 35.8L46 35.8C44.5 40.5 41 44.5 36 45.5L16 46.5C13.5 46.5 11.3 45.5 10 44ZM48.6 24.3a1.6 1.6 0 1 0-3.2 0a1.6 1.6 0 1 0 3.2 0ZM59.2 26.6a.8 1.1 0 1 0-1.6 0a.8 1.1 0 1 0 1.6 0Z"/></g></symbol>
+</svg>
+
+<header class="top">
+  <span class="cap-selo"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#capivaraSilhueta"/></svg></span>
+  <h1>Validador de Notas Fiscais<small id="sub">Confere os lançamentos do relatório de NF-e (aba “Relatório”) — o arquivo é lido só neste navegador, nada é enviado.</small></h1>
+  <label class="cfg" title="Notas pendentes (sem manifestação, só ciência ou confirmadas sem lançamento) há mais dias que isto viram alerta">Alertar pendência após <input id="cfgDias" type="number" min="1" max="365" value="30"> dias</label>
+  <button class="btn" id="bOutro" hidden>Abrir outro arquivo</button>
+  <button class="btn pri" id="bExp" hidden>⬇ Exportar Excel</button>
+</header>
+
+<main>
+  <input type="file" id="arq" accept=".xlsx,.xls,.xlsm,.csv" hidden>
+  <section id="vDrop" class="drop" tabindex="0">
+    <h2>Solte aqui o relatório de notas</h2>
+    <p>ou toque para escolher o arquivo — ex.: <code>Relatório 2026.xlsx</code></p>
+    <p>Usa as mesmas regras da consulta do Power BI: empresa pelo CNPJ do destinatário, Número/Série separados, UF do emitente vazia = PA e status pelo manifesto e pelo título.</p>
+  </section>
+  <div id="msg"></div>
+
+  <section id="vRes" hidden>
+    <div class="kpis" id="kpis"></div>
+    <div class="cols2">
+      <div>
+        <div class="filtros">
+          <input id="fBusca" type="search" placeholder="Buscar emitente, CNPJ, número, chave, título…">
+          <select id="fEmp"></select>
+          <select id="fSt"></select>
+          <select id="fVal">
+            <option value="">Todas as validações</option>
+            <option value="E">Só com erro</option>
+            <option value="A">Só com alerta</option>
+            <option value="EA">Erro ou alerta</option>
+            <option value="OK">Só OK</option>
+          </select>
+        </div>
+        <p class="info" id="info"></p>
+        <div class="tw"><table><thead id="th"></thead><tbody id="tb"></tbody></table></div>
+        <button class="btn mais" id="bMais" hidden>Mostrar mais</button>
+      </div>
+      <aside class="box">
+        <h3>Ocorrências por regra</h3>
+        <div class="regras" id="regras"></div>
+      </aside>
+    </div>
+  </section>
+</main>
+
+<dialog id="dlg">
+  <div class="dlg-h"><h3 id="dlgT"></h3><button class="btn" id="dlgX">Fechar</button></div>
+  <div class="dlg-b" id="dlgB"></div>
+</dialog>
+
+<script>
+/* Validador de lançamentos de notas fiscais.
+   Reproduz a consulta do Power Query ("Relatório 2026.xlsx" → aba Relatório) e acrescenta conferências:
+   - Empresas: nome pelo CNPJ do destinatário (mesma tabela da coluna condicional do Power Query);
+   - Número/Série dividido em "Número NF" e "Série"; UF emitente vazia vira "PA"; Título vazio vira 0;
+   - Status: rótulos do Power Query, com o título lançado decidindo primeiro (ver statusDe());
+   - Validações: chave de acesso (44 dígitos, dígito verificador e conferência com CNPJ/UF/mês/série/número),
+     duplicidades, empresa não cadastrada, datas, valor, manifesto x lançamento e prazos de pendência.
+   Tudo roda no navegador; a planilha não sai do computador. */
+const XLSX_SRC='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+
+// CNPJ do destinatário → empresa (igual à coluna condicional "Personalizar" do Power Query).
+const EMPRESAS={
+  '54344984000157':'CONSÓRCIO AMETA - OCC',
+  '04101986000147':'AMETA ENGENHARIA LTDA',
+  '57080615000192':'CONSÓRCIO MAGUARI',
+  '38006053000192':'RAF INFRAESTRUTURA LTDA',
+  '65862352000100':'CONSÓRCIO VIAS GUAJARÁ',
+  '66026460000105':'CONSÓRCIO INFRAVIAS',
+  '66650954000158':'CONSÓRCIO VIAS CAPIXABA',
+  '66603136000102':'CONSÓRCIO ATL XINGU',
+  '67546476000101':'CONSÓRCIO AC MARAJO'
+};
+const UF_COD={11:'RO',12:'AC',13:'AM',14:'RR',15:'PA',16:'AP',17:'TO',21:'MA',22:'PI',23:'CE',24:'RN',25:'PB',26:'PE',27:'AL',28:'SE',29:'BA',31:'MG',32:'ES',33:'RJ',35:'SP',41:'PR',42:'SC',43:'RS',50:'MS',51:'MT',52:'GO',53:'DF'};
+
+// Regras de validação: nível E = erro, A = alerta, I = informação (não conta como problema).
+const REGRAS={
+  EMP_NAO_CAD:   ['E','CNPJ do destinatário não está na tabela de empresas'],
+  CHAVE_VAZIA:   ['E','Chave de acesso vazia'],
+  CHAVE_NUMERO:  ['E','Chave gravada como número no Excel (perde dígitos) — formate a coluna como texto'],
+  CHAVE_TAM:     ['E','Chave de acesso sem 44 caracteres'],
+  CHAVE_DV:      ['E','Dígito verificador da chave não confere'],
+  CHAVE_DUP:     ['E','Chave de acesso repetida no relatório'],
+  NF_DUP:        ['E','Mesmo emitente, número e série em mais de uma linha'],
+  CHAVE_CNPJ:    ['A','CNPJ do emitente diferente do que está na chave'],
+  CHAVE_NUM:     ['A','Número da NF diferente do que está na chave'],
+  CHAVE_SERIE:   ['A','Série diferente da que está na chave'],
+  CHAVE_UF:      ['A','UF do emitente diferente da UF da chave'],
+  CHAVE_MES:     ['A','Mês/ano da emissão diferente do que está na chave'],
+  CHAVE_MOD:     ['A','Chave não é de NF-e (modelo diferente de 55)'],
+  VALOR:         ['E','Valor zerado, negativo ou vazio'],
+  EMISSAO_VAZIA: ['E','Data de emissão vazia ou inválida'],
+  EMISSAO_FUT:   ['E','Emissão com data futura'],
+  RECEB_ANTES:   ['E','Recebimento antes da emissão'],
+  LANC_RECUSADA: ['E','Lançada (tem título) com operação não realizada ou desconhecida'],
+  LANC_SEM_CONF: ['A','Lançada (tem título) sem confirmação da operação no manifesto'],
+  CONF_SEM_LANC: ['A','Operação confirmada e ainda sem lançamento há mais de {d} dias'],
+  PEND_DIAS:     ['A','Sem manifestação ou só com ciência há mais de {d} dias'],
+  PRAZO_180:     ['A','Mais de 180 dias da emissão sem manifestação conclusiva (prazo da SEFAZ)'],
+  CNPJ_EMIT:     ['A','CNPJ do emitente inválido'],
+  NUM_SERIE:     ['A','Número/Série fora do formato "número/série"'],
+  MANIF_DESC:    ['A','Manifesto com texto não reconhecido'],
+  UF_PADRAO:     ['I','UF do emitente vazia — preenchida com PA (como no Power Query)']
+};
+const STATUS_ORDEM=['Lançado','Apenas Confirmação','Pendente','Aguardando Confirmação','Não realizada','Desconhecida'];
+
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const norm=s=>String(s==null?'':s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
+const soAlnum=s=>String(s==null?'':s).toUpperCase().replace(/[^0-9A-Z]/g,'');
+const brl=n=>(Number(n)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const intf=n=>(Number(n)||0).toLocaleString('pt-BR');
+const dataBR=d=>d?d.toLocaleDateString('pt-BR'):'';
+const fmtCNPJ=s=>{ const d=soAlnum(s); return d.length===14?`${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`:String(s||''); };
+const lsGet=(k,def)=>{ try{ const v=localStorage.getItem(k); return v==null?def:v; }catch(e){ return def; } };
+const lsSet=(k,v)=>{ try{ localStorage.setItem(k,v); }catch(e){} };
+
+function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=()=>rej(new Error('Não consegui carregar o leitor de Excel — confira a internet.')); document.head.appendChild(s); }); }
+async function ensureXLSX(){ if(typeof XLSX==='undefined')await loadScript(XLSX_SRC); }
+
+/* ---------- leitura dos campos ---------- */
+function paraData(v){
+  if(v==null||v==='')return null;
+  if(v instanceof Date)return isNaN(v)?null:new Date(v.getFullYear(),v.getMonth(),v.getDate());
+  if(typeof v==='number'){ const p=XLSX.SSF.parse_date_code(v); return p?new Date(p.y,p.m-1,p.d):null; }
+  const s=String(v).trim(); let m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if(m){ const y=+m[3]<100?2000+ +m[3]:+m[3]; return new Date(y,+m[2]-1,+m[1]); }
+  m=s.match(/^(\d{4})-(\d{2})-(\d{2})/); if(m)return new Date(+m[1],+m[2]-1,+m[3]);
+  return null;
+}
+function paraNum(v){
+  if(v==null||v==='')return null;
+  if(typeof v==='number')return v;
+  let s=String(v).replace(/[R$\s]/g,'');
+  if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');
+  const n=Number(s); return isFinite(n)?n:null;
+}
+// Dígito verificador módulo 11 (pesos 2..9 da direita para a esquerda). Aceita letras (CNPJ alfanumérico):
+// cada caractere vale código ASCII − 48, como na regra da Receita.
+function dvMod11(s,pesoMax){ let soma=0,p=2; for(let i=s.length-1;i>=0;i--){ soma+=(s.charCodeAt(i)-48)*p; p=p===pesoMax?2:p+1; } const r=soma%11; return r<2?0:11-r; }
+function cnpjValido(c){
+  if(c.length===11)return cpfValido(c);
+  if(c.length!==14||/^(\d)\1+$/.test(c)||!/^\d{12}$/.test(c.slice(0,12).replace(/[A-Z]/g,'0')))return false;
+  return dvMod11(c.slice(0,12),9)===+c[12]&&dvMod11(c.slice(0,13),9)===+c[13];
+}
+function cpfValido(c){
+  if(!/^\d{11}$/.test(c)||/^(\d)\1+$/.test(c))return false;
+  const dv=n=>{ let s=0; for(let i=0;i<n;i++)s+=+c[i]*(n+1-i); const r=(s*10)%11; return r===10?0:r; };
+  return dv(9)===+c[9]&&dv(10)===+c[10];
+}
+// Manifesto do destinatário → código. Compara sem acento/maiúscula e aceita "de"/"da".
+function manifCod(m){
+  const n=norm(m).replace(/ de /g,' da ');
+  if(!n)return '';
+  if(n.startsWith('sem manifest'))return 'SEM';
+  if(n.startsWith('ciencia'))return 'CIENCIA';
+  if(n.startsWith('confirmacao'))return 'CONF';
+  if(n.includes('nao realizada'))return 'NAO_REAL';
+  if(n.startsWith('desconhec'))return 'DESC';
+  return '?';
+}
+/* Status do lançamento — mesmos rótulos do Power Query. O título (lançamento no Sienge) decide primeiro:
+   na consulta original os textos do manifesto estão com maiúsculas diferentes das do relatório
+   ("Confirmação da Operação" × "Confirmação da operação"), então na prática quem tem título já sai "Lançado". */
+function statusDe(cod,titulo){
+  if(titulo>0)return 'Lançado';
+  return {SEM:'Aguardando Confirmação',CIENCIA:'Pendente',CONF:'Apenas Confirmação',NAO_REAL:'Não realizada',DESC:'Desconhecida'}[cod]||'Pendente';
+}
+
+/* ---------- planilha → linhas ---------- */
+const COLS={emitente:'emitente',cnpjEmit:'cnpj emitente',ufEmit:'uf emitente',destinatario:'destinatario',cnpjDest:'cnpj destinatario',
+  ufDest:'uf destinatario',manifesto:'manifesto',natureza:'natureza da operacao',recebimento:'recebimento',emissao:'emissao',
+  chave:'chave de acesso',numSerie:'numero/serie',valor:'valor',escrituracao:'escrituracao',titulo:'titulo/nota fiscal avulsa'};
+
+function lerPlanilha(wb){
+  const nome=wb.SheetNames.find(n=>norm(n)==='relatorio')||wb.SheetNames[0];
+  const ws=wb.Sheets[nome];
+  const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null,blankrows:false});
+  // Cabeçalho: primeira linha que tenha "Chave de acesso" e "Emitente" (o Power Query promove a 1ª linha).
+  const hi=aoa.findIndex(r=>r&&r.some(c=>norm(c)==='chave de acesso')&&r.some(c=>norm(c)==='emitente'));
+  if(hi<0)throw new Error(`Não achei o cabeçalho na aba “${nome}” (precisa ter as colunas “Emitente” e “Chave de acesso”).`);
+  const cab=aoa[hi].map(norm), idx={}, faltam=[];
+  for(const [k,n] of Object.entries(COLS)){ idx[k]=cab.indexOf(n); if(idx[k]<0&&k!=='destinatario'&&k!=='escrituracao'&&k!=='natureza'&&k!=='ufDest')faltam.push(n); }
+  if(faltam.length)throw new Error('Faltam colunas no relatório: '+faltam.join(', '));
+  // Texto exato da chave: se a célula for número, a precisão já se perdeu (44 dígitos não cabem num número).
+  const rng=XLSX.utils.decode_range(ws['!ref']);
+  const linhas=[];
+  for(let i=hi+1;i<aoa.length;i++){
+    const r=aoa[i]; if(!r||r.every(c=>c==null||c===''))continue;
+    const g=k=>idx[k]>=0?r[idx[k]]:null;
+    const cel=ws[XLSX.utils.encode_cell({r:rng.s.r+i,c:rng.s.c+idx.chave})];
+    linhas.push({linha:rng.s.r+i+1,raw:g,chaveNumero:!!cel&&cel.t==='n'});
+  }
+  return {nome,linhas};
+}
+
+function tratar(lidas,dias){
+  const hoje=new Date(); hoje.setHours(0,0,0,0);
+  const rows=lidas.map(({linha,raw,chaveNumero})=>{
+    const o={linha,oc:[]}, add=(c,extra)=>o.oc.push({c,extra});
+    o.emitente=String(raw('emitente')??'').trim();
+    o.cnpjEmit=String(raw('cnpjEmit')??'').trim();
+    o.ufEmit=String(raw('ufEmit')??'').trim().toUpperCase();
+    if(!o.ufEmit){ o.ufEmit='PA'; add('UF_PADRAO'); }
+    o.destinatarioOrig=String(raw('destinatario')??'').trim();
+    o.cnpjDest=String(raw('cnpjDest')??'').trim();
+    o.ufDest=String(raw('ufDest')??'').trim();
+    o.manifesto=String(raw('manifesto')??'').trim();
+    o.natureza=String(raw('natureza')??'').trim();
+    o.recebimento=paraData(raw('recebimento'));
+    o.emissao=paraData(raw('emissao'));
+    o.valor=paraNum(raw('valor'));
+    o.escrituracao=String(raw('escrituracao')??'').trim();
+    o.titulo=paraNum(raw('titulo'))||0;
+    const ns=String(raw('numSerie')??'').trim(), p=ns.split('/');
+    o.numero=(p[0]||'').trim(); o.serie=(p[1]||'').trim();
+    if(!ns||p.length!==2||!/^\d+$/.test(o.numero)||!/^\d+$/.test(o.serie))add('NUM_SERIE');
+
+    const cd=soAlnum(o.cnpjDest);
+    o.empresa=EMPRESAS[cd]||null;
+    if(!o.empresa)add('EMP_NAO_CAD',o.cnpjDest||'vazio');
+
+    const ce=soAlnum(o.cnpjEmit);
+    if(ce&&!cnpjValido(ce))add('CNPJ_EMIT',o.cnpjEmit);
+
+    // Chave de acesso: cUF(2) AAMM(4) CNPJ(14) modelo(2) série(3) número(9) tpEmis(1) código(8) DV(1)
+    let ch=raw('chave'); ch=ch==null?'':(typeof ch==='number'?ch.toLocaleString('fullwide',{useGrouping:false}):String(ch));
+    o.chave=soAlnum(ch);
+    if(!o.chave)add('CHAVE_VAZIA');
+    else if(chaveNumero)add('CHAVE_NUMERO');
+    else if(o.chave.length!==44)add('CHAVE_TAM',o.chave.length+' caracteres');
+    else{
+      if(dvMod11(o.chave.slice(0,43),9)!==+o.chave[43])add('CHAVE_DV');
+      const uf=UF_COD[+o.chave.slice(0,2)];
+      if(uf&&o.ufEmit&&uf!==o.ufEmit)add('CHAVE_UF',`chave: ${uf}, relatório: ${o.ufEmit}`);
+      const cnpjCh=o.chave.slice(6,20);
+      if(ce&&cnpjCh!==ce.padStart(14,'0'))add('CHAVE_CNPJ',`chave: ${fmtCNPJ(cnpjCh)}`);
+      if(o.chave.slice(20,22)!=='55')add('CHAVE_MOD','modelo '+o.chave.slice(20,22));
+      if(/^\d+$/.test(o.serie)&&+o.chave.slice(22,25)!==+o.serie)add('CHAVE_SERIE',`chave: ${+o.chave.slice(22,25)}`);
+      if(/^\d+$/.test(o.numero)&&+o.chave.slice(25,34)!==+o.numero)add('CHAVE_NUM',`chave: ${+o.chave.slice(25,34)}`);
+      if(o.emissao){ const aamm=String(o.emissao.getFullYear()%100).padStart(2,'0')+String(o.emissao.getMonth()+1).padStart(2,'0');
+        if(o.chave.slice(2,6)!==aamm)add('CHAVE_MES',`chave: ${o.chave.slice(4,6)}/${o.chave.slice(2,4)}`); }
+    }
+
+    if(o.valor==null||o.valor<=0)add('VALOR');
+    if(!o.emissao)add('EMISSAO_VAZIA');
+    else{
+      if(o.emissao>hoje)add('EMISSAO_FUT');
+      if(o.recebimento&&o.recebimento<o.emissao)add('RECEB_ANTES');
+    }
+
+    o.manifCod=manifCod(o.manifesto);
+    if(o.manifCod==='?')add('MANIF_DESC',o.manifesto);
+    o.status=statusDe(o.manifCod,o.titulo);
+    const base=o.recebimento||o.emissao, idade=base?Math.floor((hoje-base)/864e5):null;
+    o.idade=idade;
+    if(o.titulo>0){
+      if(o.manifCod==='NAO_REAL'||o.manifCod==='DESC')add('LANC_RECUSADA',o.manifesto);
+      else if(o.manifCod==='SEM'||o.manifCod==='CIENCIA')add('LANC_SEM_CONF',o.manifesto);
+    }else{
+      if(o.manifCod==='CONF'&&idade>dias)add('CONF_SEM_LANC',idade+' dias');
+      if((o.manifCod==='SEM'||o.manifCod==='CIENCIA')&&idade>dias)add('PEND_DIAS',idade+' dias');
+    }
+    if(o.emissao&&(o.manifCod==='SEM'||o.manifCod==='CIENCIA')&&(hoje-o.emissao)/864e5>180)add('PRAZO_180');
+    return o;
+  });
+
+  // Duplicidades (depois de todas as linhas lidas).
+  const porChave=new Map(), porNF=new Map();
+  rows.forEach(o=>{
+    if(o.chave.length===44){ if(!porChave.has(o.chave))porChave.set(o.chave,[]); porChave.get(o.chave).push(o); }
+    const k=soAlnum(o.cnpjEmit)+'|'+(+o.numero||o.numero)+'|'+(+o.serie||o.serie);
+    if(o.numero&&soAlnum(o.cnpjEmit)){ if(!porNF.has(k))porNF.set(k,[]); porNF.get(k).push(o); }
+  });
+  porChave.forEach(g=>{ if(g.length>1)g.forEach(o=>o.oc.push({c:'CHAVE_DUP',extra:'linhas '+g.map(x=>x.linha).join(', ')})); });
+  porNF.forEach(g=>{ if(g.length>1&&new Set(g.map(x=>x.chave)).size>1)g.forEach(o=>o.oc.push({c:'NF_DUP',extra:'linhas '+g.map(x=>x.linha).join(', ')})); });
+
+  rows.forEach(o=>{
+    const nv=o.oc.map(x=>REGRAS[x.c][0]);
+    o.nivel=nv.includes('E')?'E':nv.includes('A')?'A':'OK';
+    o.ocTexto=o.oc.filter(x=>REGRAS[x.c][0]!=='I').map(x=>txtRegra(x.c,dias)+(x.extra?` (${x.extra})`:'')).join('; ');
+  });
+  return rows;
+}
+const txtRegra=(c,dias)=>REGRAS[c][1].replace('{d}',dias);
+
+/* ---------- tela ---------- */
+let ROWS=[], ARQ='', ABA='', LIMITE=300, ORD={k:'linha',dir:1}, F={kpi:'',regra:''};
+const COLS_TAB=[
+  ['linha','Linha','num'],['nivel','Validação'],['status','Status'],['empresa','Empresa'],['emitente','Emitente'],
+  ['numero','Número NF','num'],['serie','Série','num'],['emissao','Emissão'],['recebimento','Recebimento'],
+  ['valor','Valor','num'],['manifesto','Manifesto'],['titulo','Título','num'],['idade','Dias','num'],['ocTexto','Ocorrências']
+];
+const dias=()=>Math.max(1,parseInt($('#cfgDias').value,10)||30);
+
+function mostrarMsg(t,ruim){ $('#msg').innerHTML=t?`<div class="msg${ruim?' bad':''}">${esc(t)}</div>`:''; }
+
+async function abrirArquivo(file){
+  if(!file)return;
+  mostrarMsg('Lendo '+file.name+'…');
+  try{
+    await ensureXLSX();
+    const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true});
+    const {nome,linhas}=lerPlanilha(wb);
+    if(!linhas.length)throw new Error('A aba “'+nome+'” não tem notas abaixo do cabeçalho.');
+    LIDAS=linhas; ARQ=file.name; ABA=nome; F={kpi:'',regra:''}; LIMITE=300;
+    processar(); mostrarMsg('');
+  }catch(e){ console.error(e); mostrarMsg(e.message||String(e),true); }
+}
+let LIDAS=[];
+function processar(){
+  ROWS=tratar(LIDAS,dias());
+  $('#vDrop').hidden=true; $('#vRes').hidden=false; $('#bOutro').hidden=false; $('#bExp').hidden=false;
+  $('#sub').textContent=`${ARQ} · aba “${ABA}” · ${intf(ROWS.length)} notas — lido só neste navegador`;
+  const emps=[...new Set(ROWS.map(o=>o.empresa||'(não cadastrada)'))].sort();
+  $('#fEmp').innerHTML='<option value="">Todas as empresas</option>'+emps.map(e=>`<option>${esc(e)}</option>`).join('');
+  const sts=STATUS_ORDEM.filter(s=>ROWS.some(o=>o.status===s));
+  $('#fSt').innerHTML='<option value="">Todos os status</option>'+sts.map(s=>`<option>${esc(s)}</option>`).join('');
+  desenhar();
+}
+
+function filtradas(){
+  const b=norm($('#fBusca').value), emp=$('#fEmp').value, st=$('#fSt').value, val=$('#fVal').value;
+  return ROWS.filter(o=>{
+    if(emp&&(o.empresa||'(não cadastrada)')!==emp)return false;
+    if(st&&o.status!==st)return false;
+    if(val&&!(val==='EA'?o.nivel!=='OK':o.nivel===val))return false;
+    if(F.regra&&!o.oc.some(x=>x.c===F.regra))return false;
+    if(F.kpi&&!F.kpi(o))return false;
+    if(b&&!norm([o.emitente,o.cnpjEmit,o.numero,o.chave,o.titulo,o.empresa,o.natureza,o.manifesto].join(' ')).includes(b))return false;
+    return true;
+  });
+}
+
+function desenhar(){
+  const lst=filtradas();
+  // KPIs sobre o recorte de empresa/status atual (sem o filtro do próprio KPI).
+  const soma=a=>a.reduce((s,o)=>s+(o.valor||0),0);
+  const cont=(f)=>{ const a=ROWS.filter(f); return [a.length,soma(a)]; };
+  const ks=[
+    ['Notas','',()=>true,'ac'],
+    ['Lançadas','',o=>o.status==='Lançado','ok'],
+    ['Confirmadas sem lançamento','',o=>o.status==='Apenas Confirmação','warn'],
+    ['Pendentes / aguardando','',o=>o.status==='Pendente'||o.status==='Aguardando Confirmação','warn'],
+    ['Não realizadas','',o=>o.status==='Não realizada'||o.status==='Desconhecida',''],
+    ['Com erro','',o=>o.nivel==='E','bad'],
+    ['Com alerta','',o=>o.nivel==='A','warn'],
+  ];
+  $('#kpis').innerHTML=ks.map(([l,,f,cl],i)=>{ const [n,v]=cont(f);
+    return `<button class="kpi ${cl}${F.kpiI===i&&F.kpi?' sel':''}" data-k="${i}"><div class="l">${esc(l)}</div><div class="v">${intf(n)}</div><div class="s">${brl(v)}</div></button>`; }).join('');
+  $('#kpis').querySelectorAll('.kpi').forEach(b=>b.onclick=()=>{ const i=+b.dataset.k; if(F.kpiI===i&&F.kpi||i===0){F.kpi='';F.kpiI=null;}else{F.kpi=ks[i][2];F.kpiI=i;} LIMITE=300; desenhar(); });
+
+  // Regras
+  const cnt={}; ROWS.forEach(o=>new Set(o.oc.map(x=>x.c)).forEach(c=>cnt[c]=(cnt[c]||0)+1));
+  const ordem={E:0,A:1,I:2}, regras=Object.keys(cnt).sort((a,b)=>ordem[REGRAS[a][0]]-ordem[REGRAS[b][0]]||cnt[b]-cnt[a]);
+  $('#regras').innerHTML=regras.length?regras.map(c=>`<button class="regra${F.regra===c?' sel':''}" data-c="${c}"><span><span class="tag ${REGRAS[c][0]}">${{E:'Erro',A:'Alerta',I:'Info'}[REGRAS[c][0]]}</span> ${esc(txtRegra(c,dias()))}</span><span class="n">${intf(cnt[c])}</span></button>`).join('')
+    :'<p class="info" style="margin:0">Nenhuma ocorrência — todas as notas passaram nas conferências. ✅</p>';
+  $('#regras').querySelectorAll('.regra').forEach(b=>b.onclick=()=>{ F.regra=F.regra===b.dataset.c?'':b.dataset.c; LIMITE=300; desenhar(); });
+
+  // Tabela
+  const k=ORD.k, d=ORD.dir, nivOrd={E:0,A:1,OK:2};
+  lst.sort((a,b)=>{ let x=a[k],y=b[k]; if(k==='nivel'){x=nivOrd[x];y=nivOrd[y];}
+    if(x instanceof Date||y instanceof Date){x=x?+x:-Infinity;y=y?+y:-Infinity;}
+    if(x==null)x=''; if(y==null)y='';
+    return (typeof x==='number'&&typeof y==='number'?x-y:String(x).localeCompare(String(y),'pt-BR',{numeric:true}))*d; });
+  $('#th').innerHTML='<tr>'+COLS_TAB.map(([c,t,cl])=>`<th class="${cl||''}" data-c="${c}">${esc(t)}${ORD.k===c?(ORD.dir>0?' ▲':' ▼'):''}</th>`).join('')+'</tr>';
+  $('#th').querySelectorAll('th').forEach(th=>th.onclick=()=>{ const c=th.dataset.c; ORD=ORD.k===c?{k:c,dir:-ORD.dir}:{k:c,dir:1}; desenhar(); });
+  const vis=lst.slice(0,LIMITE);
+  $('#tb').innerHTML=vis.map(o=>`<tr class="lv${o.nivel}" data-l="${o.linha}">
+    <td class="num">${o.linha}</td>
+    <td><span class="tag ${o.nivel}">${{E:'Erro',A:'Alerta',OK:'OK'}[o.nivel]}</span></td>
+    <td><span class="tag st">${esc(o.status)}</span></td>
+    <td>${o.empresa?esc(o.empresa):'<span class="tag E">não cadastrada</span>'}</td>
+    <td>${esc(o.emitente)}</td>
+    <td class="num mono">${esc(o.numero)}</td><td class="num mono">${esc(o.serie)}</td>
+    <td>${dataBR(o.emissao)}</td><td>${dataBR(o.recebimento)}</td>
+    <td class="num">${o.valor==null?'':brl(o.valor)}</td>
+    <td>${esc(o.manifesto)}</td>
+    <td class="num mono">${o.titulo||''}</td>
+    <td class="num">${o.idade??''}</td>
+    <td class="oc">${esc(o.ocTexto)}</td></tr>`).join('')||`<tr><td colspan="${COLS_TAB.length}" style="text-align:center;color:var(--mu);padding:30px">Nenhuma nota com esses filtros.</td></tr>`;
+  $('#tb').querySelectorAll('tr[data-l]').forEach(tr=>tr.onclick=()=>detalhe(ROWS.find(o=>o.linha===+tr.dataset.l)));
+  $('#info').textContent=`Mostrando ${intf(vis.length)} de ${intf(lst.length)} notas filtradas · ${brl(soma(lst))}`+(lst.length<ROWS.length?` (total do arquivo: ${intf(ROWS.length)})`:'');
+  $('#bMais').hidden=lst.length<=LIMITE;
+}
+
+function detalhe(o){
+  if(!o)return;
+  $('#dlgT').textContent=`NF ${o.numero||'?'}${o.serie?'/'+o.serie:''} — linha ${o.linha}`;
+  const oc=o.oc.length?`<ul class="ocl">${o.oc.map(x=>`<li><span class="tag ${REGRAS[x.c][0]}">${{E:'Erro',A:'Alerta',I:'Info'}[REGRAS[x.c][0]]}</span><span>${esc(txtRegra(x.c,dias()))}${x.extra?` <span style="color:var(--mu)">— ${esc(x.extra)}</span>`:''}</span></li>`).join('')}</ul>`
+    :'<p><span class="tag OK">OK</span> Nenhuma ocorrência nesta nota.</p>';
+  const campos=[['Status',o.status],['Empresa',o.empresa||'(não cadastrada)'],['CNPJ destinatário',o.cnpjDest],['UF destinatário',o.ufDest],
+    ['Emitente',o.emitente],['CNPJ emitente',o.cnpjEmit],['UF emitente',o.ufEmit],['Natureza da operação',o.natureza],
+    ['Manifesto',o.manifesto],['Emissão',dataBR(o.emissao)],['Recebimento',dataBR(o.recebimento)],['Valor',o.valor==null?'':brl(o.valor)],
+    ['Escrituração',o.escrituracao],['Título/NF avulsa',o.titulo||'0'],['Chave de acesso',o.chave]];
+  $('#dlgB').innerHTML=oc+`<dl class="dl">${campos.map(([a,b])=>`<dt>${esc(a)}</dt><dd>${esc(b)}</dd>`).join('')}</dl>`;
+  $('#dlg').showModal();
+}
+
+function exportar(){
+  const lst=filtradas();
+  // Colunas na ordem da consulta do Power Query + o resultado da validação.
+  const notas=lst.map(o=>({
+    'Emitente':o.emitente,'CNPJ emitente':o.cnpjEmit,'UF emitente':o.ufEmit,'CNPJ destinatário':o.cnpjDest,'UF destinatário':o.ufDest,
+    'Manifesto':o.manifesto,'Natureza da operação':o.natureza,'Recebimento':o.recebimento,'Emissão':o.emissao,'Chave de acesso':o.chave,
+    'Número NF':o.numero,'Série':o.serie,'Valor':o.valor,'Escrituração':o.escrituracao,'Título/Nota fiscal avulsa':o.titulo,
+    'Empresas':o.empresa,'Status manifestação':o.status,'Validação':{E:'Erro',A:'Alerta',OK:'OK'}[o.nivel],'Ocorrências':o.ocTexto,'Linha no relatório':o.linha
+  }));
+  const ocs=[]; lst.forEach(o=>o.oc.forEach(x=>{ if(REGRAS[x.c][0]==='I')return;
+    ocs.push({'Linha no relatório':o.linha,'Nível':REGRAS[x.c][0]==='E'?'Erro':'Alerta','Ocorrência':txtRegra(x.c,dias()),'Detalhe':x.extra||'',
+      'Empresa':o.empresa,'Emitente':o.emitente,'Número NF':o.numero,'Série':o.serie,'Emissão':o.emissao,'Valor':o.valor,'Manifesto':o.manifesto,'Título':o.titulo,'Chave de acesso':o.chave}); }));
+  const wb=XLSX.utils.book_new();
+  const ws1=XLSX.utils.json_to_sheet(notas,{cellDates:true,dateNF:'dd/mm/yyyy'});
+  ws1['!cols']=[{wch:38},{wch:20},{wch:6},{wch:20},{wch:6},{wch:24},{wch:30},{wch:12},{wch:12},{wch:48},{wch:10},{wch:6},{wch:14},{wch:14},{wch:10},{wch:28},{wch:22},{wch:10},{wch:80},{wch:8}];
+  XLSX.utils.book_append_sheet(wb,ws1,'Notas validadas');
+  const ws2=XLSX.utils.json_to_sheet(ocs.length?ocs:[{'Ocorrência':'Nenhuma ocorrência'}],{cellDates:true,dateNF:'dd/mm/yyyy'});
+  ws2['!cols']=[{wch:8},{wch:8},{wch:60},{wch:30},{wch:28},{wch:38},{wch:10},{wch:6},{wch:12},{wch:14},{wch:24},{wch:10},{wch:48}];
+  XLSX.utils.book_append_sheet(wb,ws2,'Ocorrências');
+  const base=ARQ.replace(/\.[^.]+$/,'');
+  XLSX.writeFile(wb,`Validação - ${base}.xlsx`);
+}
+
+/* ---------- eventos ---------- */
+const drop=$('#vDrop'), arq=$('#arq');
+drop.onclick=()=>arq.click();
+drop.onkeydown=e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); arq.click(); } };
+arq.onchange=()=>{ abrirArquivo(arq.files[0]); arq.value=''; };
+['dragenter','dragover'].forEach(t=>document.addEventListener(t,e=>{ e.preventDefault(); drop.classList.add('on'); }));
+['dragleave','drop'].forEach(t=>document.addEventListener(t,e=>{ e.preventDefault(); drop.classList.remove('on'); }));
+document.addEventListener('drop',e=>abrirArquivo(e.dataTransfer.files[0]));
+$('#bOutro').onclick=()=>arq.click();
+$('#bExp').onclick=exportar;
+$('#bMais').onclick=()=>{ LIMITE+=300; desenhar(); };
+$('#fBusca').oninput=()=>{ LIMITE=300; desenhar(); };
+['#fEmp','#fSt','#fVal'].forEach(s=>$(s).onchange=()=>{ LIMITE=300; desenhar(); });
+$('#dlgX').onclick=()=>$('#dlg').close();
+$('#dlg').onclick=e=>{ if(e.target===$('#dlg'))$('#dlg').close(); };
+$('#cfgDias').value=lsGet('validador-nf-dias','30');
+$('#cfgDias').onchange=()=>{ lsSet('validador-nf-dias',String(dias())); if(LIDAS.length)processar(); };
+ensureXLSX().catch(()=>{});
+</script>
+</body>
+</html>
