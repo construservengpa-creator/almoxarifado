@@ -89,7 +89,7 @@ tr.lvOK td:first-child{box-shadow:inset 4px 0 var(--ok)}
 td.oc{white-space:normal;min-width:260px;max-width:420px;color:var(--mu);font-size:12.5px}
 .mais{display:block;margin:10px auto 0}
 
-dialog{background:var(--s1);color:var(--tx);border:1px solid var(--line);border-radius:14px;padding:0;width:min(720px,calc(100vw - 32px));max-height:85vh}
+dialog{background:var(--s1);color:var(--tx);border:1px solid var(--line);border-radius:14px;padding:0;width:min(980px,calc(100vw - 32px));max-height:85vh}
 dialog::backdrop{background:rgba(0,0,0,.55)}
 .dlg-h{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
 .dlg-h h3{margin:0;font:600 17px var(--f-head);text-transform:uppercase;letter-spacing:.04em}
@@ -177,6 +177,7 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
       <div class="seg" id="segVista"><button data-v="tab" class="on">☰ Tabela</button><button data-v="graf">📊 Gráficos</button></div>
       <div class="seg" id="segMed" hidden><button data-m="qtd" class="on">Quantidade</button><button data-m="valor">Valor (R$)</button></div>
       <p class="info" id="info"></p>
+      <button class="btn" id="bChip" hidden title="Tirar este filtro"></button>
     </div>
     <div id="vGraf" class="graf" hidden></div>
     <div class="cols2" id="vTab">
@@ -477,6 +478,7 @@ function filtradas(){
     if(val&&!(val==='EA'?o.nivel!=='OK':o.nivel===val))return false;
     if(F.regra&&!o.oc.some(x=>x.c===F.regra))return false;
     if(F.kpi&&!F.kpi(o))return false;
+    if(F.graf&&!predF(F.graf)(o))return false;
     if(b&&!norm([o.emitente,o.cnpjEmit,o.numero,o.chave,o.titulo,o.empresa,o.natureza,o.manifesto].join(' ')).includes(b))return false;
     return true;
   });
@@ -532,6 +534,7 @@ function desenhar(){
   $('#tb').querySelectorAll('tr[data-l]').forEach(tr=>tr.onclick=()=>detalhe(ROWS.find(o=>o.linha===+tr.dataset.l)));
   $('#info').textContent=`Mostrando ${intf(vis.length)} de ${intf(lst.length)} notas filtradas · ${brl(soma(lst))}`+(lst.length<ROWS.length?` (total do arquivo: ${intf(ROWS.length)})`:'');
   $('#bMais').hidden=lst.length<=LIMITE||VISTA!=='tab';
+  $('#bChip').hidden=!F.graf; if(F.graf)$('#bChip').textContent='📊 '+F.graf.d+'  ✕';
   $('#vTab').hidden=VISTA!=='tab'; $('#vGraf').hidden=VISTA!=='graf'; $('#segMed').hidden=VISTA!=='graf';
   if(VISTA==='graf'){ $('#info').textContent=`Gráficos sobre ${intf(lst.length)} notas filtradas · ${brl(soma(lst))}`; graficos(lst); }
 }
@@ -562,7 +565,7 @@ function barrasStatus(itens){
   const max=Math.max(...itens.map(it=>it.notas.reduce((s,o)=>s+med(o),0)),0)||1;
   return `<div class="hb">${itens.map(it=>{ const segs=porStatus(it.notas), tot=segs.reduce((s,x)=>s+x[1],0);
     return `<div class="rot" title="${esc(it.rot)}">${esc(it.rot)}</div>
-      <div class="bar" style="width:${Math.max(tot/max*100,0.5)}%">${segs.map(([s,v])=>`<b style="flex:${v} 1 0;background:${COR_ST[s]}"${tipAttr(it.rot,[`${s}: ${fmtM(v)} (${Math.round(v/tot*100)}%)`,`Total: ${fmtM(tot)}`],{...it.f,st:s})}></b>`).join('')}</div>
+      <div class="bar" style="width:${Math.max(tot/max*100,0.5)}%">${segs.map(([s,v])=>`<b style="flex:${v} 1 0;background:${COR_ST[s]}"${tipAttr(it.rot,[`${s}: ${fmtM(v)} (${Math.round(v/tot*100)}%)`,`Total: ${fmtM(tot)}`],{...it.f,st:s,d:`${it.rot} · ${s}`})}></b>`).join('')}</div>
       <div class="val">${fmtCurto(tot)}</div>`; }).join('')}</div>`;
 }
 // Barras horizontais de uma cor: itens = [{rot, v, cor, tip, f}]
@@ -580,18 +583,18 @@ function graficos(lst){
   // 1. Visão geral: uma barra 100% por status
   const segs=porStatus(lst), tot=segs.reduce((s,x)=>s+x[1],0);
   out.push(caixa('Situação dos lançamentos',MED==='valor'?'Quanto do valor das notas já foi lançado':'Quantas notas já foram lançadas',
-    legenda(sts)+`<div class="bar cheia">${segs.map(([s,v])=>`<b style="flex:${v} 1 0;background:${COR_ST[s]}"${tipAttr(s,[fmtM(v)+` (${(v/tot*100).toLocaleString('pt-BR',{maximumFractionDigits:1})}%)`],{st:s})}></b>`).join('')}</div>
+    legenda(sts)+`<div class="bar cheia">${segs.map(([s,v])=>`<b style="flex:${v} 1 0;background:${COR_ST[s]}"${tipAttr(s,[fmtM(v)+` (${(v/tot*100).toLocaleString('pt-BR',{maximumFractionDigits:1})}%)`],{st:s,d:s})}></b>`).join('')}</div>
     <div class="leg" style="margin:10px 0 0">${segs.map(([s,v])=>`<span style="color:var(--tx)"><b style="font-family:var(--f-mono)">${(v/tot*100).toLocaleString('pt-BR',{maximumFractionDigits:1})}%</b>&nbsp;<span style="color:var(--mu)">${esc(s)} · ${fmtCurto(v)}</span></span>`).join('')}</div>`,true));
 
   // 2. Por empresa
   const emp=new Map(); lst.forEach(o=>{ const k=o.empresa||'(não cadastrada)'; if(!emp.has(k))emp.set(k,[]); emp.get(k).push(o); });
   const itEmp=[...emp].map(([k,a])=>({rot:k,notas:a,f:{emp:k}})).sort((a,b)=>b.notas.reduce((s,o)=>s+med(o),0)-a.notas.reduce((s,o)=>s+med(o),0));
-  out.push(caixa('Por empresa','Status dos lançamentos de cada empresa — clique para filtrar',legenda(sts)+barrasStatus(itEmp)));
+  out.push(caixa('Por empresa','Status dos lançamentos de cada empresa — clique para ver as notas',legenda(sts)+barrasStatus(itEmp)));
 
   // 3. Envelhecimento das pendências
   const pend=lst.filter(ehPendente);
   const itFx=FAIXAS.map(([r,a,b],i)=>{ const ns=pend.filter(o=>o.idade!=null&&o.idade>=a&&o.idade<=b); const v=ns.reduce((s,o)=>s+med(o),0);
-    return {rot:r,v,cor:COR_FAIXA[i],tip:[fmtM(v),`${intf(ns.length)} notas pendentes · ${brl(ns.reduce((s,o)=>s+(o.valor||0),0))}`]}; });
+    return {rot:r,v,cor:COR_FAIXA[i],f:{faixa:i,d:'Pendentes há '+r},tip:[fmtM(v),`${intf(ns.length)} notas pendentes · ${brl(ns.reduce((s,o)=>s+(o.valor||0),0))}`]}; });
   out.push(caixa('Há quanto tempo estão pendentes','Notas sem lançamento (aguardando, pendentes e confirmadas), pelos dias desde o recebimento',
     pend.length?barrasSimples(itFx,fmtCurto):vazioG('Nenhuma nota pendente. ✅')));
 
@@ -603,22 +606,22 @@ function graficos(lst){
     for(let y=Math.floor(ini/100),m=ini%100;y*100+m<=fim;m===11?(y++,m=0):m++)todos.push(y*100+m);
     const tots=todos.map(k=>(mes.get(k)||[]).reduce((s,o)=>s+med(o),0)), max=Math.max(...tots)||1;
     const rot=k=>MESES[k%100]+'/'+String(Math.floor(k/100)).slice(2);
-    out.push(caixa('Notas por mês de emissão','Clique numa parte da coluna para filtrar pelo status',legenda(sts)+
+    out.push(caixa('Notas por mês de emissão','Clique numa parte da coluna para ver as notas daquele mês e status',legenda(sts)+
       `<div class="cols">${todos.map((k,i)=>{ const a=mes.get(k)||[], sg=porStatus(a);
-        return `<div class="c"><span class="t">${tots[i]?fmtCurto(tots[i]):''}</span><div class="col-st" style="height:${tots[i]/max*100}%">${sg.map(([s,v])=>`<b style="flex:${v} 1 0;background:${COR_ST[s]}"${tipAttr(rot(k),[`${s}: ${fmtM(v)}`,`Total do mês: ${fmtM(tots[i])}`],{st:s})}></b>`).join('')}</div></div>`; }).join('')}</div>
+        return `<div class="c"><span class="t">${tots[i]?fmtCurto(tots[i]):''}</span><div class="col-st" style="height:${tots[i]/max*100}%">${sg.map(([s,v])=>`<b style="flex:${v} 1 0;background:${COR_ST[s]}"${tipAttr(rot(k),[`${s}: ${fmtM(v)}`,`Total do mês: ${fmtM(tots[i])}`],{mes:k,st:s,d:`${rot(k)} · ${s}`})}></b>`).join('')}</div></div>`; }).join('')}</div>
       <div class="cols-x">${todos.map(k=>`<span>${rot(k)}</span>`).join('')}</div>`,true));
   }
 
   // 5. Ocorrências por regra
   const cnt={}; lst.forEach(o=>new Set(o.oc.map(x=>x.c)).forEach(c=>{ if(REGRAS[c][0]!=='I')cnt[c]=(cnt[c]||0)+1; }));
   const itR=Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a]).slice(0,10).map(c=>({rot:txtRegra(c,dias()),v:cnt[c],cor:REGRAS[c][0]==='E'?'var(--bad)':'var(--warn)',
-    pre:`<span class="tag ${REGRAS[c][0]}">${REGRAS[c][0]==='E'?'Erro':'Alerta'}</span> `,tip:[`${REGRAS[c][0]==='E'?'Erro':'Alerta'} · ${intf(cnt[c])} notas`],f:{regra:c}}));
-  out.push(caixa('Principais problemas encontrados','Notas por ocorrência (as 10 mais frequentes) — clique para filtrar',
+    pre:`<span class="tag ${REGRAS[c][0]}">${REGRAS[c][0]==='E'?'Erro':'Alerta'}</span> `,tip:[`${REGRAS[c][0]==='E'?'Erro':'Alerta'} · ${intf(cnt[c])} notas`],f:{regra:c,d:txtRegra(c,dias())}}));
+  out.push(caixa('Principais problemas encontrados','Notas por ocorrência (as 10 mais frequentes) — clique para ver as notas',
     itR.length?barrasSimples(itR,intf,'wrap'):vazioG('Nenhum erro ou alerta. ✅')));
 
   // 6. Fornecedores com mais pendência
   const forn=new Map(); pend.forEach(o=>{ const k=o.emitente||'(sem nome)'; const x=forn.get(k)||{v:0,n:0,vl:0}; x.v+=med(o); x.n++; x.vl+=o.valor||0; forn.set(k,x); });
-  const itF=[...forn].sort((a,b)=>b[1].v-a[1].v).slice(0,10).map(([k,x])=>({rot:k,v:x.v,cor:'#3987e5',tip:[`${intf(x.n)} notas pendentes`,brl(x.vl)]}));
+  const itF=[...forn].sort((a,b)=>b[1].v-a[1].v).slice(0,10).map(([k,x])=>({rot:k,v:x.v,cor:'#3987e5',f:{forn:k,d:'Pendentes de '+k},tip:[`${intf(x.n)} notas pendentes`,brl(x.vl)]}));
   out.push(caixa('Fornecedores com mais notas pendentes',MED==='valor'?'Os 10 maiores em valor ainda não lançado':'Os 10 com mais notas ainda não lançadas',
     itF.length?barrasSimples(itF,fmtCurto):vazioG('Nenhuma nota pendente. ✅')));
 
@@ -632,8 +635,24 @@ document.addEventListener('pointerover',e=>{ const el=e.target.closest('[data-ti
 document.addEventListener('pointermove',e=>{ if(tip.hidden)return; const w=tip.offsetWidth,h=tip.offsetHeight;
   let x=e.clientX+14,y=e.clientY+14; if(x+w>innerWidth-8)x=e.clientX-w-14; if(y+h>innerHeight-8)y=e.clientY-h-14; tip.style.left=Math.max(8,x)+'px'; tip.style.top=Math.max(8,y)+'px'; });
 document.addEventListener('scroll',()=>{ tip.hidden=true; },true);
-$('#vGraf').addEventListener('click',e=>{ const el=e.target.closest('[data-f]'); if(!el)return; const f=JSON.parse(el.dataset.f);
-  if(f.emp)$('#fEmp').value=f.emp; if(f.st)$('#fSt').value=f.st; if(f.regra)F.regra=f.regra; tip.hidden=true; LIMITE=300; desenhar(); });
+// Recorte de um pedaço do gráfico (empresa, status, mês, faixa de idade, regra ou fornecedor).
+function predF(f){ return o=>(!f.emp||(o.empresa||'(não cadastrada)')===f.emp)&&(!f.st||o.status===f.st)
+  &&(f.mes==null||(!!o.emissao&&o.emissao.getFullYear()*100+o.emissao.getMonth()===f.mes))
+  &&(f.faixa==null||(ehPendente(o)&&o.idade!=null&&o.idade>=FAIXAS[f.faixa][1]&&o.idade<=FAIXAS[f.faixa][2]))
+  &&(!f.regra||o.oc.some(x=>x.c===f.regra))&&(!f.forn||(ehPendente(o)&&(o.emitente||'(sem nome)')===f.forn)); }
+// Clicar numa barra abre a lista das notas daquele pedaço; o gráfico continua como está.
+$('#vGraf').addEventListener('click',e=>{ const el=e.target.closest('[data-f]'); if(!el)return; tip.hidden=true;
+  const f=JSON.parse(el.dataset.f), ns=filtradas().filter(predF(f)).sort((a,b)=>(b.valor||0)-(a.valor||0)), max=200;
+  $('#dlgT').textContent=f.d;
+  $('#dlgB').innerHTML=`<p class="info" style="margin:0 0 10px">${intf(ns.length)} notas · ${brl(ns.reduce((s,o)=>s+(o.valor||0),0))}${ns.length>max?` — mostrando as ${max} de maior valor`:''}</p>
+    <button class="btn pri" id="bVerTab" style="margin:0 0 12px">☰ Ver estas notas na tabela</button>
+    <div class="tw" style="max-height:52vh"><table><thead><tr><th>NF</th><th>Emitente</th><th>Empresa</th><th>Emissão</th><th class="num">Valor</th><th>Status</th><th>Validação</th></tr></thead><tbody>
+    ${ns.slice(0,max).map(o=>`<tr class="lv${o.nivel}" data-l="${o.linha}"><td class="mono">${esc(o.numero)}${o.serie?'/'+esc(o.serie):''}</td><td>${esc(o.emitente)}</td><td>${esc(o.empresa||'(não cadastrada)')}</td><td>${dataBR(o.emissao)}</td><td class="num">${o.valor==null?'':brl(o.valor)}</td><td>${esc(o.status)}</td><td><span class="tag ${o.nivel}">${{E:'Erro',A:'Alerta',OK:'OK'}[o.nivel]}</span></td></tr>`).join('')}
+    </tbody></table></div>`;
+  $('#dlgB').querySelectorAll('tr[data-l]').forEach(tr=>tr.onclick=()=>detalhe(ROWS.find(o=>o.linha===+tr.dataset.l)));
+  $('#bVerTab').onclick=()=>{ F.graf=f; VISTA='tab'; $('#segVista').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x.dataset.v==='tab')); $('#dlg').close(); LIMITE=300; desenhar(); };
+  if(!$('#dlg').open)$('#dlg').showModal(); });
+$('#bChip').onclick=()=>{ F.graf=null; LIMITE=300; desenhar(); };
 $('#segVista').onclick=e=>{ const b=e.target.closest('button'); if(!b)return; VISTA=b.dataset.v; $('#segVista').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); lsSet('validador-nf-vista',VISTA); desenhar(); };
 $('#segMed').onclick=e=>{ const b=e.target.closest('button'); if(!b)return; MED=b.dataset.m; $('#segMed').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); desenhar(); };
 
@@ -647,7 +666,7 @@ function detalhe(o){
     ['Manifesto',o.manifesto],['Emissão',dataBR(o.emissao)],['Recebimento',dataBR(o.recebimento)],['Valor',o.valor==null?'':brl(o.valor)],
     ['Escrituração',o.escrituracao],['Título/NF avulsa',o.titulo||'0'],['Chave de acesso',o.chave]];
   $('#dlgB').innerHTML=oc+`<dl class="dl">${campos.map(([a,b])=>`<dt>${esc(a)}</dt><dd>${esc(b)}</dd>`).join('')}</dl>`;
-  $('#dlg').showModal();
+  if(!$('#dlg').open)$('#dlg').showModal();
 }
 
 function exportar(){
