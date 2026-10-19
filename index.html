@@ -576,7 +576,7 @@ const KEY='controle-estoque-obras-v1';
    IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação, com a data/hora REAL
    da publicação no horário de Brasília (-03:00) — ela aparece para o usuário no rodapé do menu.
    É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
-const APP_VERSION='2026-10-16T13:14:00-03:00';
+const APP_VERSION='2026-10-19T11:14:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 /* versão exibida no rodapé do menu lateral (ex.: "Versão 16/10/2026 08:30") */
 function textoVersao(v){ const d=new Date(v); if(isNaN(d))return 'Versão '+v;
@@ -711,20 +711,49 @@ async function _gravarDoc(k,v,base,label){
 }
 const _saveQ={};
 function _saveTimeout(e){ return !!e&&(e.code==='57014'||/statement timeout/i.test(e.message||'')); }
+/* Queda de rede ao gravar o documento: repete algumas vezes; se ainda assim não passar, a alteração fica guardada
+   neste aparelho (_docPend + localStorage, só o documento principal — o de fotos é grande demais) e é regravada
+   sozinha depois, inclusive ao abrir o sistema de novo. A regravação usa a mesma base de antes, então o merge3 junta
+   com o que outras pessoas gravaram nesse meio-tempo; se a 1ª tentativa tinha chegado ao banco, a versão confere
+   e nada se duplica. */
+const DOC_PEND_KEY='estoque_doc_pendente_v1:';
+const _docPend={};                   /* chave -> {v,base,label}: gravação que falhou por rede e ainda vai ser refeita */
+function docsPendentes(){ return Object.values(_docPend).filter(r=>r.falhou).length; } /* só as que já falharam (a gravação em andamento não conta) */
+function _docPendGuardar(k,reg){ if(reg)_docPend[k]=reg; else delete _docPend[k];
+  if(k===KEY){ try{ if(reg)localStorage.setItem(DOC_PEND_KEY+k,JSON.stringify(Object.assign({uid:_uidAtual(),ts:Date.now()},reg))); else localStorage.removeItem(DOC_PEND_KEY+k); }catch(e){ console.warn('documento pendente',e); } }
+  if(typeof updateOfflineBadge==='function')updateOfflineBadge(); }
+const _docTimer={}, _docEspera={};
+function _docAgendar(k){ if(_docTimer[k])return; _docEspera[k]=Math.min(_docEspera[k]?_docEspera[k]*2:5000,60000);
+  _docTimer[k]=setTimeout(()=>{ _docTimer[k]=null; regravarDoc(k); },_docEspera[k]); }
+function regravarDoc(k){ const reg=_docPend[k], q=_saveQ[k]||(_saveQ[k]={busy:false,next:null,base:null,labels:[],waiters:[]});
+  if(!reg||q.busy||q.next!==null)return; /* gravação em andamento: ela leva o estado atual, que já contém esta alteração */
+  if(!isOnline){ _docAgendar(k); return; }
+  q.next=reg.v; q.base=reg.base; q.reenvio=true; if(reg.label&&!q.labels.includes(reg.label))q.labels.push(reg.label); _drainSave(k); }
+/* ao abrir o sistema: refaz a gravação do documento que ficou pendente na última vez (mesmo usuário) */
+function recuperarDocPendente(){ let reg=null; try{ reg=JSON.parse(localStorage.getItem(DOC_PEND_KEY+KEY)||'null'); }catch(e){}
+  if(!reg||!reg.v||(reg.uid&&reg.uid!==_uidAtual()))return;
+  _docPend[KEY]={v:reg.v,base:reg.base||null,label:reg.label||null,falhou:true}; updateOfflineBadge();
+  toast('Há alteração feita neste aparelho que não chegou ao banco — gravando agora.','warn'); regravarDoc(KEY); }
+window.addEventListener('online',()=>{ Object.keys(_docPend).forEach(k=>{ _docEspera[k]=0; setTimeout(()=>regravarDoc(k),2000); }); });
 async function _drainSave(k){ const q=_saveQ[k]; q.busy=true;
-  while(q.next!==null){ const v=q.next, base=q.base, label=q.labels.join(' · ')||null, ws=q.waiters; q.next=null; q.labels=[]; q.waiters=[];
+  while(q.next!==null){ const v=q.next, base=q.base, label=q.labels.join(' · ')||null, ws=q.waiters, reenvio=!!q.reenvio; q.next=null; q.labels=[]; q.waiters=[]; q.reenvio=false;
     let error=null, gravado=null, mesclou=false;
-    for(let t=0;t<3;t++){
+    if(k===KEY)_docPendGuardar(k,{v,base,label}); /* guardado no aparelho até o banco confirmar */
+    for(let t=0;t<5;t++){
       try{ ({error,value:gravado,mesclou}=await _gravarDoc(k,v,base,label)); }catch(e){ error={message:(e&&e.message)||String(e)}; }
-      if(!error||!_saveTimeout(error)||q.next!==null)break; /* se já há estado mais novo na fila, ele substitui esta tentativa */
-      await new Promise(r=>setTimeout(r,1500*(t+1)));
+      if(!error||!_erroTransitorio(error)||q.next!==null)break; /* se já há estado mais novo na fila, ele substitui esta tentativa */
+      await new Promise(r=>setTimeout(r,1500*Math.pow(2,t)));
     }
     if(error&&q.next!==null){ q.waiters.push(...ws); continue; } /* o estado mais novo da fila inclui esta alteração: quem esperava recebe o resultado dele */
-    if(!error&&gravado){ docBase(k,gravado);
-      /* outra pessoa tinha gravado antes: aplica o resultado juntado na tela (se não há gravação mais nova na fila) */
-      if(mesclou&&q.next===null&&_aoMesclar[k]){ try{ _aoMesclar[k](gravado); }catch(e){ console.warn('aplicar mescla',e); } } }
+    if(!error&&gravado){ docBase(k,gravado); _docPendGuardar(k,null); _docEspera[k]=0;
+      if(reenvio)toast('Alteração pendente gravada no banco.','ok');
+      /* outra pessoa tinha gravado antes (ou é a regravação de uma pendência): aplica o resultado na tela */
+      if((mesclou||reenvio)&&q.next===null&&_aoMesclar[k]){ try{ _aoMesclar[k](gravado); }catch(e){ console.warn('aplicar mescla',e); } } }
     if(error){ console.error(error);
-      toast(_saveTimeout(error)?'Não foi possível salvar: o servidor demorou demais para gravar. A alteração NÃO foi gravada no banco — refaça em instantes.':'Erro ao salvar: '+error.message,'err'); }
+      if(_erroTransitorio(error)){ _docPendGuardar(k,{v,base,label,falhou:true}); _docAgendar(k);
+        error={message:'sem conexão estável com o servidor — a alteração ficou guardada neste aparelho e será gravada automaticamente',pendente:true};
+        if(!reenvio)toast('Conexão instável: a alteração ficou guardada neste aparelho e será gravada no banco automaticamente. Não feche o sistema.','warn'); }
+      else{ _docPendGuardar(k,null); toast('Erro ao salvar: '+error.message,'err'); } }
     ws.forEach(r=>{ try{ r(error||null); }catch(e){} });
   }
   q.busy=false; }
@@ -770,7 +799,7 @@ function loadCache(){ try{ const d=JSON.parse(localStorage.getItem(CACHE_KEY)); 
 function getQueue(){ try{return JSON.parse(localStorage.getItem(OFFLINE_KEY)||'[]');}catch(e){return [];} }
 function setQueue(q){ try{localStorage.setItem(OFFLINE_KEY, JSON.stringify(q));}catch(e){} updateOfflineBadge(); }
 function queueAction(type,payload,label){ const q=getQueue(); q.push({id:uid(),type,payload,label,ts:Date.now()}); setQueue(q); }
-function updateOfflineBadge(){ const el=$('#offlineBadge'); if(!el)return; const n=getQueue().length;
+function updateOfflineBadge(){ const el=$('#offlineBadge'); if(!el)return; const n=getQueue().length+(typeof gravacoesPendentes==='function'?gravacoesPendentes()+docsPendentes():0);
   if(!isOnline){ el.style.display='flex'; el.className='offbadge off noprint'; el.textContent='📴 Offline'+(n?' · '+n+' pendente(s)':''); }
   else if(n>0){ el.style.display='flex'; el.className='offbadge sync noprint'; el.textContent='🔄 Sincronizando '+n+' pendente(s)...'; }
   else { el.style.display='none'; }
@@ -791,6 +820,88 @@ async function processOfflineQueue(){
 }
 window.addEventListener('online',()=>{ isOnline=true; updateOfflineBadge(); if(getQueue().length){toast('Conexão de volta — sincronizando pendências...','ok'); processOfflineQueue();} });
 window.addEventListener('offline',()=>{ isOnline=false; updateOfflineBadge(); toast('Sem conexão — as próximas ações ficam guardadas neste aparelho.','warn'); });
+/* ===== Gravação confiável (internet instável) =====
+   Antes, saldo, lote e movimentação eram enviados uma vez só: se a rede caía naquele instante, aparecia um aviso
+   e a alteração se perdia. Agora cada uma entra numa fila guardada neste aparelho ANTES de ser enviada e só sai
+   dela quando o banco confirma. Falha de rede (sem resposta, servidor fora, tempo esgotado) fica na fila e é
+   reenviada sozinha: ao voltar a conexão, ao voltar para a aba, a cada poucos segundos e ao abrir o sistema de novo.
+   Erro de regra (sem permissão, dado inválido) não adianta repetir: sai da fila e avisa, como antes.
+   Para o reenvio não aplicar duas vezes (o pedido chegou mas a resposta se perdeu), cada operação leva um código
+   único: ajustar_saldo_idem / mover_lote_idem (scripts/gravacao_confiavel.sql) só aplicam um código uma vez, e a
+   movimentação usa o próprio id ("on conflict do nothing"). Sem essas funções no banco, saldo e lote só são
+   enviados com conexão e não são reenviados após falha (comportamento anterior). */
+const GRAV_KEY='estoque_gravacoes_pendentes_v1';
+let _grav=(()=>{ try{ const f=JSON.parse(localStorage.getItem(GRAV_KEY)||'[]'); return Array.isArray(f)?f:[]; }catch(e){ return []; } })();
+const _gravEnviando=new Set();
+let _idemOk=null;                    /* null = ainda não sabe se o banco tem ajustar_saldo_idem / mover_lote_idem */
+let _gravTimer=null, _gravEspera=0, _gravDrenando=false, _gravAvisou=false;
+function _gravPersistir(){ try{ localStorage.setItem(GRAV_KEY,JSON.stringify(_grav)); }catch(e){ console.warn('fila de gravação',e); } updateOfflineBadge(); }
+function _uidAtual(){ return (session&&session.user&&session.user.id)||null; }
+function gravacoesPendentes(){ const u=_uidAtual(); return _grav.filter(o=>!o.uid||o.uid===u).length; }
+/* sem resposta do servidor / servidor fora / tempo esgotado / sessão expirando: vale tentar de novo */
+function _erroTransitorio(e,status){ if(!e)return false;
+  if(status===0||status===408||status===429||status>=500)return true;
+  const m=String(e.message||'')+' '+String(e.details||'');
+  return _saveTimeout(e)||e.code==='PGRST301'||/failed to fetch|fetch failed|load failed|networkerror|network request failed|network error|err_network|err_internet|timed? ?out|aborted|econnreset|socket|bad gateway|gateway|service unavailable|jwt expired/i.test(m); }
+function _ehFuncaoIdemAusente(e){ return !!e&&(e.code==='PGRST202'||/_idem|could not find the function/i.test(e.message||'')); }
+function _gravMsgErro(op,msg){ return op.tipo==='mov'?'Erro ao gravar movimentação no banco (recarregue a página para conferir): '+esc(msg)
+  :op.tipo==='lote'?'Erro ao gravar o lote '+esc(op.lote)+' no banco (recarregue a página para conferir): '+esc(msg)
+  :'Erro ao gravar saldo no banco (recarregue a página para conferir): '+esc(msg); }
+/* um envio: devolve 'ok' | 'pendente' (tentar de novo) | 'erro' (desiste e avisa) */
+async function _gravEnviar(op){
+  if(!navigator.onLine||!isOnline)return 'pendente'; /* nem tenta: com certeza não chega */
+  let r;
+  try{
+    if(op.tipo==='mov') r=await sb.from('movimentos_estoque').upsert(op.row,{onConflict:'id',ignoreDuplicates:true});
+    else if(_idemOk!==false){
+      r=op.tipo==='saldo'?await sb.rpc('ajustar_saldo_idem',{p_op_id:op.id,p_obra:op.obra,p_code:op.code,p_delta:op.delta})
+        :await sb.rpc('mover_lote_idem',{p_op_id:op.id,p_obra:op.obra,p_code:op.code,p_lote:op.lote,p_validade:op.validade,p_fabricacao:op.fabricacao,p_delta:op.delta});
+      if(_ehFuncaoIdemAusente(r.error)){ _idemOk=false; return _gravEnviar(op); }
+      if(!r.error)_idemOk=true;
+    }else{
+      /* banco sem as funções _idem: envio único, sem reenvio após falha (poderia aplicar duas vezes).
+         Só chega aqui com conexão; o que ficou na fila por estar offline nunca foi enviado e pode ir agora. */
+      r=op.tipo==='saldo'?await sb.rpc('ajustar_saldo',{p_obra:op.obra,p_code:op.code,p_delta:op.delta})
+        :await sb.rpc('mover_lote',{p_obra:op.obra,p_code:op.code,p_lote:op.lote,p_validade:op.validade,p_fabricacao:op.fabricacao,p_delta:op.delta});
+      if(r.error){ op.erro=r.error.message; return 'erro'; }
+      return 'ok';
+    }
+  }catch(e){ r={error:{message:(e&&e.message)||String(e)},status:0}; }
+  if(!r.error)return 'ok';
+  if(_erroTransitorio(r.error,r.status))return 'pendente';
+  op.erro=r.error.message; return 'erro'; }
+async function _gravProcessar(op){
+  if(_gravEnviando.has(op.id))return null; _gravEnviando.add(op.id);
+  let res;
+  try{ res=await _gravEnviar(op); }catch(e){ res='pendente'; }
+  _gravEnviando.delete(op.id);
+  if(res==='ok'||res==='erro'){ _grav=_grav.filter(o=>o.id!==op.id); _gravPersistir();
+    if(res==='erro'){ console.error('Gravação recusada pelo banco',op); toast(_gravMsgErro(op,op.erro||''),'err'); } }
+  else{ op.tentativas=(op.tentativas||0)+1; _gravPersistir();
+    if(!_gravAvisou){ _gravAvisou=true; toast('Conexão instável: a alteração ficou guardada neste aparelho e será gravada no banco automaticamente. Não limpe os dados do navegador.','warn'); }
+    _gravAgendar(); }
+  return res; }
+/* entra na fila (gravada no aparelho) e já tenta enviar; a promessa termina após a 1ª tentativa */
+function gravarConfiavel(dados){ const op=Object.assign({id:'g'+uid()+Math.random().toString(36).slice(2,8),ts:Date.now(),uid:_uidAtual(),tentativas:0},dados);
+  _grav.push(op); _gravPersistir();
+  return _gravProcessar(op); }
+function _gravAgendar(){ if(_gravTimer)return;
+  _gravEspera=Math.min(_gravEspera?_gravEspera*2:4000,60000);
+  _gravTimer=setTimeout(()=>{ _gravTimer=null; drenarGravacoes(); },_gravEspera); }
+async function drenarGravacoes(){
+  if(_gravDrenando||!isOnline||!_uidAtual())return; const u=_uidAtual();
+  const lista=_grav.filter(o=>(!o.uid||o.uid===u)&&!_gravEnviando.has(o.id)); if(!lista.length)return;
+  _gravDrenando=true; let parou=false;
+  for(const op of lista){ const r=await _gravProcessar(op); if(r==='pendente'){ parou=true; break; } }
+  _gravDrenando=false;
+  if(!parou&&!gravacoesPendentes()){ _gravEspera=0;
+    if(_gravAvisou){ _gravAvisou=false; toast('Alterações pendentes gravadas no banco.','ok'); }
+    if(typeof loadMovimentosEDaldos==='function'&&profile)loadMovimentosEDaldos().then(()=>{ refreshTelaAtual(); refreshBadge(); }).catch(()=>{}); }
+}
+window.addEventListener('online',()=>{ _gravEspera=0; setTimeout(drenarGravacoes,1500); });
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'&&gravacoesPendentes())drenarGravacoes(); });
+/* fechar/recarregar a aba com algo ainda não confirmado pelo banco: o navegador pergunta antes */
+window.addEventListener('beforeunload',e=>{ if(gravacoesPendentes()||docsPendentes()||Object.values(_saveQ).some(q=>q.busy)){ e.preventDefault(); e.returnValue=''; return ''; } });
 /* Telas que se atualizam sozinhas quando outro usuário (ou esta aba) grava algo.
    A atualização NÃO troca de tela e preserva filtros, busca, rolagem e foco; se a pessoa estiver
    digitando/com um campo em foco, ou com uma janela (modal) aberta, espera ela terminar. */
@@ -843,7 +954,10 @@ function subscribeRealtime(){
     docBase(KEY,payload.new.value); /* versão mais nova do servidor: base para a próxima gravação */
     const prevAjLib=ajusteManualLiberado();
     const prevMovements=state.movements, prevEstoque=state.estoque, prevObra=state.currentObra; /* movements/estoque não vêm mais dentro deste documento — preserva o que já está em memória em vez de zerar */
-    state=payload.new.value;
+    const pend=_docPend[KEY]; let novo=payload.new.value;
+    if(pend){ /* alteração deste aparelho ainda não gravada: não deixa a versão de outra pessoa apagá-la da tela */
+      try{ const b0=pend.base?JSON.parse(pend.base.json):null; novo=JSON.parse(JSON.stringify(merge3(b0===null?_AUSENTE:b0,pend.v,novo,''))); }catch(e){ console.warn('mescla com pendência',e); } }
+    state=novo;
     state.movements=prevMovements||[]; state.estoque=prevEstoque||{};
     normalizeState();
     restaurarObraLocal(prevObra); /* atualização de outro usuário não troca a obra selecionada aqui */
@@ -994,9 +1108,7 @@ function addSaldo(obra,code,delta,lotes){
   if(!state.estoque[obra])state.estoque[obra]={};
   state.estoque[obra][code]=(state.estoque[obra][code]||0)+delta;
   if(obra&&code&&delta){
-    sb.rpc('ajustar_saldo',{p_obra:obra,p_code:code,p_delta:delta}).then(({error})=>{
-      if(error) toast('Erro ao gravar saldo no banco (recarregue a página para conferir): '+error.message,'err');
-    });
+    gravarConfiavel({tipo:'saldo',obra,code:String(code),delta}); /* fila confiável: reenvia se a rede falhar */
   }
   return lotesAoMover(obra,code,delta,lotes);
 }
@@ -1005,7 +1117,7 @@ function movToRow(m){ return {id:m.id,ts:m.ts,tipo:m.tipo,obra:m.obra||null,obra
 function rowToMov(r){ return {id:r.id,ts:Number(r.ts),tipo:r.tipo,obra:r.obra||undefined,obraDest:r.obra_dest||undefined,code:r.code||undefined,desc:r.descricao||undefined,qty:Number(r.qty)||0,valorUnit:Number(r.valor_unit)||0,valorTotal:Number(r.valor_total)||0,doc:r.doc||undefined,obs:r.obs||undefined,aplic:r.aplic||undefined,os:r.os||undefined,seq:r.seq||undefined,notaId:r.nota_id||undefined,invId:r.inv_id||undefined,invModo:r.inv_modo||undefined,baixaId:r.baixa_id||undefined,romaneioId:r.romaneio_id||undefined,saldo:r.saldo!=null?Number(r.saldo):undefined,saldoDest:r.saldo_dest!=null?Number(r.saldo_dest):undefined,lotes:Array.isArray(r.lotes)&&r.lotes.length?r.lotes:undefined}; }
 const _movPend=new Set();
 function pushMov(m){ if(!m.id)m.id=uid(); if(!m.ts)m.ts=Date.now(); state.movements.unshift(m);
-  const pr=sb.from('movimentos_estoque').insert(movToRow(m)).then(({error})=>{ if(error) toast('Erro ao gravar movimentação no banco (recarregue a página para conferir): '+error.message,'err'); });
+  const pr=gravarConfiavel({tipo:'mov',row:movToRow(m)}); /* fila confiável: reenvia se a rede falhar (o id evita duplicar) */
   _movPend.add(pr); pr.finally(()=>_movPend.delete(pr));
   return m; }
 /* Espera as movimentações recém-lançadas chegarem ao banco (usado antes de baixar a reposição pela nota) */
@@ -1209,8 +1321,7 @@ function moverLote(obra,code,l,delta){ if(!lotesAtivos()||!obra||code==null||!l|
   const o=lotesEstoque[obra]||(lotesEstoque[obra]={}); const arr=o[code]||(o[code]=[]);
   let x=arr.find(y=>y.lote===l.lote); if(!x){ x={lote:l.lote,validade:l.validade||null,fabricacao:l.fabricacao||null,saldo:0}; arr.push(x); }
   x.saldo=Math.max(+(x.saldo+delta).toFixed(6),0); if(l.validade)x.validade=l.validade; if(l.fabricacao)x.fabricacao=l.fabricacao;
-  sb.rpc('mover_lote',{p_obra:obra,p_code:String(code),p_lote:l.lote,p_validade:l.validade||null,p_fabricacao:l.fabricacao||null,p_delta:delta}).then(({error})=>{
-    if(error)toast('Erro ao gravar o lote '+esc(l.lote)+' no banco (recarregue a página para conferir): '+esc(error.message),'err'); }); }
+  gravarConfiavel({tipo:'lote',obra,code:String(code),lote:l.lote,validade:l.validade||null,fabricacao:l.fabricacao||null,delta}); }
 /* Chamado pelo addSaldo: entrada só mexe em lote se vier informado; saída usa os lotes informados ou FEFO.
    Devolve os lotes movimentados (para guardar na movimentação / levar ao destino da transferência). */
 function lotesAoMover(obra,code,delta,lotes){ if(!lotesAtivos()||!obra||code==null||!delta)return null;
@@ -6135,7 +6246,7 @@ function onAuthReady(){
     if(!profile||!profile.ativo){ showPending(); return; }
     hideGate(); applyRoleNav(); initNavGrps(); const pDev=refreshDevolucoesBloqueio().catch(()=>{}); const pLot=loadLotes().catch(e=>console.warn('loadLotes',e)); await load(); applyRoleNav(); /* a marcação "Aprova requisições" vem do documento carregado agora */ await pDev; await pLot; loadPhotos().then(()=>{ refreshTelaAtual(); migrarFotosAntigas(); }); loadFotosExt().then(mudou=>{ if(mudou&&!usuarioInteragindo())refreshTelaAtual(); }); loadReposAbertas().then(()=>refreshTelaAtual()); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); checkEntregaParcial().then(()=>refreshRetiradasBadge()); _comprovOk=null; _comprovPend={confirmar:[],receber:[]}; _comprovUsers=null; refreshComprovPend().then(()=>{ refreshComprovBadge(); processarLinkRecebimento(); }); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge();
     _bootedUid=uid; go(abaInicial());
-    if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); startVersionWatch(); }
+    if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); drenarGravacoes(); recuperarDocPendente(); startVersionWatch(); }
   })();
   _bootPromise=p; p.finally(()=>{ if(_bootPromise===p)_bootPromise=null; });
   return p;
