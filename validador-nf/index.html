@@ -98,6 +98,41 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
 .dl dt{color:var(--mu)} .dl dd{margin:0;word-break:break-all}
 .ocl{list-style:none;padding:0;margin:0 0 14px;display:flex;flex-direction:column;gap:6px}
 .ocl li{background:var(--s2);border-radius:9px;padding:8px 10px;display:flex;gap:8px;align-items:baseline}
+/* abas e gráficos */
+.abas{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0 0 10px}
+.abas .info{margin:0;flex:1 1 200px}
+.seg{display:inline-flex;background:var(--s1);border:1px solid var(--line);border-radius:10px;padding:3px;gap:3px}
+.seg button{border:0;background:none;border-radius:7px;padding:6px 12px;font-weight:600;color:var(--mu)}
+.seg button.on{background:var(--s2);color:var(--tx)}
+.graf{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+@media(max-width:1000px){.graf{grid-template-columns:minmax(0,1fr)}}
+.graf .box.larga{grid-column:1/-1}
+.graf .box h3{margin-bottom:2px}
+.graf .sub{color:var(--mu);font-size:12.5px;margin:0 0 12px}
+.leg{display:flex;flex-wrap:wrap;gap:6px 14px;margin:0 0 12px;font-size:12.5px;color:var(--mu)}
+.leg span{display:inline-flex;align-items:center;gap:6px}
+.leg i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.hb{display:grid;grid-template-columns:minmax(90px,200px) minmax(0,1fr) auto;gap:6px 10px;align-items:center;font-size:12.5px}
+.hb .rot{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hb.wrap{grid-template-columns:minmax(140px,300px) minmax(0,1fr) auto}
+.hb.wrap .rot{white-space:normal;line-height:1.3}
+.hb .val{font-family:var(--f-mono);font-size:12px;color:var(--mu);text-align:right;white-space:nowrap}
+.bar{display:flex;gap:2px;height:16px;min-width:0}
+.bar>b{display:block;height:100%;min-width:3px;cursor:pointer}
+.bar>b:last-child{border-radius:0 4px 4px 0}
+.bar>b:hover,.col-st>b:hover{filter:brightness(1.25)}
+.bar.cheia{height:26px;border-radius:4px;overflow:hidden}
+.cols{display:flex;align-items:flex-end;gap:6px;height:220px;border-bottom:1px solid var(--line);padding-top:18px;overflow-x:auto}
+.cols .c{flex:1 0 34px;display:flex;flex-direction:column;align-items:center;height:100%;justify-content:flex-end;gap:4px}
+.cols .t{font:500 11px var(--f-mono);color:var(--mu);white-space:nowrap}
+.col-st{width:100%;max-width:46px;display:flex;flex-direction:column-reverse;gap:2px}
+.col-st>b{display:block;width:100%;min-height:2px;cursor:pointer}
+.col-st>b:last-child{border-radius:4px 4px 0 0}
+.cols-x{display:flex;gap:6px;overflow:hidden}
+.cols-x span{flex:1 0 34px;text-align:center;font-size:11px;color:var(--mu);white-space:nowrap}
+.vazio-g{color:var(--mu);font-size:13px;padding:20px 0;text-align:center}
+#tip{position:fixed;z-index:50;pointer-events:none;background:#121418;border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-size:12.5px;max-width:300px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+#tip b{display:block;margin-bottom:2px}
 .cfg{display:flex;align-items:center;gap:8px;color:var(--mu);font-size:12.5px}
 .cfg input{width:64px;background:var(--s2);border:1px solid var(--line);border-radius:8px;padding:5px 8px}
 </style>
@@ -126,21 +161,26 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
 
   <section id="vRes" hidden>
     <div class="kpis" id="kpis"></div>
-    <div class="cols2">
+    <div class="filtros">
+      <input id="fBusca" type="search" placeholder="Buscar emitente, CNPJ, número, chave, título…">
+      <select id="fEmp"></select>
+      <select id="fSt"></select>
+      <select id="fVal">
+        <option value="">Todas as validações</option>
+        <option value="E">Só com erro</option>
+        <option value="A">Só com alerta</option>
+        <option value="EA">Erro ou alerta</option>
+        <option value="OK">Só OK</option>
+      </select>
+    </div>
+    <div class="abas">
+      <div class="seg" id="segVista"><button data-v="tab" class="on">☰ Tabela</button><button data-v="graf">📊 Gráficos</button></div>
+      <div class="seg" id="segMed" hidden><button data-m="qtd" class="on">Quantidade</button><button data-m="valor">Valor (R$)</button></div>
+      <p class="info" id="info"></p>
+    </div>
+    <div id="vGraf" class="graf" hidden></div>
+    <div class="cols2" id="vTab">
       <div>
-        <div class="filtros">
-          <input id="fBusca" type="search" placeholder="Buscar emitente, CNPJ, número, chave, título…">
-          <select id="fEmp"></select>
-          <select id="fSt"></select>
-          <select id="fVal">
-            <option value="">Todas as validações</option>
-            <option value="E">Só com erro</option>
-            <option value="A">Só com alerta</option>
-            <option value="EA">Erro ou alerta</option>
-            <option value="OK">Só OK</option>
-          </select>
-        </div>
-        <p class="info" id="info"></p>
         <div class="tw"><table><thead id="th"></thead><tbody id="tb"></tbody></table></div>
         <button class="btn mais" id="bMais" hidden>Mostrar mais</button>
       </div>
@@ -152,6 +192,7 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
   </section>
 </main>
 
+<div id="tip" hidden></div>
 <dialog id="dlg">
   <div class="dlg-h"><h3 id="dlgT"></h3><button class="btn" id="dlgX">Fechar</button></div>
   <div class="dlg-b" id="dlgB"></div>
@@ -490,8 +531,111 @@ function desenhar(){
     <td class="oc">${esc(o.ocTexto)}</td></tr>`).join('')||`<tr><td colspan="${COLS_TAB.length}" style="text-align:center;color:var(--mu);padding:30px">Nenhuma nota com esses filtros.</td></tr>`;
   $('#tb').querySelectorAll('tr[data-l]').forEach(tr=>tr.onclick=()=>detalhe(ROWS.find(o=>o.linha===+tr.dataset.l)));
   $('#info').textContent=`Mostrando ${intf(vis.length)} de ${intf(lst.length)} notas filtradas · ${brl(soma(lst))}`+(lst.length<ROWS.length?` (total do arquivo: ${intf(ROWS.length)})`:'');
-  $('#bMais').hidden=lst.length<=LIMITE;
+  $('#bMais').hidden=lst.length<=LIMITE||VISTA!=='tab';
+  $('#vTab').hidden=VISTA!=='tab'; $('#vGraf').hidden=VISTA!=='graf'; $('#segMed').hidden=VISTA!=='graf';
+  if(VISTA==='graf'){ $('#info').textContent=`Gráficos sobre ${intf(lst.length)} notas filtradas · ${brl(soma(lst))}`; graficos(lst); }
 }
+
+/* ---------- gráficos ----------
+   Tudo em HTML/CSS (sem biblioteca). Usam as notas filtradas acima; clicar numa barra aplica o filtro.
+   Cores do status em ordem fixa (paleta categórica validada para fundo escuro) — a cor segue o status,
+   nunca a posição; erro/alerta usam as cores de estado do app, sempre com o rótulo escrito ao lado. */
+let VISTA='tab', MED='qtd';
+const COR_ST={'Lançado':'#3987e5','Apenas Confirmação':'#d95926','Pendente':'#199e70','Aguardando Confirmação':'#c98500','Não realizada':'#d55181','Desconhecida':'#008300'};
+const FAIXAS=[['até 15 dias',0,15],['16 a 30',16,30],['31 a 60',31,60],['61 a 90',61,90],['91 a 180',91,180],['mais de 180',181,Infinity]];
+const COR_FAIXA=['#184f95','#1c5cab','#2a78d6','#3987e5','#5598e7','#86b6ef']; // mais antiga = mais clara (mais destaque no fundo escuro)
+const MESES=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+const ehPendente=o=>o.status==='Pendente'||o.status==='Aguardando Confirmação'||o.status==='Apenas Confirmação';
+const med=o=>MED==='valor'?(o.valor||0):1;
+const fmtM=v=>MED==='valor'?brl(v):intf(v)+(v===1?' nota':' notas');
+const fmtCurto=v=>MED==='valor'?(v>=1e6?(v/1e6).toLocaleString('pt-BR',{maximumFractionDigits:1})+' mi':v>=1e3?(v/1e3).toLocaleString('pt-BR',{maximumFractionDigits:0})+' mil':intf(Math.round(v))):intf(v);
+const tipAttr=(t,linhas,f)=>` data-tip="${esc(JSON.stringify([t,...linhas]))}"${f?` data-f="${esc(JSON.stringify(f))}"`:''}`;
+
+// Soma por status de um grupo de notas → segmentos na ordem fixa dos status.
+function porStatus(a){ const m={}; a.forEach(o=>m[o.status]=(m[o.status]||0)+med(o)); return STATUS_ORDEM.filter(s=>m[s]).map(s=>[s,m[s]]); }
+function legenda(sts){ return `<div class="leg">${sts.map(s=>`<span><i style="background:${COR_ST[s]}"></i>${esc(s)}</span>`).join('')}</div>`; }
+function caixa(titulo,sub,corpo,larga){ return `<section class="box${larga?' larga':''}"><h3>${esc(titulo)}</h3><p class="sub">${esc(sub)}</p>${corpo}</section>`; }
+function vazioG(t){ return `<div class="vazio-g">${esc(t)}</div>`; }
+
+// Barras horizontais empilhadas por status: itens = [{rot, notas, f}]
+function barrasStatus(itens){
+  const max=Math.max(...itens.map(it=>it.notas.reduce((s,o)=>s+med(o),0)),0)||1;
+  return `<div class="hb">${itens.map(it=>{ const segs=porStatus(it.notas), tot=segs.reduce((s,x)=>s+x[1],0);
+    return `<div class="rot" title="${esc(it.rot)}">${esc(it.rot)}</div>
+      <div class="bar" style="width:${Math.max(tot/max*100,0.5)}%">${segs.map(([s,v])=>`<b style="flex:${v} 1 0;background:${COR_ST[s]}"${tipAttr(it.rot,[`${s}: ${fmtM(v)} (${Math.round(v/tot*100)}%)`,`Total: ${fmtM(tot)}`],{...it.f,st:s})}></b>`).join('')}</div>
+      <div class="val">${fmtCurto(tot)}</div>`; }).join('')}</div>`;
+}
+// Barras horizontais de uma cor: itens = [{rot, v, cor, tip, f}]
+function barrasSimples(itens,fmt,cls){
+  const max=Math.max(...itens.map(i=>i.v),0)||1;
+  return `<div class="hb${cls?' '+cls:''}">${itens.map(i=>`<div class="rot" title="${esc(i.rot)}">${i.pre||''}${esc(i.rot)}</div>
+    <div class="bar" style="width:${Math.max(i.v/max*100,0.5)}%"><b style="flex:1;background:${i.cor}"${tipAttr(i.rot,i.tip,i.f)}></b></div>
+    <div class="val">${fmt(i.v)}</div>`).join('')}</div>`;
+}
+
+function graficos(lst){
+  if(!lst.length){ $('#vGraf').innerHTML=caixa('Sem dados','Nenhuma nota com esses filtros.','',true); return; }
+  const sts=STATUS_ORDEM.filter(s=>lst.some(o=>o.status===s)), out=[];
+
+  // 1. Visão geral: uma barra 100% por status
+  const segs=porStatus(lst), tot=segs.reduce((s,x)=>s+x[1],0);
+  out.push(caixa('Situação dos lançamentos',MED==='valor'?'Quanto do valor das notas já foi lançado':'Quantas notas já foram lançadas',
+    legenda(sts)+`<div class="bar cheia">${segs.map(([s,v])=>`<b style="flex:${v} 1 0;background:${COR_ST[s]}"${tipAttr(s,[fmtM(v)+` (${(v/tot*100).toLocaleString('pt-BR',{maximumFractionDigits:1})}%)`],{st:s})}></b>`).join('')}</div>
+    <div class="leg" style="margin:10px 0 0">${segs.map(([s,v])=>`<span style="color:var(--tx)"><b style="font-family:var(--f-mono)">${(v/tot*100).toLocaleString('pt-BR',{maximumFractionDigits:1})}%</b>&nbsp;<span style="color:var(--mu)">${esc(s)} · ${fmtCurto(v)}</span></span>`).join('')}</div>`,true));
+
+  // 2. Por empresa
+  const emp=new Map(); lst.forEach(o=>{ const k=o.empresa||'(não cadastrada)'; if(!emp.has(k))emp.set(k,[]); emp.get(k).push(o); });
+  const itEmp=[...emp].map(([k,a])=>({rot:k,notas:a,f:{emp:k}})).sort((a,b)=>b.notas.reduce((s,o)=>s+med(o),0)-a.notas.reduce((s,o)=>s+med(o),0));
+  out.push(caixa('Por empresa','Status dos lançamentos de cada empresa — clique para filtrar',legenda(sts)+barrasStatus(itEmp)));
+
+  // 3. Envelhecimento das pendências
+  const pend=lst.filter(ehPendente);
+  const itFx=FAIXAS.map(([r,a,b],i)=>{ const ns=pend.filter(o=>o.idade!=null&&o.idade>=a&&o.idade<=b); const v=ns.reduce((s,o)=>s+med(o),0);
+    return {rot:r,v,cor:COR_FAIXA[i],tip:[fmtM(v),`${intf(ns.length)} notas pendentes · ${brl(ns.reduce((s,o)=>s+(o.valor||0),0))}`]}; });
+  out.push(caixa('Há quanto tempo estão pendentes','Notas sem lançamento (aguardando, pendentes e confirmadas), pelos dias desde o recebimento',
+    pend.length?barrasSimples(itFx,fmtCurto):vazioG('Nenhuma nota pendente. ✅')));
+
+  // 4. Evolução mensal pela emissão
+  const mes=new Map(); lst.forEach(o=>{ if(!o.emissao)return; const k=o.emissao.getFullYear()*100+o.emissao.getMonth(); if(!mes.has(k))mes.set(k,[]); mes.get(k).push(o); });
+  const ks=[...mes.keys()].sort((a,b)=>a-b);
+  if(ks.length){
+    const ini=ks[0], fim=ks[ks.length-1], todos=[]; // inclui meses sem nota, para o eixo do tempo não pular
+    for(let y=Math.floor(ini/100),m=ini%100;y*100+m<=fim;m===11?(y++,m=0):m++)todos.push(y*100+m);
+    const tots=todos.map(k=>(mes.get(k)||[]).reduce((s,o)=>s+med(o),0)), max=Math.max(...tots)||1;
+    const rot=k=>MESES[k%100]+'/'+String(Math.floor(k/100)).slice(2);
+    out.push(caixa('Notas por mês de emissão','Clique numa parte da coluna para filtrar pelo status',legenda(sts)+
+      `<div class="cols">${todos.map((k,i)=>{ const a=mes.get(k)||[], sg=porStatus(a);
+        return `<div class="c"><span class="t">${tots[i]?fmtCurto(tots[i]):''}</span><div class="col-st" style="height:${tots[i]/max*100}%">${sg.map(([s,v])=>`<b style="flex:${v} 1 0;background:${COR_ST[s]}"${tipAttr(rot(k),[`${s}: ${fmtM(v)}`,`Total do mês: ${fmtM(tots[i])}`],{st:s})}></b>`).join('')}</div></div>`; }).join('')}</div>
+      <div class="cols-x">${todos.map(k=>`<span>${rot(k)}</span>`).join('')}</div>`,true));
+  }
+
+  // 5. Ocorrências por regra
+  const cnt={}; lst.forEach(o=>new Set(o.oc.map(x=>x.c)).forEach(c=>{ if(REGRAS[c][0]!=='I')cnt[c]=(cnt[c]||0)+1; }));
+  const itR=Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a]).slice(0,10).map(c=>({rot:txtRegra(c,dias()),v:cnt[c],cor:REGRAS[c][0]==='E'?'var(--bad)':'var(--warn)',
+    pre:`<span class="tag ${REGRAS[c][0]}">${REGRAS[c][0]==='E'?'Erro':'Alerta'}</span> `,tip:[`${REGRAS[c][0]==='E'?'Erro':'Alerta'} · ${intf(cnt[c])} notas`],f:{regra:c}}));
+  out.push(caixa('Principais problemas encontrados','Notas por ocorrência (as 10 mais frequentes) — clique para filtrar',
+    itR.length?barrasSimples(itR,intf,'wrap'):vazioG('Nenhum erro ou alerta. ✅')));
+
+  // 6. Fornecedores com mais pendência
+  const forn=new Map(); pend.forEach(o=>{ const k=o.emitente||'(sem nome)'; const x=forn.get(k)||{v:0,n:0,vl:0}; x.v+=med(o); x.n++; x.vl+=o.valor||0; forn.set(k,x); });
+  const itF=[...forn].sort((a,b)=>b[1].v-a[1].v).slice(0,10).map(([k,x])=>({rot:k,v:x.v,cor:'#3987e5',tip:[`${intf(x.n)} notas pendentes`,brl(x.vl)]}));
+  out.push(caixa('Fornecedores com mais notas pendentes',MED==='valor'?'Os 10 maiores em valor ainda não lançado':'Os 10 com mais notas ainda não lançadas',
+    itF.length?barrasSimples(itF,fmtCurto):vazioG('Nenhuma nota pendente. ✅')));
+
+  $('#vGraf').innerHTML=out.join('');
+}
+
+// Dica ao passar o mouse (ou tocar) e filtro ao clicar.
+const tip=$('#tip');
+document.addEventListener('pointerover',e=>{ const el=e.target.closest('[data-tip]'); if(!el){ tip.hidden=true; return; }
+  const [t,...l]=JSON.parse(el.dataset.tip); tip.innerHTML=`<b>${esc(t)}</b>${l.map(x=>`<div>${esc(x)}</div>`).join('')}`; tip.hidden=false; });
+document.addEventListener('pointermove',e=>{ if(tip.hidden)return; const w=tip.offsetWidth,h=tip.offsetHeight;
+  let x=e.clientX+14,y=e.clientY+14; if(x+w>innerWidth-8)x=e.clientX-w-14; if(y+h>innerHeight-8)y=e.clientY-h-14; tip.style.left=Math.max(8,x)+'px'; tip.style.top=Math.max(8,y)+'px'; });
+document.addEventListener('scroll',()=>{ tip.hidden=true; },true);
+$('#vGraf').addEventListener('click',e=>{ const el=e.target.closest('[data-f]'); if(!el)return; const f=JSON.parse(el.dataset.f);
+  if(f.emp)$('#fEmp').value=f.emp; if(f.st)$('#fSt').value=f.st; if(f.regra)F.regra=f.regra; tip.hidden=true; LIMITE=300; desenhar(); });
+$('#segVista').onclick=e=>{ const b=e.target.closest('button'); if(!b)return; VISTA=b.dataset.v; $('#segVista').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); lsSet('validador-nf-vista',VISTA); desenhar(); };
+$('#segMed').onclick=e=>{ const b=e.target.closest('button'); if(!b)return; MED=b.dataset.m; $('#segMed').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); desenhar(); };
 
 function detalhe(o){
   if(!o)return;
@@ -546,6 +690,8 @@ $('#dlgX').onclick=()=>$('#dlg').close();
 $('#dlg').onclick=e=>{ if(e.target===$('#dlg'))$('#dlg').close(); };
 $('#cfgDias').value=lsGet('validador-nf-dias','30');
 $('#cfgDias').onchange=()=>{ lsSet('validador-nf-dias',String(dias())); if(LIDAS.length)processar(); };
+VISTA=lsGet('validador-nf-vista','tab')==='graf'?'graf':'tab';
+$('#segVista').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x.dataset.v===VISTA));
 ensureXLSX().catch(()=>{});
 </script>
 </body>
