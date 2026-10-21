@@ -144,8 +144,6 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   table.fixa svg.bc{max-width:100%;height:auto}
   .refline.clamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;cursor:pointer}
   .refline.clamp.aberta{display:block;-webkit-line-clamp:unset}
-  .danger-zone{background:#fdf2f2;border:1px solid #f3c9c9;border-radius:12px;padding:20px}
-  .danger-zone h3{color:#b03030}
   .tabs{display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid #e4dfd4}
   .tabs button{background:none;border:none;border-bottom:3px solid transparent;padding:9px 14px;font-family:inherit;font-size:13px;font-weight:600;color:#8a8377;cursor:pointer;margin-bottom:-1px}
   .tabs button.on{color:#1c1c1c;border-color:var(--amber)}
@@ -5983,8 +5981,8 @@ async function renderAdmin(){
     <button class="btn primary" onclick="recalcAbrir()">Calcular</button></div>
   <div class="panel"><h3>Excluir nota fiscal</h3><p class="desc">As entradas da nota são <b>estornadas do estoque</b> da obra correspondente.</p>
     <div class="search" style="max-width:none;margin-bottom:8px"><span class="si">⌕</span><input id="admNotaBusca" placeholder="Buscar nota por número ou fornecedor..." autocomplete="off" oninput="drawAdmNotas()"></div><div id="admNotas"></div>`;
-  html+=`</div><div class="panel danger-zone"><h3>⚠ Zona de risco</h3><p class="desc" style="color:#a05050">Apaga <b>todos os produtos, saldos, movimentações, notas, fotos, requisições, itens de compra, caixas e embarques</b>. Obras e usuários são mantidos.</p><button class="btn danger" onclick="wipeAll()">🔒 Zerar todo o estoque</button></div>`;
-  $('#view').innerHTML=html; drawAdmNotas();
+  html+=`</div><div class="panel"><h3>💾 Backup automático no pendrive</h3><p class="desc">Grava uma cópia de <b>todo o banco de dados</b> (cadastro, saldos, lotes, movimentações, notas, requisições, compras, caixas, embarques, devoluções, contagens, auditoria e usuários) em um arquivo <span class="mono">.json</span> na pasta escolhida do seu pendrive. Com o pendrive conectado, o backup é feito <b>sozinho</b> sempre que o sistema estiver aberto neste computador e o último tiver passado do intervalo; mantém as ${BKP_MANTER} cópias mais recentes. As imagens das fotos ficam de fora (só a lista delas). Funciona no Chrome ou Edge do computador.</p><div id="bkpBox"></div></div>`;
+  $('#view').innerHTML=html; drawAdmNotas(); drawBackupBox();
 }
 function drawAdmNotas(){ const el=$('#admNotas'); if(!el)return; const notas=filtraNotas($('#admNotaBusca')&&$('#admNotaBusca').value,60);
   if(!notas.length){ el.innerHTML=`<div class="empty" style="padding:26px">${state.notas.length?'Nenhuma nota encontrada.':'Nenhuma nota lançada.'}</div>`; return; }
@@ -6146,16 +6144,81 @@ function deleteNotaId(id,fromEntrada){ const n=state.notas.find(x=>x.id===id); i
   (mvNota||[]).map(rowToMov).forEach(m=>addSaldo(m.obra,m.code,-m.qty,m.lotes));
   state.movements=state.movements.filter(m=>m.notaId!==id);
   state.notas=state.notas.filter(x=>x.id!==id); save('NF '+n.numero+' excluída e estornada'); if(fromEntrada)drawNfHist(); else renderAdmin(); toast('Nota excluída e estornada.','warn'); }); }
-function wipeAll(){ requireSupervisor('Zerar todo o estoque',()=>{ modal(`<h3 style="color:#b03030">Confirmar exclusão total</h3><p class="mp">Apaga <b>${state.products.length} produto(s)</b>, todos os saldos, histórico, fotos, <b>requisições, compras pendentes, caixas e embarques</b>. <b>Não há como desfazer.</b></p><div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn danger" onclick="doWipe()">Apagar tudo</button></div>`); }); }
-async function doWipe(){
-  // A limpeza das tabelas é feita no banco (RPC restrita a admin); se falhar, nada é apagado.
-  const {error}=await sb.rpc('zerar_estoque_admin');
-  if(error){ toast('Não foi possível zerar: '+error.message,'err'); return; }
-  state.products=[]; state.movements=[]; state.estoque={}; state.notas=[]; photos={}; movPares=new Set(); movLoadedFrom=0; savePhotos();
-  await save('Estoque zerado (zona de risco)');
-  closeModal(); renderAdmin(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshMinhasBadge(); refreshGlobalAlerts();
-  toast('Estoque e requisições zerados.','warn');
-}
+/* ===== Backup automático no pendrive =====
+   A pasta é escolhida uma vez (File System Access API, Chrome/Edge do computador); o "handle" fica guardado
+   no IndexedDB deste navegador e o backup roda sozinho quando o último passou do intervalo. Configuração e
+   data do último backup são deste computador (localStorage), já que o pendrive é pessoal. */
+const BKP_PREFIXO='backup_almoxarifado_', BKP_MANTER=30, BKP_INTERVALOS=[[6,'6 horas'],[12,'12 horas'],[24,'1 dia'],[168,'1 semana']];
+const BKP_TABELAS=['app_kv','saldos_estoque','lotes_estoque','movimentos_estoque','requisicoes','requisicao_itens_status','compras_pendentes','caixas','itens_caixa','embarques','devolucoes','devolucoes_requisicao','reposicoes_estoque','reposicoes_recebimentos','retiradas_internas','mutuos_intercompany','mutuo_fechamentos','notas_fiscais_saida','produto_fotos','contagem_ciclos','contagem_itens','contagem_extras','sienge_envios','sienge_envio_itens','audit_log','profiles'];
+let _bkpRodando=false, _bkpTimer=null, _bkpAvisoPermissao=false;
+function bkpSuportado(){ return typeof window.showDirectoryPicker==='function'&&typeof indexedDB!=='undefined'; }
+function bkpCfg(){ let c={}; try{ c=JSON.parse(localStorage.getItem('almox_backup_cfg')||'{}')||{}; }catch(e){} return Object.assign({horas:24,ultimo:0,pasta:'',erro:''},c); }
+function bkpSetCfg(p){ const c=Object.assign(bkpCfg(),p); try{ localStorage.setItem('almox_backup_cfg',JSON.stringify(c)); }catch(e){} return c; }
+function bkpIdb(modo,fn){ return new Promise((ok,ko)=>{ const rq=indexedDB.open('almox-backup',1);
+  rq.onupgradeneeded=()=>rq.result.createObjectStore('kv'); rq.onerror=()=>ko(rq.error);
+  rq.onsuccess=()=>{ const db=rq.result, tx=db.transaction('kv',modo), r=fn(tx.objectStore('kv'));
+    tx.oncomplete=()=>{ db.close(); ok(r&&'result' in r?r.result:undefined); }; tx.onerror=()=>{ db.close(); ko(tx.error); }; }; }); }
+async function bkpPasta(){ try{ return await bkpIdb('readonly',st=>st.get('pasta'))||null; }catch(e){ return null; } }
+async function bkpPermissao(h,pedir){ const o={mode:'readwrite'};
+  try{ if(await h.queryPermission(o)==='granted')return true; return pedir?(await h.requestPermission(o))==='granted':false; }catch(e){ return false; } }
+async function bkpEscolherPasta(){
+  if(!bkpSuportado()){ toast('Este navegador não permite gravar em pasta. Use o Chrome ou o Edge no computador.','err'); return; }
+  let h; try{ h=await window.showDirectoryPicker({id:'almox-backup',mode:'readwrite'}); }catch(e){ return; } /* cancelou */
+  if(!await bkpPermissao(h,true)){ toast('Sem permissão para gravar nessa pasta.','err'); return; }
+  try{ await bkpIdb('readwrite',st=>st.put(h,'pasta')); }catch(e){ toast('Não foi possível guardar a pasta escolhida: '+esc(e.message||e),'err'); return; }
+  bkpSetCfg({pasta:h.name||'pendrive',erro:''}); toast('Pasta de backup definida: '+esc(h.name||'pendrive'),'ok'); drawBackupBox(); fazerBackup(true); }
+async function bkpEsquecerPasta(){ try{ await bkpIdb('readwrite',st=>st.delete('pasta')); }catch(e){} bkpSetCfg({pasta:'',erro:''}); toast('Backup automático desligado neste computador.','warn'); drawBackupBox(); }
+function bkpSetHoras(v){ bkpSetCfg({horas:Number(v)||24}); drawBackupBox(); }
+async function bkpDados(){
+  const out={sistema:'almoxarifado',versao:1,gerado_em:new Date().toISOString(),gerado_por:profile?(profile.nome||profile.email):'',tabelas:{},erros:{}};
+  for(const t of BKP_TABELAS){ const {data,error}=await fetchAllRows(()=>sb.from(t).select('*'));
+    if(error)out.erros[t]=error.message||String(error); else out.tabelas[t]=data||[]; }
+  if(!Object.keys(out.tabelas).length)throw new Error('não foi possível ler nenhuma tabela do banco'+(Object.values(out.erros)[0]?' ('+Object.values(out.erros)[0]+')':''));
+  return out; }
+async function bkpLimpar(h){ const nomes=[];
+  for await(const [n,e] of h.entries()){ if(e.kind==='file'&&n.startsWith(BKP_PREFIXO)&&n.endsWith('.json'))nomes.push(n); }
+  nomes.sort().reverse().slice(BKP_MANTER).forEach(n=>h.removeEntry(n).catch(()=>{})); }
+/* manual=true: clique do usuário (pode pedir permissão e avisa o resultado); false: rotina automática, silenciosa quando não há o que fazer */
+async function fazerBackup(manual){
+  if(_bkpRodando){ if(manual)toast('Backup já em andamento…','warn'); return; }
+  if(!isAdmin()||!bkpSuportado())return;
+  const h=await bkpPasta(); if(!h){ if(manual)toast('Escolha primeiro a pasta do pendrive.','err'); return; }
+  if(!await bkpPermissao(h,manual)){
+    if(!manual&&!_bkpAvisoPermissao){ _bkpAvisoPermissao=true; toast('💾 Backup no pendrive aguardando autorização — <a href="#" onclick="fazerBackup(true);return false">clique aqui para autorizar e gravar</a>.','warn'); }
+    return; }
+  _bkpRodando=true; drawBackupBox();
+  try{
+    const dados=await bkpDados(), d=new Date(), z=n=>String(n).padStart(2,'0');
+    const nome=`${BKP_PREFIXO}${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}_${z(d.getHours())}${z(d.getMinutes())}.json`;
+    const fh=await h.getFileHandle(nome,{create:true}), w=await fh.createWritable();
+    await w.write(new Blob([JSON.stringify(dados)],{type:'application/json'})); await w.close();
+    await bkpLimpar(h).catch(()=>{});
+    const falhas=Object.keys(dados.erros);
+    bkpSetCfg({ultimo:Date.now(),arquivo:nome,pasta:h.name||'pendrive',erro:falhas.length?'Tabelas não lidas: '+falhas.join(', '):''});
+    try{ await sb.rpc('log_event',{p_acao:'backup_pendrive',p_entidade:'backup',p_entidade_id:nome}); }catch(e){}
+    if(manual||falhas.length)toast(falhas.length?`Backup gravado em ${esc(h.name)}, mas ${falhas.length} tabela(s) não foram lidas: ${esc(falhas.join(', '))}.`:`Backup gravado no pendrive: ${esc(nome)}`,falhas.length?'warn':'ok');
+  }catch(e){
+    const msg=/NotFound|not found|could not be found/i.test((e&&(e.name+' '+e.message))||'')?'pendrive não encontrado — conecte o pendrive':(e&&e.message)||String(e);
+    bkpSetCfg({erro:msg}); toast('Backup no pendrive não foi feito: '+esc(msg),'err');
+  }finally{ _bkpRodando=false; drawBackupBox(); } }
+function bkpVerificar(){ if(!isAdmin()||!bkpSuportado()||!navigator.onLine)return; const c=bkpCfg();
+  if(c.pasta&&Date.now()-(c.ultimo||0)>=c.horas*3600e3)fazerBackup(false); }
+function iniciarBackupAuto(){ if(_bkpTimer||!bkpSuportado())return; setTimeout(bkpVerificar,15000); _bkpTimer=setInterval(bkpVerificar,15*60*1000); }
+function drawBackupBox(){ const el=$('#bkpBox'); if(!el)return;
+  if(!bkpSuportado()){ el.innerHTML='<div class="muted">Este navegador não permite gravar direto no pendrive. Abra o sistema no <b>Chrome</b> ou no <b>Edge</b> do computador para ligar o backup automático.</div>'; return; }
+  const c=bkpCfg(), ult=c.ultimo?new Date(c.ultimo).toLocaleString('pt-BR'):'nunca';
+  const prox=c.pasta&&c.ultimo?new Date(c.ultimo+c.horas*3600e3).toLocaleString('pt-BR'):'';
+  el.innerHTML=`<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px">
+      <span>Pasta: <b>${c.pasta?esc(c.pasta):'<span class="muted">nenhuma escolhida</span>'}</b></span>
+      <button class="btn ghost sm" onclick="bkpEscolherPasta()">📁 ${c.pasta?'Trocar pasta':'Escolher pasta do pendrive'}</button>
+      ${c.pasta?'<button class="btn ghost sm" onclick="bkpEsquecerPasta()">Desligar</button>':''}
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px">
+      <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:500;margin:0">Fazer backup a cada <select style="width:auto" onchange="bkpSetHoras(this.value)">${BKP_INTERVALOS.map(([h,t])=>`<option value="${h}"${c.horas===h?' selected':''}>${t}</option>`).join('')}</select></label>
+      <button class="btn primary sm" ${c.pasta&&!_bkpRodando?'':'disabled'} onclick="fazerBackup(true)">${_bkpRodando?'Gravando…':'💾 Fazer backup agora'}</button>
+    </div>
+    <div class="muted" style="font-size:12.5px">Último backup neste computador: <b>${ult}</b>${c.arquivo&&c.ultimo?' · '+esc(c.arquivo):''}${prox?' · próximo a partir de '+prox:''}</div>
+    ${c.erro?`<div style="font-size:12.5px;color:#b03030;margin-top:6px">⚠ ${esc(c.erro)}</div>`:''}`; }
 
 /* ===== Autenticação (Supabase Auth) ===== */
 
@@ -6246,7 +6309,7 @@ function onAuthReady(){
     if(!profile||!profile.ativo){ showPending(); return; }
     hideGate(); applyRoleNav(); initNavGrps(); const pDev=refreshDevolucoesBloqueio().catch(()=>{}); const pLot=loadLotes().catch(e=>console.warn('loadLotes',e)); await load(); applyRoleNav(); /* a marcação "Aprova requisições" vem do documento carregado agora */ await pDev; await pLot; loadPhotos().then(()=>{ refreshTelaAtual(); migrarFotosAntigas(); }); loadFotosExt().then(mudou=>{ if(mudou&&!usuarioInteragindo())refreshTelaAtual(); }); loadReposAbertas().then(()=>refreshTelaAtual()); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); checkEntregaParcial().then(()=>refreshRetiradasBadge()); _comprovOk=null; _comprovPend={confirmar:[],receber:[]}; _comprovUsers=null; refreshComprovPend().then(()=>{ refreshComprovBadge(); processarLinkRecebimento(); }); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge();
     _bootedUid=uid; go(abaInicial());
-    if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); drenarGravacoes(); recuperarDocPendente(); startVersionWatch(); }
+    if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); drenarGravacoes(); recuperarDocPendente(); startVersionWatch(); iniciarBackupAuto(); }
   })();
   _bootPromise=p; p.finally(()=>{ if(_bootPromise===p)_bootPromise=null; });
   return p;
