@@ -5981,7 +5981,7 @@ async function renderAdmin(){
     <button class="btn primary" onclick="recalcAbrir()">Calcular</button></div>
   <div class="panel"><h3>Excluir nota fiscal</h3><p class="desc">As entradas da nota são <b>estornadas do estoque</b> da obra correspondente.</p>
     <div class="search" style="max-width:none;margin-bottom:8px"><span class="si">⌕</span><input id="admNotaBusca" placeholder="Buscar nota por número ou fornecedor..." autocomplete="off" oninput="drawAdmNotas()"></div><div id="admNotas"></div>`;
-  html+=`</div><div class="panel"><h3>💾 Backup automático no pendrive</h3><p class="desc">Grava uma cópia de <b>todo o banco de dados</b> (cadastro, saldos, lotes, movimentações, notas, requisições, compras, caixas, embarques, devoluções, contagens, auditoria e usuários) em um arquivo <span class="mono">.json</span> na pasta escolhida do seu pendrive. Com o pendrive conectado, o backup é feito <b>sozinho</b> sempre que o sistema estiver aberto neste computador e o último tiver passado do intervalo; mantém as ${BKP_MANTER} cópias mais recentes. As imagens das fotos ficam de fora (só a lista delas). Funciona no Chrome ou Edge do computador.</p><div id="bkpBox"></div></div>`;
+  html+=`</div><div class="panel"><h3>☁️ Backup automático no OneDrive</h3><p class="desc">Grava uma cópia de <b>todo o banco de dados</b> (cadastro, saldos, lotes, movimentações, notas, requisições, compras, caixas, embarques, devoluções, contagens, auditoria e usuários) em um arquivo <span class="mono">.json</span> em uma pasta do seu <b>OneDrive pessoal</b> neste computador (ex.: <span class="mono">OneDrive\\Backup Almoxarifado</span>); o aplicativo do OneDrive envia o arquivo para a nuvem sozinho. O backup é feito <b>automaticamente</b> sempre que o sistema estiver aberto neste computador e o último tiver passado do intervalo; mantém as ${BKP_MANTER} cópias mais recentes. As imagens das fotos ficam de fora (só a lista delas). Funciona no Chrome ou Edge do computador com o OneDrive instalado e conectado à sua conta.</p><div id="bkpBox"></div></div>`;
   $('#view').innerHTML=html; drawAdmNotas(); drawBackupBox();
 }
 function drawAdmNotas(){ const el=$('#admNotas'); if(!el)return; const notas=filtraNotas($('#admNotaBusca')&&$('#admNotaBusca').value,60);
@@ -6144,10 +6144,11 @@ function deleteNotaId(id,fromEntrada){ const n=state.notas.find(x=>x.id===id); i
   (mvNota||[]).map(rowToMov).forEach(m=>addSaldo(m.obra,m.code,-m.qty,m.lotes));
   state.movements=state.movements.filter(m=>m.notaId!==id);
   state.notas=state.notas.filter(x=>x.id!==id); save('NF '+n.numero+' excluída e estornada'); if(fromEntrada)drawNfHist(); else renderAdmin(); toast('Nota excluída e estornada.','warn'); }); }
-/* ===== Backup automático no pendrive =====
+/* ===== Backup automático no OneDrive =====
+   Grava numa pasta sincronizada pelo aplicativo do OneDrive no computador, que leva o arquivo para a nuvem.
    A pasta é escolhida uma vez (File System Access API, Chrome/Edge do computador); o "handle" fica guardado
    no IndexedDB deste navegador e o backup roda sozinho quando o último passou do intervalo. Configuração e
-   data do último backup são deste computador (localStorage), já que o pendrive é pessoal. */
+   data do último backup são deste computador (localStorage), já que o OneDrive é pessoal. */
 const BKP_PREFIXO='backup_almoxarifado_', BKP_MANTER=30, BKP_INTERVALOS=[[6,'6 horas'],[12,'12 horas'],[24,'1 dia'],[168,'1 semana']];
 const BKP_TABELAS=['app_kv','saldos_estoque','lotes_estoque','movimentos_estoque','requisicoes','requisicao_itens_status','compras_pendentes','caixas','itens_caixa','embarques','devolucoes','devolucoes_requisicao','reposicoes_estoque','reposicoes_recebimentos','retiradas_internas','mutuos_intercompany','mutuo_fechamentos','notas_fiscais_saida','produto_fotos','contagem_ciclos','contagem_itens','contagem_extras','sienge_envios','sienge_envio_itens','audit_log','profiles'];
 let _bkpRodando=false, _bkpTimer=null, _bkpAvisoPermissao=false;
@@ -6166,7 +6167,7 @@ async function bkpEscolherPasta(){
   let h; try{ h=await window.showDirectoryPicker({id:'almox-backup',mode:'readwrite'}); }catch(e){ return; } /* cancelou */
   if(!await bkpPermissao(h,true)){ toast('Sem permissão para gravar nessa pasta.','err'); return; }
   try{ await bkpIdb('readwrite',st=>st.put(h,'pasta')); }catch(e){ toast('Não foi possível guardar a pasta escolhida: '+esc(e.message||e),'err'); return; }
-  bkpSetCfg({pasta:h.name||'pendrive',erro:''}); toast('Pasta de backup definida: '+esc(h.name||'pendrive'),'ok'); drawBackupBox(); fazerBackup(true); }
+  bkpSetCfg({pasta:h.name||'OneDrive',erro:''}); toast('Pasta de backup definida: '+esc(h.name||'OneDrive'),'ok'); drawBackupBox(); fazerBackup(true); }
 async function bkpEsquecerPasta(){ try{ await bkpIdb('readwrite',st=>st.delete('pasta')); }catch(e){} bkpSetCfg({pasta:'',erro:''}); toast('Backup automático desligado neste computador.','warn'); drawBackupBox(); }
 function bkpSetHoras(v){ bkpSetCfg({horas:Number(v)||24}); drawBackupBox(); }
 async function bkpDados(){
@@ -6182,9 +6183,9 @@ async function bkpLimpar(h){ const nomes=[];
 async function fazerBackup(manual){
   if(_bkpRodando){ if(manual)toast('Backup já em andamento…','warn'); return; }
   if(!isAdmin()||!bkpSuportado())return;
-  const h=await bkpPasta(); if(!h){ if(manual)toast('Escolha primeiro a pasta do pendrive.','err'); return; }
+  const h=await bkpPasta(); if(!h){ if(manual)toast('Escolha primeiro a pasta no OneDrive.','err'); return; }
   if(!await bkpPermissao(h,manual)){
-    if(!manual&&!_bkpAvisoPermissao){ _bkpAvisoPermissao=true; toast('💾 Backup no pendrive aguardando autorização — <a href="#" onclick="fazerBackup(true);return false">clique aqui para autorizar e gravar</a>.','warn'); }
+    if(!manual&&!_bkpAvisoPermissao){ _bkpAvisoPermissao=true; toast('☁️ Backup no OneDrive aguardando autorização — <a href="#" onclick="fazerBackup(true);return false">clique aqui para autorizar e gravar</a>.','warn'); }
     return; }
   _bkpRodando=true; drawBackupBox();
   try{
@@ -6194,23 +6195,23 @@ async function fazerBackup(manual){
     await w.write(new Blob([JSON.stringify(dados)],{type:'application/json'})); await w.close();
     await bkpLimpar(h).catch(()=>{});
     const falhas=Object.keys(dados.erros);
-    bkpSetCfg({ultimo:Date.now(),arquivo:nome,pasta:h.name||'pendrive',erro:falhas.length?'Tabelas não lidas: '+falhas.join(', '):''});
-    try{ await sb.rpc('log_event',{p_acao:'backup_pendrive',p_entidade:'backup',p_entidade_id:nome}); }catch(e){}
-    if(manual||falhas.length)toast(falhas.length?`Backup gravado em ${esc(h.name)}, mas ${falhas.length} tabela(s) não foram lidas: ${esc(falhas.join(', '))}.`:`Backup gravado no pendrive: ${esc(nome)}`,falhas.length?'warn':'ok');
+    bkpSetCfg({ultimo:Date.now(),arquivo:nome,pasta:h.name||'OneDrive',erro:falhas.length?'Tabelas não lidas: '+falhas.join(', '):''});
+    try{ await sb.rpc('log_event',{p_acao:'backup_onedrive',p_entidade:'backup',p_entidade_id:nome}); }catch(e){}
+    if(manual||falhas.length)toast(falhas.length?`Backup gravado em ${esc(h.name)}, mas ${falhas.length} tabela(s) não foram lidas: ${esc(falhas.join(', '))}.`:`Backup gravado no OneDrive: ${esc(nome)}`,falhas.length?'warn':'ok');
   }catch(e){
-    const msg=/NotFound|not found|could not be found/i.test((e&&(e.name+' '+e.message))||'')?'pendrive não encontrado — conecte o pendrive':(e&&e.message)||String(e);
-    bkpSetCfg({erro:msg}); toast('Backup no pendrive não foi feito: '+esc(msg),'err');
+    const msg=/NotFound|not found|could not be found/i.test((e&&(e.name+' '+e.message))||'')?'pasta do OneDrive não encontrada — verifique se ela não foi movida ou apagada e escolha de novo':(e&&e.message)||String(e);
+    bkpSetCfg({erro:msg}); toast('Backup no OneDrive não foi feito: '+esc(msg),'err');
   }finally{ _bkpRodando=false; drawBackupBox(); } }
 function bkpVerificar(){ if(!isAdmin()||!bkpSuportado()||!navigator.onLine)return; const c=bkpCfg();
   if(c.pasta&&Date.now()-(c.ultimo||0)>=c.horas*3600e3)fazerBackup(false); }
 function iniciarBackupAuto(){ if(_bkpTimer||!bkpSuportado())return; setTimeout(bkpVerificar,15000); _bkpTimer=setInterval(bkpVerificar,15*60*1000); }
 function drawBackupBox(){ const el=$('#bkpBox'); if(!el)return;
-  if(!bkpSuportado()){ el.innerHTML='<div class="muted">Este navegador não permite gravar direto no pendrive. Abra o sistema no <b>Chrome</b> ou no <b>Edge</b> do computador para ligar o backup automático.</div>'; return; }
+  if(!bkpSuportado()){ el.innerHTML='<div class="muted">Este navegador não permite gravar direto na pasta do OneDrive. Abra o sistema no <b>Chrome</b> ou no <b>Edge</b> do computador para ligar o backup automático.</div>'; return; }
   const c=bkpCfg(), ult=c.ultimo?new Date(c.ultimo).toLocaleString('pt-BR'):'nunca';
   const prox=c.pasta&&c.ultimo?new Date(c.ultimo+c.horas*3600e3).toLocaleString('pt-BR'):'';
   el.innerHTML=`<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px">
       <span>Pasta: <b>${c.pasta?esc(c.pasta):'<span class="muted">nenhuma escolhida</span>'}</b></span>
-      <button class="btn ghost sm" onclick="bkpEscolherPasta()">📁 ${c.pasta?'Trocar pasta':'Escolher pasta do pendrive'}</button>
+      <button class="btn ghost sm" onclick="bkpEscolherPasta()">📁 ${c.pasta?'Trocar pasta':'Escolher pasta no OneDrive'}</button>
       ${c.pasta?'<button class="btn ghost sm" onclick="bkpEsquecerPasta()">Desligar</button>':''}
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px">
