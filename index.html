@@ -3151,7 +3151,7 @@ function updateSaidaTotal(){ const el=$('#saidaTotal'); if(!el)return; let t=0; 
 /* Últimas baixas com busca. Sem busca: as mais recentes da obra selecionada. Com busca: todas as obras, e o número
    pode ser de requisição (REQ-00136 ou 136) ou da saída. Baixa de requisição mais antiga que o histórico carregado
    (90 dias) é buscada no banco na hora. */
-let _baixaLim=40, _baixaSig='', _baixaBuscaT=null; const _baixaReqBuscadas=new Set();
+let _baixaLim=40, _baixaSig='', _baixaBuscaT=null; const _baixaReqBuscadas=new Map(); /* nº da requisição → quando foi buscada no banco */
 function baixaBuscaInput(){ clearTimeout(_baixaBuscaT); _baixaBuscaT=setTimeout(drawBaixaHist,200); }
 function baixaMais(todos){ _baixaLim=todos?Infinity:_baixaLim+LIST_PAGE; drawBaixaHist(); }
 function baixaFiltro(q){ const t=String(q||'').trim().toLowerCase(); if(!t)return null;
@@ -3161,7 +3161,9 @@ function baixaFiltro(q){ const t=String(q||'').trim().toLowerCase(); if(!t)retur
 function drawBaixaHist(){ const tb=$('#baixaHist'); if(!tb)return; const _o=curObra(); const q=$('#baixaBusca')?$('#baixaBusca').value:''; const f=baixaFiltro(q); const info=$('#baixaBuscaInfo');
   const sig=String(q).trim().toLowerCase()+'|'+_o; if(sig!==_baixaSig){ _baixaSig=sig; _baixaLim=f?LIST_PAGE:40; }
   const todas=state.movements.filter(m=>m.tipo==='baixa'&&(f?f.fn(m):(_o==='__all'||m.obra===_o)));
-  if(f&&f.req!=null&&isOnline&&movLoadedFrom!=null&&movLoadedFrom>0&&!_baixaReqBuscadas.has(f.req)){ _baixaReqBuscadas.add(f.req); const n=f.req;
+  /* Busca no banco quando a baixa não está na memória: requisição antiga (fora dos 90 dias) ou separada depois
+     que esta aba abriu e o tempo real não entregou. Repete no máximo a cada 20 s por número. */
+  if(f&&f.req!=null&&isOnline&&(movLoadedFrom>0||!todas.length)&&Date.now()-(_baixaReqBuscadas.get(f.req)||0)>20000){ _baixaReqBuscadas.set(f.req,Date.now()); const n=f.req;
     sb.from('movimentos_estoque').select('*').eq('tipo','baixa').ilike('doc','%REQ-'+String(n).padStart(5,'0')+'%').then(({data,error})=>{ if(error||!data||!data.length)return; const antes=state.movements.length; mergeMovs(data); if(state.movements.length!==antes&&activeTab==='baixa')drawBaixaHist(); }); }
   const list=todas.slice(0,_baixaLim);
   if(info){ if(!f){ info.style.display='none'; info.innerHTML=''; }
