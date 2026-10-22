@@ -1,0 +1,37 @@
+# Marca a versão do sistema a cada publicação na main.
+# Atualiza APP_VERSION em index.html com a data/hora da publicação (horário de Brasília).
+# É esse valor que faz as abas abertas mostrarem o aviso "Existe uma versão mais nova do sistema".
+# O commit feito aqui usa o GITHUB_TOKEN, então não dispara este workflow de novo (sem loop),
+# mas dispara a publicação do GitHub Pages.
+name: Versão do app
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'index.html'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: versao-app
+  cancel-in-progress: false
+
+jobs:
+  versao:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Atualiza APP_VERSION
+        run: |
+          V=$(TZ=America/Sao_Paulo date +%Y-%m-%dT%H:%M:%S-03:00)
+          sed -i -E "s/^const APP_VERSION='[^']*'/const APP_VERSION='$V'/" index.html
+          grep -q "^const APP_VERSION='$V'" index.html || { echo "APP_VERSION não encontrado em index.html"; exit 1; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Versão do app: $V"
+          git push

@@ -571,9 +571,9 @@ function podeVerNotificacoes(){ return !!profile&&!!profile.ativo; }
 /* ===== Persistência (Supabase: tabela app_kv + auditoria via RPC) ===== */
 const KEY='controle-estoque-obras-v1';
 /* ===== Verificação de versão publicada (evita aba antiga rodando lógica velha/sem restrições) =====
-   IMPORTANTE ao editar este arquivo: mude o valor de APP_VERSION a cada publicação, com a data/hora REAL
-   da publicação no horário de Brasília (-03:00) — ela aparece para o usuário no rodapé do menu.
-   É essa comparação que detecta uma aba desatualizada e avisa pra recarregar. */
+   APP_VERSION é atualizado sozinho a cada publicação na main (.github/workflows/versao-app.yml), com a
+   data/hora da publicação no horário de Brasília — não precisa editar à mão. Ela aparece no rodapé do menu,
+   e é a comparação dela que detecta uma aba desatualizada e avisa pra recarregar. */
 const APP_VERSION='2026-10-22T10:18:00-03:00';
 let _versionCheckTimer=null, _versionBannerShown=false;
 /* versão exibida no rodapé do menu lateral (ex.: "Versão 16/10/2026 08:30") */
