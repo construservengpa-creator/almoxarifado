@@ -3620,9 +3620,15 @@ async function aprovarRequisicao(id){
   if(e1||!r){toast('Erro ao carregar pedido.','err');return;}
   if(!podeAprovarObra(r.obra_id)){toast('Você não está vinculado à obra (centro de custo) desta requisição.','err');return;}
   const obraSaldo=obraEstoqueParaRequisicao(r);
+  // Saldo lido do banco na hora: o cache local pode ainda estar vazio (aprovação logo após o login)
+  // e aí tudo viraria "aguardando compra" mesmo com estoque.
+  const codes=[...new Set(r.itens.map(i=>String(i.code)))];
+  const [{data:sd,error:eS}]=await Promise.all([sb.from('saldos_estoque').select('code,saldo').eq('obra_id',obraSaldo).in('code',codes),refreshDevolucoesBloqueio()]);
+  if(eS){toast('Erro ao consultar o saldo: '+eS.message,'err');return;}
+  const saldoBanco={}; (sd||[]).forEach(x=>{ saldoBanco[x.code]=Number(x.saldo)||0; });
   // Verifica o saldo item a item — não bloqueia mais a aprovação por falta de estoque.
   const itensAvaliados=r.itens.map(i=>{
-    const disponivel=Math.max(Math.min(saldoOf(obraSaldo,i.code), i.qty),0);
+    const disponivel=Math.max(Math.min((saldoBanco[String(i.code)]||0)-saldoBloqueadoOf(obraSaldo,i.code), i.qty),0);
     return {code:i.code, desc:i.desc, unit:i.unit||'', qty:i.qty, disponivel, faltante:Math.max(i.qty-disponivel,0)};
   });
   const temFaltante=itensAvaliados.some(i=>i.faltante>0);
