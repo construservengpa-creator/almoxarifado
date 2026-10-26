@@ -631,7 +631,8 @@ async function atualizarParaVersaoNova(){
   try{ const u=new URL(location.href); if(u.searchParams.has('atualizado')){ u.searchParams.delete('atualizado'); history.replaceState(null,'',u.pathname+(u.search||'')+u.hash); } }catch(e){}
 })();
 const Store={
-  async get(k){ try{ const {data,error}=await sb.from('app_kv').select('value').eq('key',k).maybeSingle(); if(error)throw error; const v=data?data.value:null; docBase(k,v); return v; }catch(e){ console.warn('Store.get sem rede, usando cache:',e); return undefined; } },
+  async get(k){ if(k===KEY){ try{ const v=await docSincronizar(k); docBase(k,v); return v; }catch(e){ console.warn('Store.get sem rede, usando cache:',e); return undefined; } }
+    try{ const {data,error}=await sb.from('app_kv').select('value').eq('key',k).maybeSingle(); if(error)throw error; const v=data?data.value:null; docBase(k,v); return v; }catch(e){ console.warn('Store.get sem rede, usando cache:',e); return undefined; } },
   /* Cada gravação envia o documento inteiro. Antes, várias alterações seguidas (ex.: mín/máx de vários produtos)
      disparavam gravações simultâneas na mesma linha do banco — uma esperava a outra e o servidor cancelava por
      tempo ("statement timeout"). Agora vai uma por vez por chave; as que chegam enquanto uma está em andamento
@@ -651,7 +652,53 @@ const _base={};                      /* chave -> {json,rev}: última versão do 
 const _aoMesclar={};                 /* chave -> função que aplica na tela o documento mesclado */
 let _casOk=null;                     /* null = ainda não sabe se o banco tem save_estado_cas */
 function _revDe(v){ return Number(v&&v._rev)||0; }
-function docBase(k,v){ try{ _base[k]=v&&typeof v==='object'?{json:JSON.stringify(v),rev:_revDe(v)}:null; }catch(e){ _base[k]=null; } }
+function docBase(k,v){ try{ _base[k]=v&&typeof v==='object'?{json:JSON.stringify(v),rev:_revDe(v)}:null; }catch(e){ _base[k]=null; }
+  if(k===KEY&&_base[k])docCacheGravar(k,_base[k]); }
+/* ===== Documento principal sem baixar tudo de novo =====
+   O documento (produtos, notas, aplicações...) tem perto de 1 MB e era baixado inteiro a cada abertura do app e
+   enviado inteiro pelo tempo real a todas as abas a cada gravação — o que estourou a cota de tráfego do Supabase.
+   Agora este aparelho guarda a última versão do servidor (IndexedDB, por _rev) e o banco registra em app_kv_patches
+   só o que mudou em cada gravação (scripts/app_kv_patches.sql). Ao abrir, ao voltar para a aba e quando chega
+   aviso pelo tempo real, o app aplica as diferenças em ordem; se faltar alguma (ou sem a tabela), baixa o
+   documento inteiro como antes. */
+function docCacheIdb(modo,fn){ return new Promise((ok,ko)=>{ const rq=indexedDB.open('almox-doc',1);
+  rq.onupgradeneeded=()=>rq.result.createObjectStore('kv'); rq.onerror=()=>ko(rq.error);
+  rq.onsuccess=()=>{ const db=rq.result, tx=db.transaction('kv',modo), r=fn(tx.objectStore('kv'));
+    tx.oncomplete=()=>{ db.close(); ok(r&&'result' in r?r.result:undefined); }; tx.onerror=()=>{ db.close(); ko(tx.error); }; }; }); }
+async function docCacheLer(k){ try{ return await docCacheIdb('readonly',st=>st.get(k))||null; }catch(e){ return null; } }
+let _docCacheTimer=null;
+function docCacheGravar(k,b){ clearTimeout(_docCacheTimer); _docCacheTimer=setTimeout(()=>{ docCacheIdb('readwrite',st=>st.put({json:b.json,rev:b.rev},k)).catch(()=>{}); },1500); }
+/* aplica uma diferença gerada por app_kv_diff() no banco (mesma regra de lista do merge3: item a item por id/código) */
+function aplicarPatchDoc(doc,p){
+  const d=Object.assign({},doc);
+  Object.keys(p.set||{}).forEach(k=>{ d[k]=p.set[k]; });
+  (p.del||[]).forEach(k=>{ delete d[k]; });
+  Object.keys(p.objs||{}).forEach(k=>{ const o=p.objs[k], v=Object.assign({},_ehObj(d[k])?d[k]:{}, o.set||{}); (o.del||[]).forEach(x=>{ delete v[x]; }); d[k]=v; });
+  Object.keys(p.listas||{}).forEach(k=>{ const l=p.listas[k], antes=Array.isArray(d[k])?d[k]:[];
+    const sai=new Set(l.del||[]), muda=new Map((l.up||[]).map(x=>[_chaveItem(x),x]));
+    const r=antes.filter(x=>!sai.has(_chaveItem(x))).map(x=>{ const c=_chaveItem(x); if(muda.has(c)){ const n=muda.get(c); muda.delete(c); return n; } return x; });
+    muda.forEach(x=>r.push(x));
+    if(Array.isArray(l.ordem)){ const pos=new Map(l.ordem.map((c,i)=>[c,i])); r.sort((a,b)=>(pos.get(_chaveItem(a))??1e9)-(pos.get(_chaveItem(b))??1e9)); }
+    d[k]=r; });
+  d._rev=p._rev!=null?p._rev:d._rev;
+  return d; }
+/* Traz o documento até a versão do servidor partindo de base ({json,rev}); devolve o documento ou null se não der
+   (falta diferença, tabela inexistente etc.). */
+async function docAplicarDiferencas(k,base,revServidor){
+  if(!base||!(base.rev>0)||!(revServidor>base.rev)||revServidor-base.rev>300)return null;
+  const {data,error}=await sb.from('app_kv_patches').select('base_rev,rev,patch').eq('key',k).gt('rev',base.rev).lte('rev',revServidor).order('id',{ascending:true});
+  if(error||!data||!data.length)return null;
+  let doc=JSON.parse(base.json), rev=base.rev;
+  for(const p of data){ if(Number(p.base_rev)!==rev||!p.patch||p.patch.completo)return null; doc=aplicarPatchDoc(doc,Object.assign({_rev:Number(p.rev)},p.patch)); rev=Number(p.rev); }
+  return rev===revServidor?doc:null; }
+async function _revServidor(k){ const {data,error}=await sb.from('app_kv').select('rev:value->_rev').eq('key',k).maybeSingle(); if(error)throw error; return data?(Number(data.rev)||0):null; }
+async function docSincronizar(k){
+  const base=_base[k]||await docCacheLer(k);
+  const rev=await _revServidor(k);
+  if(rev===null)return null;
+  if(base&&base.rev>0&&base.rev===rev)return JSON.parse(base.json);
+  const doc=await docAplicarDiferencas(k,base,rev).catch(()=>null);
+  return doc||await _lerServidor(k); }
 const _AUSENTE=Symbol('ausente');
 function _igual(a,b){ if(a===b)return true;
   if(a===null||b===null||typeof a!=='object'||typeof b!=='object')return false;
@@ -943,16 +990,32 @@ function refreshTelaAtual(){
   requestAnimationFrame(()=>{ window.scrollTo(0,y); document.querySelectorAll('#view .tbl-wrap').forEach((e,i)=>{ if(wraps[i]){ e.scrollTop=wraps[i][0]; e.scrollLeft=wraps[i][1]; } }); });
 }
 // Junta várias atualizações disparadas em sequência (ex.: separar 10 itens) numa só rodada de consultas
+/* Cada mudança numa requisição disparava ~10 consultas de contagem em TODAS as abas abertas, inclusive as
+   escondidas — milhares por dia. Aba escondida agora só acumula o que precisa atualizar e roda uma vez ao voltar. */
 const _pendRefresh=new Set(); let _refreshTimer=null;
+function _rodarRefresh(){ const l=[..._pendRefresh]; _pendRefresh.clear(); l.forEach(f=>{ try{ f(); }catch(e){ console.warn(e); } }); }
 function queueRefresh(...fns){ fns.forEach(f=>_pendRefresh.add(f)); clearTimeout(_refreshTimer);
-  _refreshTimer=setTimeout(()=>{ const l=[..._pendRefresh]; _pendRefresh.clear(); l.forEach(f=>{ try{ f(); }catch(e){ console.warn(e); } }); },500); }
-function subscribeRealtime(){
-  sb.channel('app_kv_sync').on('postgres_changes',{event:'UPDATE',schema:'public',table:'app_kv',filter:'key=eq.'+KEY},payload=>{
-    if(!payload.new||!payload.new.value)return;
-    docBase(KEY,payload.new.value); /* versão mais nova do servidor: base para a próxima gravação */
+  if(document.hidden)return;
+  _refreshTimer=setTimeout(_rodarRefresh,1500); }
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'&&_pendRefresh.size){ clearTimeout(_refreshTimer); _refreshTimer=setTimeout(_rodarRefresh,300); } });
+let _docSyncRodando=false, _docSyncDeNovo=false;
+/* documento mudou no servidor e não deu para aplicar só a diferença: confere a versão e traz o que falta */
+async function docAtualizarDoServidor(){
+  if(!profile||!isOnline)return;
+  if(document.hidden){ _docSyncDeNovo=true; return; } /* aba escondida: atualiza quando voltar a ficar visível */
+  if(_docSyncRodando){ _docSyncDeNovo=true; return; }
+  _docSyncRodando=true;
+  try{ do{ _docSyncDeNovo=false; const b=_base[KEY], rev=await _revServidor(KEY);
+      if(rev!==null&&(!b||rev>b.rev)){ const v=await docSincronizar(KEY); if(v&&_revDe(v)>(_base[KEY]?_base[KEY].rev:0))aplicarDocRemoto(v); } }while(_docSyncDeNovo&&!document.hidden); }
+  catch(e){ console.warn('atualizar documento',e); }
+  finally{ _docSyncRodando=false; } }
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'&&profile)docAtualizarDoServidor(); });
+setInterval(()=>{ if(profile&&document.visibilityState==='visible')docAtualizarDoServidor(); },5*60*1000); /* garantia, caso um aviso do tempo real se perca */
+function aplicarDocRemoto(value){
+    docBase(KEY,value); /* versão mais nova do servidor: base para a próxima gravação */
     const prevAjLib=ajusteManualLiberado();
     const prevMovements=state.movements, prevEstoque=state.estoque, prevObra=state.currentObra; /* movements/estoque não vêm mais dentro deste documento — preserva o que já está em memória em vez de zerar */
-    const pend=_docPend[KEY]; let novo=payload.new.value;
+    const pend=_docPend[KEY]; let novo=value;
     if(pend){ /* alteração deste aparelho ainda não gravada: não deixa a versão de outra pessoa apagá-la da tela */
       try{ const b0=pend.base?JSON.parse(pend.base.json):null; novo=JSON.parse(JSON.stringify(merge3(b0===null?_AUSENTE:b0,pend.v,novo,''))); }catch(e){ console.warn('mescla com pendência',e); } }
     state=novo;
@@ -963,6 +1026,21 @@ function subscribeRealtime(){
     refreshBadge(); refreshAprovBadge(); refreshGlobalAlerts();
     refreshTelaAtual();
     if(activeTab==='ajuste'&&prevAjLib!==ajusteManualLiberado()&&(!podeFazerAjusteManual()||!usuarioInteragindo())){ closeModal(); renderAjuste(); }
+}
+function subscribeRealtime(){
+  /* formato antigo: o tempo real manda o documento inteiro (enquanto app_kv estiver na publicação do Realtime) */
+  sb.channel('app_kv_sync').on('postgres_changes',{event:'UPDATE',schema:'public',table:'app_kv',filter:'key=eq.'+KEY},payload=>{
+    const v=payload.new&&payload.new.value; if(!v)return;
+    if(_base[KEY]&&_revDe(v)>0&&_revDe(v)<=_base[KEY].rev)return; /* já tem esta versão */
+    aplicarDocRemoto(v);
+  }).subscribe();
+  /* formato novo: só a diferença de cada gravação */
+  sb.channel('app_kv_patches_sync').on('postgres_changes',{event:'INSERT',schema:'public',table:'app_kv_patches',filter:'key=eq.'+KEY},payload=>{
+    const p=payload.new; if(!p)return; const b=_base[KEY], rev=Number(p.rev)||0;
+    if(b&&rev<=b.rev)return; /* já tem (inclusive a própria gravação deste aparelho) */
+    if(b&&Number(p.base_rev)===b.rev&&p.patch&&!p.patch.completo){
+      try{ aplicarDocRemoto(aplicarPatchDoc(JSON.parse(b.json),Object.assign({_rev:rev},p.patch))); return; }catch(e){ console.warn('aplicar diferença',e); } }
+    docAtualizarDoServidor();
   }).subscribe();
   // Requisições (aprovação/separação/expedição/etc.) mudam em tabelas normalizadas do Postgres,
   // sem passar pelo app_kv — sem isto, uma exclusão/decisão feita por outra pessoa (ou em outra
@@ -1142,12 +1220,29 @@ async function fetchMovimentosEDaldos(){
     const desde=movLoadedFrom!=null?movLoadedFrom:Date.now()-MOV_JANELA_DIAS*864e5;
     const res=await Promise.all([
       fetchAllRows(()=>{ let q=sb.from('movimentos_estoque').select('*'); if(desde>0)q=q.gte('ts',desde); return q.order('ts',{ascending:false}).order('id'); }),
-      fetchAllRows(()=>sb.from('saldos_estoque').select('*').order('obra_id').order('code')),
+      saldosBuscar(),
       sb.rpc('pares_movimentados')
     ]);
     return {desde,res};
   }catch(e){ console.warn('loadMovimentosEDaldos falhou, usando o que veio do app_kv/cache:',e); return null; }
 }
+/* Saldos: a tabela inteira (milhares de linhas) era baixada a cada abertura do app. Agora este aparelho guarda a
+   última cópia e busca só os saldos alterados desde então (atualizado_em, com folga de 5 min para gravações que
+   terminaram depois); a cada 12 h, ou sem cópia, baixa tudo de novo (pega exclusões). */
+async function saldosBuscar(){
+  const cols='obra_id,code,saldo,atualizado_em';
+  let c=null; try{ c=await docCacheIdb('readonly',st=>st.get('saldos:'+(_uidAtual()||''))); }catch(e){}
+  if(c&&Array.isArray(c.rows)&&c.max&&Date.now()-c.em<12*3600e3){
+    const desde=new Date(new Date(c.max).getTime()-5*60e3).toISOString();
+    const r=await fetchAllRows(()=>sb.from('saldos_estoque').select(cols).gte('atualizado_em',desde).order('atualizado_em').order('obra_id').order('code'));
+    if(!r.error){ const m=new Map(c.rows.map(x=>[x.obra_id+'|'+x.code,x])); let max=c.max;
+      (r.data||[]).forEach(x=>{ m.set(x.obra_id+'|'+x.code,x); if(x.atualizado_em>max)max=x.atualizado_em; });
+      const rows=[...m.values()]; docCacheIdb('readwrite',st=>st.put({rows,max,em:c.em},'saldos:'+(_uidAtual()||''))).catch(()=>{});
+      return {data:rows,error:null}; } }
+  const r=await fetchAllRows(()=>sb.from('saldos_estoque').select(cols).order('obra_id').order('code'));
+  if(!r.error){ const rows=r.data||[]; const max=rows.reduce((a,x)=>x.atualizado_em>a?x.atualizado_em:a,'');
+    if(max)docCacheIdb('readwrite',st=>st.put({rows,max,em:Date.now()},'saldos:'+(_uidAtual()||''))).catch(()=>{}); }
+  return r; }
 function applyMovimentosEDaldos(r){ if(!r)return;
   try{ const desde=r.desde; const [{data:mv,error:e1},{data:sd,error:e2},{data:pr,error:e3}]=r.res;
     if(!e1&&mv){ state.movements=mv.map(rowToMov); movLoadedFrom=desde; }
@@ -4034,7 +4129,7 @@ function comprovAlertsHTML(){ if(!_comprovOk)return ''; const c=_comprovPend.con
   if(r)h+=`<div class="galert warn" onclick="abrirMinhasPendencias()"><span>${r===1?'1 despacho a caminho':r+' despachos a caminho'} para você — confirme o recebimento quando chegar.</span><span class="ga-cta">Receber →</span></div>`;
   return h; }
 function renderGlobalAlerts(){ const box=$('#globalAlerts'); if(box)box.innerHTML=comprovAlertsHTML()+_gaBaseHTML; }
-setInterval(()=>{ if(_comprovOk&&session&&profile&&document.visibilityState==='visible')refreshComprovPend(); },90000);
+setInterval(()=>{ if(_comprovOk&&session&&profile&&document.visibilityState==='visible')refreshComprovPend(); },300000); /* as mudanças de requisição já atualizam pelo tempo real */
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'&&_comprovOk&&session&&profile)refreshComprovPend(); });
 async function loadComprovUsuarios(force){ if(_comprovUsers&&!force)return _comprovUsers;
   const {data,error}=await sb.rpc('comprov_usuarios'); if(!error&&Array.isArray(data))_comprovUsers=data; return _comprovUsers||[]; }
