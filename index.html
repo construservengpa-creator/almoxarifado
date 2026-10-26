@@ -1482,7 +1482,19 @@ function resizeImage(file,max,cb){ const r=new FileReader(); r.onload=e=>{ const
 let fotosExt={};
 function fotosLocais(code){ const v=photos[code]; return Array.isArray(v)?v:(v?[v]:[]); }
 function photoList(code){ const loc=fotosLocais(code), ex=fotosExt[code]; return ex&&ex.length?loc.concat(ex.map(x=>x.url)):loc; }
-async function loadFotosExt(){ try{ const {data,error}=await fetchAllRows(()=>sb.from('produto_fotos').select('id,code,path,origem').order('criado_em').order('id')); if(error)return false;
+/* A lista de fotos (milhares de linhas) era baixada inteira a cada abertura do app. Agora fica guardada no navegador
+   e só é baixada de novo quando muda a quantidade ou a foto mais recente, ou a cada 6 h (pega trocas de produto). */
+const FOTOS_CACHE_KEY='almox_fotos_ext_v1';
+async function fotosVersao(){ try{
+    const [c,u]=await Promise.all([sb.from('produto_fotos').select('id',{count:'exact',head:true}),
+      sb.from('produto_fotos').select('id,criado_em').order('criado_em',{ascending:false}).order('id',{ascending:false}).limit(1)]);
+    if(c.error||u.error)return null; const r=(u.data||[])[0]; return c.count+'|'+(r?r.id+'|'+r.criado_em:''); }catch(e){ return null; } }
+async function loadFotosExt(forcar){ try{
+    let data=null; const ver=await fotosVersao();
+    if(!forcar&&ver){ try{ const c=JSON.parse(localStorage.getItem(FOTOS_CACHE_KEY)||'null');
+      if(c&&c.ver===ver&&Date.now()-c.em<6*3600e3&&Array.isArray(c.rows))data=c.rows; }catch(e){} }
+    if(!data){ const r=await fetchAllRows(()=>sb.from('produto_fotos').select('id,code,path,origem').order('criado_em').order('id')); if(r.error)return false; data=r.data||[];
+      if(ver)try{ localStorage.setItem(FOTOS_CACHE_KEY,JSON.stringify({ver,em:Date.now(),rows:data})); }catch(e){} }
     const m={}; (data||[]).forEach(r=>{ (m[r.code]=m[r.code]||[]).push({id:r.id,path:r.path,doc:r.origem==='documento',url:sb.storage.from('produtos').getPublicUrl(r.path).data.publicUrl}); });
     Object.values(m).forEach(a=>a.sort((x,y)=>(y.doc?1:0)-(x.doc?1:0))); /* fotos do cadastro (migradas do documento) antes das tiradas na contagem; sort estável mantém a ordem dentro de cada grupo */
     const mudou=JSON.stringify(Object.keys(m).map(k=>[k,m[k].length]))!==JSON.stringify(Object.keys(fotosExt).map(k=>[k,fotosExt[k].length])); fotosExt=m; return mudou; }catch(e){ return false; } }
@@ -3457,7 +3469,7 @@ function invRecadastrarOrfaos(){
       const cods=new Set(novos.map(p=>p.code)); state.products=state.products.filter(p=>!cods.has(p.code));
       toast('Os produtos não foram cadastrados. Tente novamente.','err'); return; }
     for(const o of invOrfaos)if(o.extraId)await fotosExtraParaProduto(o.extraId,o.code);
-    loadFotosExt();
+    loadFotosExt(true);
     toast(novos.length+' produto(s) recadastrado(s). Já aparecem no estoque.','ok');
     await renderInventario();
   });
@@ -3534,7 +3546,7 @@ function invLancar(){
       if(error||!data||!data.length)falhas++;
       if(m.tipo!=='item'&&m.code)await fotosExtraParaProduto(m.rowId,m.code);
     }
-    loadFotosExt();
+    loadFotosExt(true);
     if(falhas)toast('Estoque ajustado, mas '+falhas+' linha(s) não foram marcadas como lançadas. Abra o Inventário e repita: nada será lançado em duplicidade.','warn');
     else toast('Ajustes de inventário lançados e salvos.','ok');
     await renderInventario();
@@ -4787,11 +4799,11 @@ function renderNotificacoes(){
       body.apresentacao #notifSep .empty,body.apresentacao #notifRet .empty,body.apresentacao #notifApd .empty{font-size:24px;padding:70px 20px!important;color:#b9b2a2}
     </style>`;
   drawNotificacoes();
-  stopNotifPolling(); _notifTimer=setInterval(drawNotificacoes,15000);
+  stopNotifPolling(); _notifTimer=setInterval(drawNotificacoes,120000); /* garantia: as mudanças chegam pelo tempo real (requisicoes_sync/itens_status_sync) */
 }
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&activeTab==='notificacoes')drawNotificacoes(); });
 async function drawNotificacoes(){ if(activeTab!=='notificacoes')return;
-  if(document.hidden&&!_notifFirstLoad)return; /* aba/janela escondida: não consulta a cada 15 s; o tempo real e a volta da aba atualizam */
+  if(document.hidden&&!_notifFirstLoad)return; /* aba/janela escondida: não consulta a cada 2 min; o tempo real e a volta da aba atualizam */
   await Promise.all([drawNotifSeparacao(),drawNotifRetirada()]); _notifFirstLoad=false; }
 async function drawNotifSeparacao(){ const box=$('#notifSep'); if(!box)return;
   const {data:reqs,error}=await sb.from('requisicoes').select('*').in('status',['em_separacao','aguardando_compra']).order('criado_em',{ascending:true});
@@ -6793,7 +6805,7 @@ async function unificarExecutar(fica,sai){
   F.custo=custo;
   await aguardarMovs();
   const err=await save('Unificação de produtos: '+sai.join(', ')+' → '+fica+' ('+F.desc+')');
-  await loadFotosExt(); _unif=null; closeModal();
+  await loadFotosExt(true); _unif=null; closeModal();
   if(err)toast('Saldos unificados, mas o cadastro não foi gravado: '+esc(err.message||'')+'. Abra o produto e confira.','err');
   else toast('Unificado: '+sai.length+' produto(s) em '+esc(fica)+(mov?' · '+mov/2+' saldo(s) transferido(s)':'')+'.','ok');
   if(activeTab==='relatorios')drawRelatorio(); else refreshTelaAtual(); }
