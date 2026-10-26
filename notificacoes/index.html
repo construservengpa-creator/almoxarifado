@@ -188,7 +188,9 @@ function mostrarApp(){
     .on('postgres_changes',{event:'*',schema:'public',table:'requisicoes'},agendar)
     .on('postgres_changes',{event:'*',schema:'public',table:'requisicao_itens_status'},agendar)
     .subscribe(st=>{ if(st==='SUBSCRIBED')agendar(); });
-  timer=setInterval(atualizar,15000);
+  // As mudanças chegam na hora pelo tempo real (canal acima); a consulta periódica é só garantia caso a
+  // conexão caia. A cada 15 s ela baixava a lista inteira o dia todo e pesava na cota de tráfego do Supabase.
+  timer=setInterval(atualizar,120000);
   manterTelaAcesa();
   atualizar();
 }
