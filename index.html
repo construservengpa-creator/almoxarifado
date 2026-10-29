@@ -1132,7 +1132,17 @@ function lerFabNoModal(pfx,reabrir,proprioCode){ const snap={}; document.querySe
     const cf=fabConflito([lido],pc); if(cf){ toast(esc(cf.msg),'err'); return; }
     inp.value=lista.concat(lido).join(', '); toast('Código lido: '+esc(lido)+'. Salve para gravar.','ok'); },volta); }
 function fabCampoHTML(pfx,valor,onLer){ return `<div class="field"><label>Código de barras do fabricante</label><div style="display:flex;gap:8px"><input id="${pfx}Fab" class="mono" value="${esc(valor||'')}" placeholder="Leia pela câmera ou digite. Mais de um? Separe por vírgula" autocomplete="off"><button type="button" class="btn ghost sm" style="white-space:nowrap" onclick="${onLer}">📷 Ler</button></div></div>`; }
-function searchProducts(q){ q=String(q).toLowerCase().trim(); if(!q)return []; return state.products.filter(p=>p.desc.toLowerCase().includes(q)||String(p.code).includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.fab&&String(p.fab).toLowerCase().includes(q))||(p.ref&&p.ref.toLowerCase().includes(q))||(p.grupo&&p.grupo.toLowerCase().includes(q))||(p.localizacao&&p.localizacao.toLowerCase().includes(q))||(p.endereco&&p.endereco.toLowerCase().includes(q))); }
+/* Busca composta: "%" funciona como coringa (como no LIKE do SQL) — "pneu%275" acha "PNEU 275/80 R22.5":
+   cada pedaço precisa aparecer no texto, nessa ordem, com qualquer coisa entre eles. Sem "%" é a busca de sempre (contém). */
+function buscaTexto(q){ const partes=String(q||'').toLowerCase().split('%').map(t=>t.trim()).filter(Boolean);
+  if(!partes.length)return ()=>true;
+  if(partes.length===1){ const t=partes[0]; return v=>v!=null&&String(v).toLowerCase().includes(t); }
+  return v=>{ if(v==null)return false; const s=String(v).toLowerCase(); let i=0; for(const t of partes){ const j=s.indexOf(t,i); if(j<0)return false; i=j+t.length; } return true; }; }
+let _buscaQ=null, _buscaFn=null;
+function buscaTem(v,q){ if(q!==_buscaQ){ _buscaQ=q; _buscaFn=buscaTexto(q); } return _buscaFn(v); }
+function buscaProduto(q){ const m=buscaTexto(q); return p=>m(p.desc)||m(p.code)||m(p.aux)||m(p.fab)||m(p.ref)||m(p.grupo)||m(p.localizacao)||m(p.endereco); }
+function buscaProdutoTem(p,q){ return buscaTem(p.desc,q)||buscaTem(p.code,q)||buscaTem(p.aux,q)||buscaTem(p.fab,q)||buscaTem(p.ref,q)||buscaTem(p.grupo,q)||buscaTem(p.localizacao,q)||buscaTem(p.endereco,q); }
+function searchProducts(q){ q=String(q).trim(); if(!q)return []; return state.products.filter(buscaProduto(q)); }
 function aplicName(id){ if(!id)return''; const a=state.aplicacoes.find(a=>a.id===id); return a?(a.nome+(a.tag?' ('+a.tag+')':'')):''; }
 function aplicOptions(sel){ let h=`<option value="">— sem aplicação —</option>`; state.aplicacoes.forEach(a=>h+=`<option value="${a.id}"${a.id===sel?' selected':''}>${esc(a.nome)}${a.tag?' · '+esc(a.tag):''}</option>`); return h; }
 /* --- busca de aplicação (campo pesquisável no formulário de consumo) --- */
@@ -1887,7 +1897,7 @@ function renderPainel(){
   const draw=()=>{ const q=($('#dashSearch').value||'').toLowerCase(); const fst=$('#dashStatus').value; const qr=$('#dashQty').value; const qmax=qr===''?null:parseFloat(qr); const zero=$('#dashZero').checked; const grouped=$('#dashGroup').checked;
     const list=ps.filter(p=>{ const s=sal(p.code); const st=stOf(p,s);
       if(!zero && !(s>0))return false;
-      if(q && !(p.desc.toLowerCase().includes(q)||String(p.code).includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.fab&&String(p.fab).toLowerCase().includes(q))||(p.ref&&p.ref.toLowerCase().includes(q))||(p.grupo&&p.grupo.toLowerCase().includes(q))||(p.localizacao&&p.localizacao.toLowerCase().includes(q))||(p.endereco&&p.endereco.toLowerCase().includes(q))))return false;
+      if(q && !buscaProdutoTem(p,q))return false;
       if(fst && st!==fst)return false; if(qmax!=null && !(s<=qmax))return false; return true; });
     $('#dashCount').textContent=list.length+' item(ns)';
     const sig=[q,fst,qr,zero,grouped,curObra()].join('|'); if(window._dashSig!==sig){ if(window._dashQ!==q){ window._dashQ=q; grpTog.clear(); } window._dashSig=sig; window._dashLim=LIST_PAGE; }
@@ -2828,7 +2838,7 @@ function renderProdutos(){
     const q=window._prodQ.toLowerCase(); const zero=window._prodZero;
     let list=state.products.filter(p=>{ const s=sal(p.code);
       if(!zero && !(s>0))return false;
-      if(q && !(p.desc.toLowerCase().includes(q)||String(p.code).includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.fab&&String(p.fab).toLowerCase().includes(q))||(p.ref&&p.ref.toLowerCase().includes(q))||(p.grupo&&p.grupo.toLowerCase().includes(q))||(p.localizacao&&p.localizacao.toLowerCase().includes(q))||(p.endereco&&p.endereco.toLowerCase().includes(q))))return false;
+      if(q && !buscaProdutoTem(p,q))return false;
       return true; });
     const sig=[q,zero,curObra()].join('|'); if(window._prodSig!==sig){ window._prodSig=sig; window._prodLim=LIST_PAGE; }
     /* ordenação pelo cabeçalho: feita na lista inteira (não só nas linhas já carregadas) e mantida entre redesenhos */
@@ -3028,7 +3038,7 @@ function labelsModal(){ if(!state.products.length){toast('Nenhum produto cadastr
       <div style="display:flex;gap:10px"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="generateLabels()">🖨 Gerar etiquetas</button></div>
     </div>`);
   const si=$('#labelSearch'); drawLabelRows(''); si.focus(); si.oninput=e=>drawLabelRows(e.target.value); }
-function labelFilteredList(q){ q=String(q||'').toLowerCase().trim(); if(!q)return state.products; return state.products.filter(p=>p.desc.toLowerCase().includes(q)||String(p.code).toLowerCase().includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.fab&&String(p.fab).toLowerCase().includes(q))); }
+function labelFilteredList(q){ q=String(q||'').toLowerCase().trim(); if(!q)return state.products; return state.products.filter(p=>buscaTem(p.desc,q)||buscaTem(p.code,q)||buscaTem(p.aux,q)||buscaTem(p.fab,q)); }
 function drawLabelRows(q){ const box=$('#labelRows'); if(!box)return; const list=labelFilteredList(q);
   box.innerHTML=list.length?list.map(p=>{ const checked=labelSel.hasOwnProperty(p.code); const qty=checked?labelSel[p.code]:1;
     return `<tr><td><input type="checkbox" ${checked?'checked':''} onchange="toggleLabelSel('${esc(p.code)}',this.checked)"></td>
@@ -5991,11 +6001,11 @@ function cancelarDevolucao(id){
 /* ===== CONSULTA ===== */
 function renderConsulta(){ $('#topActions').innerHTML=obraSelectorHTML(true);
   const o=curObra(); const all=o==='__all'||!o;
-  $('#view').innerHTML=`<div class="panel"><h3>Consultar produto</h3><p class="desc">Busque por <b>nome</b> ou <b>código de barras</b>. Veja saldo ${all?'total (todas as obras) ou por obra':'no estoque selecionado: <b>'+esc(obraName(o))+'</b>'} e valores de entrada e saída.</p><div class="search" style="max-width:none"><span class="si">⌕</span><input id="consInput" placeholder="Nome ou código..." autocomplete="off"></div></div><div id="consResult"></div>`;
+  $('#view').innerHTML=`<div class="panel"><h3>Consultar produto</h3><p class="desc">Busque por <b>nome</b> ou <b>código de barras</b>. Para busca composta use <b>%</b> entre as partes — ex.: <span class="mono">pneu%275</span> acha "PNEU 275/80 R22.5". Veja saldo ${all?'total (todas as obras) ou por obra':'no estoque selecionado: <b>'+esc(obraName(o))+'</b>'} e valores de entrada e saída.</p><div class="search" style="max-width:none"><span class="si">⌕</span><input id="consInput" placeholder="Nome ou código... (ex.: pneu%275)" autocomplete="off"></div></div><div id="consResult"></div>`;
   const inp=$('#consInput'); inp.focus(); inp.addEventListener('keydown',e=>{if(e.key==='Enter'){const p=findProduct(inp.value.trim());if(p){showConsulta(p);return;}}}); inp.oninput=()=>drawConsList(inp.value); drawConsList(''); }
 let _consAtual=null;
 function drawConsList(q){ _consAtual=null; q=q.toLowerCase().trim(); const box=$('#consResult'); const o=curObra(); const all=o==='__all'||!o; const sal=c=>all?totalSaldo(c):saldoOf(o,c);
-  const list=q?state.products.filter(p=>p.desc.toLowerCase().includes(q)||String(p.code).includes(q)||(p.aux&&String(p.aux).toLowerCase().includes(q))||(p.fab&&String(p.fab).toLowerCase().includes(q))||(p.ref&&p.ref.toLowerCase().includes(q))||(p.grupo&&p.grupo.toLowerCase().includes(q))||(p.localizacao&&p.localizacao.toLowerCase().includes(q))||(p.endereco&&p.endereco.toLowerCase().includes(q))):state.products.slice();
+  const list=q?state.products.filter(buscaProduto(q)):state.products.slice();
   if(!state.products.length){ box.innerHTML=`<div class="tbl-wrap"><div class="empty"><div class="ico">⌕</div>Nenhum produto cadastrado.</div></div>`; return; }
   if(!list.length){ box.innerHTML=`<div class="tbl-wrap"><div class="empty">Nada encontrado para "<b>${esc(q)}</b>".</div></div>`; return; }
   if(q&&list.length===1){ showConsulta(list[0]); return; }
@@ -6439,6 +6449,7 @@ sb.auth.onAuthStateChange((event,s)=>{ session=s;
 
 /* ===== RELATÓRIOS ===== */
 let _rel=null, relTipo='aplicacao';
+let _relProdSaldo='', _relProdTodos=false; /* relatório Por produto: filtro de saldo atual e inclusão de produtos sem movimentação */
 /* --- Desempenho dos filtros ---
    Antes, cada filtro procurava o produto percorrendo o cadastro inteiro para CADA movimentação
    (movimentações × produtos) e o relatório era refeito a cada tecla: com o volume real a tela ficava
@@ -6486,7 +6497,7 @@ function renderRelatorios(){ if(needObra())return;
           <button type="button" id="relAplicClr" class="relcb-x" style="display:none" title="Limpar" onmousedown="event.preventDefault();relAplicClear()">✕</button>
           <div id="relAplicList" class="relcb-list" style="display:none"></div>
         </div></div>
-      <div class="field" style="margin:0"><label>Produto (nome/código)</label><input id="relProdutoTxt" placeholder="Buscar produto..."></div>
+      <div class="field" style="margin:0"><label>Produto (nome/código)</label><input id="relProdutoTxt" placeholder="Buscar produto... (ex.: pneu%275)" title="Use % entre as partes para busca composta: pneu%275"></div>
       <div class="field" style="margin:0"><label>Ordem de Serviço</label><input id="relOSTxt" placeholder="Nº da OS..."></div>
     </div>
     <div class="tabs rel-tabs" style="margin-top:14px">
@@ -6523,7 +6534,7 @@ function drawRelAjustes(f,t,fobra,isAll,gf,lf,pf){ const box=$('#relView'); if(!
   let base=state.movements.filter(m=>m.tipo==='ajuste'&&m.ts>=f&&m.ts<=t&&(isAll||m.obra===fobra));
   if(gf)base=base.filter(m=>produtoGrupo(m.code)===gf);
   if(lf)base=base.filter(m=>produtoLocal(m.code)===lf);
-  if(pf)base=base.filter(m=>{ const p=relProd(m.code); return String(m.desc||'').toLowerCase().includes(pf)||String(m.code).toLowerCase().includes(pf)||(p&&(String(p.desc||'').toLowerCase().includes(pf)||(p.aux&&String(p.aux).toLowerCase().includes(pf))||(p.fab&&String(p.fab).toLowerCase().includes(pf)))); });
+  if(pf)base=base.filter(m=>{ const p=relProd(m.code); return buscaTem(String(m.desc||''),pf)||buscaTem(String(m.code),pf)||(p&&(buscaTem(String(p.desc||''),pf)||(p.aux&&buscaTem(String(p.aux),pf))||(p.fab&&buscaTem(String(p.fab),pf)))); });
   let lista=base.map(m=>{ const p=relProd(m.code); const q=Number(m.qty)||0; const vu=Number(m.valorUnit)||0; const v=m.valorTotal||(q*vu);
     const dep=(m.saldo!=null&&!isNaN(m.saldo))?Number(m.saldo):null;
     return {ts:m.ts,obra:obraName(m.obra),code:String(m.code||''),aux:p&&p.aux?String(p.aux):'',desc:(p&&p.desc)||m.desc||'',unit:p?(p.unit||''):'',grupo:produtoGrupo(m.code),local:produtoLocal(m.code),
@@ -6567,7 +6578,7 @@ function drawRelAjustes(f,t,fobra,isAll,gf,lf,pf){ const box=$('#relView'); if(!
 function relPeriod(){ const f=$('#relFrom')&&$('#relFrom').value?new Date($('#relFrom').value+'T00:00:00').getTime():0; const t=$('#relTo')&&$('#relTo').value?new Date($('#relTo').value+'T23:59:59').getTime():Date.now(); return [f,t]; }
 function produtoGrupo(code){ const p=relProd(code); const g=p&&p.grupo&&p.grupo.trim()?p.grupo.trim():'(sem grupo)'; return g; }
 function movOS(m){ if(m.os)return m.os; const src=((m.doc||'')+' '+(m.obs||'')); const mt=src.match(/OS[\s:]*([^\s·]+)/i); return mt?mt[1]:''; }
-function produtoPassaFiltros(p,gf,lf,pf){ if(gf&&produtoGrupo(p.code)!==gf)return false; if(lf&&produtoLocal(p.code)!==lf)return false; if(pf&&!(p.desc.toLowerCase().includes(pf)||String(p.code).toLowerCase().includes(pf)||(p.aux&&String(p.aux).toLowerCase().includes(pf))||(p.fab&&String(p.fab).toLowerCase().includes(pf))))return false; return true; }
+function produtoPassaFiltros(p,gf,lf,pf){ if(gf&&produtoGrupo(p.code)!==gf)return false; if(lf&&produtoLocal(p.code)!==lf)return false; if(pf&&!(buscaTem(p.desc,pf)||buscaTem(String(p.code),pf)||(p.aux&&buscaTem(String(p.aux),pf))||(p.fab&&buscaTem(String(p.fab),pf))))return false; return true; }
 function produtoLocal(code){ const p=relProd(code); const l=p&&p.localizacao&&p.localizacao.trim()?p.localizacao.trim():'(sem localização)'; return l; }
 /* ===== Relatório: material separado aguardando retirada, por aplicação (posição atual, não usa o período) ===== */
 let _relARetEnvio='', _relARetTk=0, _relRetModo='atendidas';
@@ -6600,7 +6611,7 @@ async function drawRelARetirar(){ if(_relRetModo==='atendidas')return drawRelAte
   if(taf)itens=itens.filter(i=>{ const a=relAplicById(i.requisicoes.aplicacao_id); return a&&a.tipo===taf; });
   if(gf)itens=itens.filter(i=>produtoGrupo(i.code)===gf);
   if(lf)itens=itens.filter(i=>produtoLocal(i.code)===lf);
-  if(pf)itens=itens.filter(i=>{ const p=relProd(i.code); return String(i.descricao||'').toLowerCase().includes(pf)||String(i.code).toLowerCase().includes(pf)||(p&&p.aux&&String(p.aux).toLowerCase().includes(pf)); });
+  if(pf)itens=itens.filter(i=>{ const p=relProd(i.code); return buscaTem(String(i.descricao||''),pf)||buscaTem(String(i.code),pf)||(p&&p.aux&&buscaTem(String(p.aux),pf)); });
   if(osf)itens=itens.filter(i=>String(i.requisicoes.ordem_servico||'').toLowerCase().includes(osf));
   const g={};
   itens.forEach(i=>{ const r=i.requisicoes; const k=r.aplicacao_id||('__'+(r.aplicacao_nome||'sem')); const p=relProd(i.code); const vu=p?(p.custo||0):0; const q=pendEntrega(i);
@@ -6669,7 +6680,7 @@ async function drawRelAtendidas(){ const box=$('#relView'); if(!box)return;
   const pf=($('#relProdutoTxt')?$('#relProdutoTxt').value:'').toLowerCase().trim();
   const osf=($('#relOSTxt')?$('#relOSTxt').value:'').toLowerCase().trim();
   const itPorReq={}; its.forEach(i=>{ (itPorReq[i.requisicao_id]=itPorReq[i.requisicao_id]||[]).push(i); });
-  const itemOk=i=>{ if(gf&&produtoGrupo(i.code)!==gf)return false; if(lf&&produtoLocal(i.code)!==lf)return false; if(pf){ const p=relProd(i.code); if(!(String(i.descricao||'').toLowerCase().includes(pf)||String(i.code).toLowerCase().includes(pf)||(p&&p.aux&&String(p.aux).toLowerCase().includes(pf))))return false; } return true; };
+  const itemOk=i=>{ if(gf&&produtoGrupo(i.code)!==gf)return false; if(lf&&produtoLocal(i.code)!==lf)return false; if(pf){ const p=relProd(i.code); if(!(buscaTem(String(i.descricao||''),pf)||buscaTem(String(i.code),pf)||(p&&p.aux&&buscaTem(String(p.aux),pf))))return false; } return true; };
   const novoReq=new Set(parciais.map(p=>p.reqId));
   let lista=reqs.filter(r=>novoReq.has(String(r.id))||(STATUS_ATENDIDA.includes(r.status)&&saida[r.id]));
   if(!isAll)lista=lista.filter(r=>r.obra_id===fobra||r.mutuo_estoque_obra_id===fobra);
@@ -6769,7 +6780,7 @@ function drawRelDuplicidades(){ const box=$('#relView'); if(!box)return; relIdxO
   /* filtros: o grupo aparece se ALGUM produto dele atende (para não esconder o par do item filtrado) */
   if(gf)grupos=grupos.filter(gr=>gr.itens.some(p=>produtoGrupo(p.code)===gf));
   if(lf)grupos=grupos.filter(gr=>gr.itens.some(p=>produtoLocal(p.code)===lf));
-  if(pf)grupos=grupos.filter(gr=>gr.itens.some(p=>[p.code,p.desc,p.aux,p.fab,p.ref].some(v=>String(v||'').toLowerCase().includes(pf))));
+  if(pf)grupos=grupos.filter(gr=>gr.itens.some(p=>[p.code,p.desc,p.aux,p.fab,p.ref].some(v=>buscaTem(String(v||''),pf))));
   const nIgn=grupos.filter(gr=>ign.has(dupChave(gr))).length;
   grupos=grupos.filter(gr=>gr.nivel>=minN&&(_relDupIgn||!ign.has(dupChave(gr))));
   grupos.forEach(gr=>{ gr.itens.sort((a,b)=>sal(b.code)-sal(a.code)||String(a.code).localeCompare(String(b.code),'pt-BR',{numeric:true})); gr.saldo=gr.itens.reduce((t,p)=>t+sal(p.code),0); });
@@ -6939,7 +6950,7 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
   if(lf)inP=inP.filter(m=>produtoLocal(m.code)===lf);
   if(taf)inP=inP.filter(m=>{ const a=relAplicById(m.aplic); return a&&a.tipo===taf; });
   if(aef)inP=inP.filter(m=>m.aplic===aef); else if(aset)inP=inP.filter(m=>m.aplic&&aset.has(m.aplic));
-  if(pf)inP=inP.filter(m=>{ const p=relProd(m.code); return p&&(p.desc.toLowerCase().includes(pf)||String(p.code).toLowerCase().includes(pf)||(p.aux&&String(p.aux).toLowerCase().includes(pf))||(p.fab&&String(p.fab).toLowerCase().includes(pf))); });
+  if(pf)inP=inP.filter(m=>{ const p=relProd(m.code); return p&&(buscaTem(p.desc,pf)||buscaTem(String(p.code),pf)||(p.aux&&buscaTem(String(p.aux),pf))||(p.fab&&buscaTem(String(p.fab),pf))); });
   if(osf)inP=inP.filter(m=>movOS(m).toLowerCase().includes(osf));
   if($('#relABC')&&$('#relABC').checked&&relTipo!=='grupo'&&relTipo!=='os'&&relTipo!=='consorcio'&&relTipo!=='ajustes'){ drawABC(inP,isAll,fobra,periodoLbl); return; }
   let titulo,headers,rows,foot;
@@ -7014,7 +7025,7 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
       let rowsRaw=state.movements.filter(m=>m.tipo==='transferencia'&&destIds.includes(m.obraDest)).filter(m=>{const d=mdate(m,emi); return d>=f&&d<=t;});
       if(gf)rowsRaw=rowsRaw.filter(m=>produtoGrupo(m.code)===gf);
       if(lf)rowsRaw=rowsRaw.filter(m=>produtoLocal(m.code)===lf);
-      if(pf)rowsRaw=rowsRaw.filter(m=>{const p=relProd(m.code); return p&&(p.desc.toLowerCase().includes(pf)||String(p.code).toLowerCase().includes(pf)||(p.aux&&String(p.aux).toLowerCase().includes(pf))||(p.fab&&String(p.fab).toLowerCase().includes(pf)));});
+      if(pf)rowsRaw=rowsRaw.filter(m=>{const p=relProd(m.code); return p&&(buscaTem(p.desc,pf)||buscaTem(String(p.code),pf)||(p.aux&&buscaTem(String(p.aux),pf))||(p.fab&&buscaTem(String(p.fab),pf)));});
       rowsRaw.sort((a,b)=>(a.seq||0)-(b.seq||0)||a.ts-b.ts);
       headers=['Nº Romaneio','Data','Obra de origem','Obra Consórcio','Insumo','Qtd','Valor Unitário','Valor Total'];
       rows=rowsRaw.map(m=>{const p=relProd(m.code); return [m.seq?seqf(m.seq):'—',fmtDate(m.ts),obraName(m.obra),obraName(m.obraDest),m.desc+' ('+m.code+')'+(p&&p.unit?' - '+esc(p.unit):''),numf(m.qty),money(m.valorUnit),money(m.valorTotal)];});
@@ -7024,13 +7035,22 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
   } else {
     titulo='Movimentação por produto';
     const g={}; inP.forEach(m=>{ if(m.tipo==='transferencia')return; if(!g[m.code])g[m.code]={entQ:0,entV:0,bxQ:0,bxV:0}; if(m.tipo==='entrada'){g[m.code].entQ+=m.qty;g[m.code].entV+=m.valorTotal;} else if(m.tipo==='baixa'){g[m.code].bxQ+=m.qty;g[m.code].bxV+=m.valorTotal;} });
-    const arr=Object.entries(g).map(([code,v])=>{const p=relProd(code); return {code,desc:p?p.desc:code,unit:p?(p.unit||''):'',saldo:isAll?totalSaldo(code):saldoOf(fobra,code),...v};}).sort((a,b)=>b.bxV-a.bxV);
+    /* "Incluir produtos sem movimentação": entram também os produtos do cadastro (respeitando grupo/localização/produto) sem entrada nem saída no período */
+    if(_relProdTodos)state.products.forEach(p=>{ const c=String(p.code); if(!g[c]&&produtoPassaFiltros(p,gf,lf,pf))g[c]={entQ:0,entV:0,bxQ:0,bxV:0}; });
+    let arr=Object.entries(g).map(([code,v])=>{const p=relProd(code); return {code,desc:p?p.desc:code,unit:p?(p.unit||''):'',saldo:isAll?totalSaldo(code):saldoOf(fobra,code),...v};});
+    /* filtro de saldo atual: com saldo (> 0) ou sem saldo (zerado ou negativo) */
+    if(_relProdSaldo==='com')arr=arr.filter(a=>a.saldo>0); else if(_relProdSaldo==='sem')arr=arr.filter(a=>a.saldo<=0);
+    arr.sort((a,b)=>b.bxV-a.bxV||a.desc.localeCompare(b.desc,'pt-BR'));
+    periodoLbl+=(_relProdSaldo==='com'?' · só com saldo':_relProdSaldo==='sem'?' · só sem saldo':'')+(_relProdTodos?' · inclui produtos sem movimentação':'');
     headers=['Produto','Entradas (qtd)','Entradas (R$)','Saídas (qtd)','Saídas (R$)','Saldo atual'];
     rows=arr.map(a=>[`${a.desc} (${a.code})`,`${numf(a.entQ)} ${a.unit}`,money(a.entV),`${numf(a.bxQ)} ${a.unit}`,money(a.bxV),`${numf(a.saldo)} ${a.unit}`]);
     foot=['Total','',money(arr.reduce((s,a)=>s+a.entV,0)),'',money(arr.reduce((s,a)=>s+a.bxV,0)),''];
   }
   _rel={titulo,sub:periodoLbl,headers,rows,foot,view:relTipo,align:({tipo:'lrrr',obra:'lrrrrrrr',produto:'lrrrrr',grupo:'llllrr',os:'llllrr',consorcio:'lllllrrr'})[relTipo]||''};
-  box.innerHTML=`<div class="sechead"><h3>${esc(titulo)}</h3><span style="font-size:12px;color:#8a8377">${esc(periodoLbl)}</span></div>
+  const ss='style="width:auto;font-size:12.5px;padding:6px 8px"', opt=(cur,v,l)=>`<option value="${v}" ${cur===v?'selected':''}>${l}</option>`;
+  const prodCtl=relTipo==='produto'?`<select ${ss} onchange="_relProdSaldo=this.value;drawRelatorio()">${opt(_relProdSaldo,'','Com e sem saldo')}${opt(_relProdSaldo,'com','Só com saldo')}${opt(_relProdSaldo,'sem','Só sem saldo')}</select>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;text-transform:none;font-weight:600;margin:0"><input type="checkbox" style="width:auto" ${_relProdTodos?'checked':''} onchange="_relProdTodos=this.checked;drawRelatorio()"> Incluir produtos sem movimentação no período</label>`:'';
+  box.innerHTML=`<div class="sechead"${prodCtl?' style="flex-wrap:wrap;gap:8px"':''}><h3>${esc(titulo)}</h3><span style="font-size:12px;color:#8a8377">${esc(periodoLbl)}</span>${prodCtl}</div>
     <div class="tbl-wrap"><table><thead><tr>${headers.map((h,i)=>`<th${i>0?' class="num"':''}>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.length?rows.map(r=>`<tr>${r.map((c,i)=>`<td${i>0?' class="num"':''}>${esc(c)}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${headers.length}" class="empty" style="padding:24px">Sem dados no período.</td></tr>`}</tbody>${rows.length&&foot?`<tfoot><tr>${foot.map((c,i)=>`<td${i>0?' class="num"':''}><b>${esc(c)}</b></td>`).join('')}</tr></tfoot>`:''}</table></div>`;
 }
 function relDetFill(i){ const tb=document.getElementById('relApDetB'+i), fn=_relDetLazy[i]; if(tb&&fn&&!tb.dataset.ok){ tb.innerHTML=fn(); tb.dataset.ok='1'; } }
