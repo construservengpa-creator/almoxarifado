@@ -76,6 +76,34 @@ input.f{background:var(--s1);border:1px solid var(--line);border-radius:10px;pad
 @keyframes pulso{0%{box-shadow:0 0 0 0 rgba(245,196,51,.6)}70%{box-shadow:0 0 0 18px rgba(245,196,51,0)}100%{box-shadow:0 0 0 0 rgba(245,196,51,0)}}
 .card.novo{animation:pulso 1.4s ease-out 4;background:#33302A}
 .aviso-som{position:fixed;inset:auto 16px 16px 16px;max-width:520px;margin:0 auto;background:var(--ac);color:var(--ac-ink);border-radius:12px;padding:12px 16px;font-weight:600;text-align:center;cursor:pointer;box-shadow:0 10px 30px rgba(0,0,0,.4)}
+
+/* ===== Marcas AMETA e RAF (comum a todas as aplicações) =====
+   As logos ficam em Painel-suprimentos/marca/ (ameta.png e raf.png) e todas as
+   aplicações usam esses mesmos arquivos: para trocar a logo basta substituí-los.
+   O fundo branco garante a leitura das logos em qualquer tema. A capivara passa
+   a ser só um detalhe discreto ao lado do nome do módulo. */
+.emp-logos{display:inline-flex;align-items:center;gap:8px;flex-shrink:0;padding:4px 8px;border-radius:7px;background:#fff;vertical-align:middle;line-height:0}
+.emp-logos img{display:block;height:30px;width:auto;max-width:90px;object-fit:contain}
+.emp-logos .emp-sep{width:1px;height:24px;background:#1A1E24;opacity:.18}
+.emp-logos.emp-grande{gap:14px;padding:10px 16px;border-radius:12px}
+.emp-logos.emp-grande img{height:56px;max-width:150px}
+.emp-logos.emp-grande .emp-sep{height:44px}
+.emp-logos.emp-login{margin-bottom:18px}
+.cap-selo{width:20px!important;height:20px!important;background:none!important;box-shadow:none!important;
+  color:inherit!important;opacity:.4;border-radius:0!important;margin-bottom:0!important}
+#capAbertura .emp-logos{animation:capPop .7s cubic-bezier(.2,1.4,.4,1) both;box-shadow:0 18px 50px rgba(0,0,0,.35)}
+#capAbertura .emp-logos img{height:88px;max-width:220px}
+#capAbertura .emp-logos .emp-sep{height:70px}
+#capAbertura .cap-nome{font-size:26px!important;margin-top:28px!important;color:#8D97A3}
+#capAbertura .cap-modulo{font-size:15px!important}
+#capAbertura .cap-andando{color:#8D97A3}
+@media (max-width:640px){
+  .emp-logos{gap:6px;padding:3px 6px}
+  .emp-logos img{height:24px;max-width:70px}
+  .emp-logos .emp-sep{height:18px}
+  #capAbertura .emp-logos img{height:64px;max-width:160px}
+  #capAbertura .emp-logos .emp-sep{height:52px}
+}
 </style>
 </head>
 <body>
@@ -84,7 +112,7 @@ input.f{background:var(--s1);border:1px solid var(--line);border-radius:10px;pad
 </svg>
 
 <section id="vLogin" class="login" hidden>
-  <span class="cap-selo"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#capivaraSilhueta"/></svg></span>
+  <span class="emp-logos emp-grande emp-login"><img src="https://construservengpa-creator.github.io/Painel-suprimentos/marca/ameta.png" alt="AMETA"><span class="emp-sep" aria-hidden="true"></span><img src="https://construservengpa-creator.github.io/Painel-suprimentos/marca/raf.png" alt="RAF"></span>
   <h2>Capivara <span>Painel</span></h2>
   <p>Painel de notificações do almoxarifado para deixar aberto num monitor. Entre com um usuário do sistema de estoque — a sessão não expira por inatividade.</p>
   <form id="fLogin">
@@ -99,6 +127,7 @@ input.f{background:var(--s1);border:1px solid var(--line);border-radius:10px;pad
 
 <section id="vApp" hidden>
   <header class="top">
+    <span class="emp-logos"><img src="https://construservengpa-creator.github.io/Painel-suprimentos/marca/ameta.png" alt="AMETA"><span class="emp-sep" aria-hidden="true"></span><img src="https://construservengpa-creator.github.io/Painel-suprimentos/marca/raf.png" alt="RAF"></span>
     <span class="cap-selo"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#capivaraSilhueta"/></svg></span>
     <h1>Painel do Almoxarifado<small id="who"></small></h1>
     <span class="status" id="status">conectando…</span>
