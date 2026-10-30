@@ -1622,9 +1622,19 @@ function photoList(code){ const loc=fotosLocais(code), ex=fotosExt[code]; return
    e só é baixada de novo quando muda a quantidade ou a foto mais recente, ou a cada 6 h (pega trocas de produto). */
 const FOTOS_CACHE_KEY='almox_fotos_ext_v1';
 async function fotosVersao(){ try{
-    const [c,u]=await Promise.all([sb.from('produto_fotos').select('id',{count:'exact',head:true}),
-      sb.from('produto_fotos').select('id,criado_em').order('criado_em',{ascending:false}).order('id',{ascending:false}).limit(1)]);
-    if(c.error||u.error)return null; const r=(u.data||[])[0]; return c.count+'|'+(r?r.id+'|'+r.criado_em:''); }catch(e){ return null; } }
+    /* ex: fotos da contagem ainda presas ao item "fora da lista". Quando o item é lançado, a foto passa para o produto
+       por alteração (não muda a quantidade nem a mais recente) — sem esta contagem os outros computadores seguiam com a
+       lista antiga e o produto aparecia sem foto. */
+    const [c,u,ex]=await Promise.all([sb.from('produto_fotos').select('id',{count:'exact',head:true}),
+      sb.from('produto_fotos').select('id,criado_em').order('criado_em',{ascending:false}).order('id',{ascending:false}).limit(1),
+      sb.from('produto_fotos').select('id',{count:'exact',head:true}).like('code','extra:%')]);
+    if(c.error||u.error||ex.error)return null; const r=(u.data||[])[0]; return c.count+'|'+ex.count+'|'+(r?r.id+'|'+r.criado_em:''); }catch(e){ return null; } }
+/* A lista de fotos chega depois da tela: redesenha para trocar o 📷 pela foto. refreshTelaAtual já espera a pessoa
+   terminar de digitar / fechar a janela (antes, se ela estivesse num campo nesse instante, a tela não era refeita);
+   'produtos' não é redesenhada por refreshTelaAtual, então só a lista é refeita, mantendo filtros e ordenação. */
+function redesenharFotos(){
+  if(activeTab==='produtos'){ if(usuarioInteragindo()){ setTimeout(redesenharFotos,1500); return; } const q=document.getElementById('prodSearch'); if(q&&q.oninput)q.oninput(); return; }
+  refreshTelaAtual(); }
 async function loadFotosExt(forcar){ try{
     let data=null; const ver=await fotosVersao();
     if(!forcar&&ver){ try{ const c=JSON.parse(localStorage.getItem(FOTOS_CACHE_KEY)||'null');
@@ -1679,7 +1689,7 @@ async function migrarFotosAntigas(){
       if(resta.length)photos[code]=resta; else delete photos[code];
       if(ok&&ok%40===0){ await savePhotos(); await loadFotosExt(); } /* grava aos poucos: se a aba fechar no meio, o já enviado não volta */
     }
-    if(ok){ await savePhotos(); await loadFotosExt(); if(!usuarioInteragindo())refreshTelaAtual();
+    if(ok){ await savePhotos(); await loadFotosExt(); redesenharFotos();
       toast(ok+' foto(s) antiga(s) passaram para arquivos — o sistema abre mais leve.'+(ficou?' '+ficou+' ficaram no formato antigo.':''),'ok'); }
   } finally { _migrandoFotos=false; } }
 function uploadPhoto(code,inp){ if(!fotosProntas()){ inp.value=''; return; } const files=[...inp.files].filter(f=>f.type.startsWith('image/')); if(!files.length){toast('Selecione imagem(ns).','err');return;}
@@ -6464,7 +6474,7 @@ function onAuthReady(){
   const p=(async()=>{
     profile=await loadProfile();
     if(!profile||!profile.ativo){ showPending(); return; }
-    hideGate(); applyRoleNav(); initNavGrps(); const pDev=refreshDevolucoesBloqueio().catch(()=>{}); const pLot=loadLotes().catch(e=>console.warn('loadLotes',e)); await load(); applyRoleNav(); /* a marcação "Aprova requisições" vem do documento carregado agora */ await pDev; await pLot; loadPhotos().then(()=>{ refreshTelaAtual(); migrarFotosAntigas(); }); loadFotosExt().then(mudou=>{ if(mudou&&!usuarioInteragindo())refreshTelaAtual(); }); loadReposAbertas().then(()=>refreshTelaAtual()); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); checkEntregaParcial().then(()=>refreshRetiradasBadge()); _comprovOk=null; _comprovPend={confirmar:[],receber:[]}; _comprovUsers=null; refreshComprovPend().then(()=>{ refreshComprovBadge(); processarLinkRecebimento(); }); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge();
+    hideGate(); applyRoleNav(); initNavGrps(); const pDev=refreshDevolucoesBloqueio().catch(()=>{}); const pLot=loadLotes().catch(e=>console.warn('loadLotes',e)); await load(); applyRoleNav(); /* a marcação "Aprova requisições" vem do documento carregado agora */ await pDev; await pLot; loadPhotos().then(()=>{ refreshTelaAtual(); migrarFotosAntigas(); }); loadFotosExt().then(mudou=>{ if(mudou)redesenharFotos(); }); loadReposAbertas().then(()=>refreshTelaAtual()); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); checkEntregaParcial().then(()=>refreshRetiradasBadge()); _comprovOk=null; _comprovPend={confirmar:[],receber:[]}; _comprovUsers=null; refreshComprovPend().then(()=>{ refreshComprovBadge(); processarLinkRecebimento(); }); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge();
     _bootedUid=uid; go(abaInicial());
     if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); drenarGravacoes(); recuperarDocPendente(); startVersionWatch(); iniciarBackupAuto(); }
   })();
