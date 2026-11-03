@@ -1221,6 +1221,12 @@ function obraEstoqueParaRequisicao(r){
 /* produtos que pertencem à obra: têm saldo registrado nela ou alguma movimentação (inclui transferência recebida) */
 function codigosNaObra(obra){ const s=new Set(Object.keys((state.estoque&&state.estoque[obra])||{}).map(String));
   (state.movements||[]).forEach(m=>{ if(m&&m.code!=null&&(m.obra===obra||m.obraDest===obra))s.add(String(m.code)); }); return s; }
+/* busca para requisição: a requisição aceita item sem saldo (vira compra), então nada é escondido —
+   os produtos da obra vêm primeiro (maior saldo antes) e os demais ficam marcados como sem estoque na obra */
+function buscaReqObra(q,obra,lim){ const naObra=codigosNaObra(obra);
+  return searchProducts(q).map((p,i)=>({p,i,na:naObra.has(String(p.code)),s:saldoOf(obra,p.code)}))
+    .sort((a,b)=>(b.na-a.na)||(b.s-a.s)||(a.i-b.i)).slice(0,lim||8); }
+function tagSemEstoqueObra(x,obra){ return x.na?'':` · <span style="color:#a0620a">sem estoque em ${esc(obraName(obra))} (vai para compra)</span>`; }
 function totalSaldo(code){ let s=0; state.obras.forEach(o=>s+=saldoOf(o.id,code)); return s; }
 /* lotes (opcional): na entrada, os lotes que entram; na saída, os lotes que saem (sem informar, sai por FEFO).
    Devolve os lotes movimentados (null se o produto não tem lote nesta obra). */
@@ -3141,12 +3147,12 @@ async function drawMinhasFrotasPendentes(){ const box=$('#minhasFrotas'); if(!bo
   if(error){ box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>'; return; }
   box.innerHTML=`<table><thead><tr><th>Nº</th><th>Data</th><th>Obra / OS</th><th>Aplicação</th><th>Itens</th><th></th></tr></thead><tbody>${
     (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(r.criado_em).getTime())}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${esc(r.aplicacao_nome||'—')}</td><td>${r.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="abrirRequisicao(${r.id})">✎ Editar</button> <button class="btn danger sm" onclick="cancelarRequisicao(${r.id})">Cancelar</button></td></tr>`).join('')||`<tr><td colspan="6" class="empty" style="padding:20px">Nenhuma pendência.</td></tr>`}</tbody></table>`; }
-let _editReqId=null, _editReqCart=null, _editReqStatus=null;
+let _editReqId=null, _editReqCart=null, _editReqStatus=null, _editReqObra=null;
 function editarRequisicaoModal(id){
   sb.from('requisicoes').select('*').eq('id',id).single().then(({data:r,error})=>{
     if(error||!r){ toast('Erro ao carregar requisição: '+(error?error.message:'não encontrada'),'err'); return; }
     if(!REQ_EDITAVEL.includes(r.status)){ toast('Esta requisição não pode mais ser alterada.','err'); if(activeTab==='baixa'){drawMinhasFrotasPendentes();drawMinhasEmAndamento();} return; }
-    _editReqId=id; _editReqStatus=r.status; _editReqCart=(r.itens||[]).map(i=>({...i}));
+    _editReqId=id; _editReqStatus=r.status; _editReqObra=r.obra_id||null; _editReqCart=(r.itens||[]).map(i=>({...i}));
     modal(`<h3>✎ Editar requisição REQ-${String(r.id).padStart(5,'0')}</h3>
       <p class="mp">Obra: <b>${esc(r.obra_nome)}</b>${r.aplicacao_nome?' · Aplicação: <b>'+esc(r.aplicacao_nome)+'</b>':''}. ${r.status==='pendente'?'Só é possível alterar enquanto não houver separação de estoque.':'<b>Atenção:</b> esta requisição já foi aprovada. Ao salvar, ela <b>volta para aprovação</b> do encarregado com os novos itens (a verificação de estoque e as compras pendentes são refeitas).'}</p>
       <div class="field"><label>Adicionar item</label>
@@ -3160,9 +3166,10 @@ function editarRequisicaoModal(id){
     drawEditReqCart();
   });
 }
-function drawEditReqResults(q){ const box=$('#editReqResults'); if(!box)return; const list=searchProducts(q).filter(p=>!_editReqCart.some(i=>i.code===p.code)).slice(0,8);
-  if(!q||!list.length){ box.innerHTML=q&&!list.length?'<div class="muted" style="font-size:12px;padding:6px 2px">Nenhum item encontrado.</div>':''; return; }
-  box.innerHTML=`<div class="tbl-wrap" style="margin-top:6px"><table><tbody>`+list.map(p=>`<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''}</span></td><td class="num" style="width:70px"><button class="btn ghost sm" onclick="addEditReqItem('${esc(p.code)}')">+ Add</button></td></tr>`).join('')+'</tbody></table></div>'; }
+function drawEditReqResults(q){ const box=$('#editReqResults'); if(!box)return; const ob=_editReqObra&&state.obras.some(x=>x.id===_editReqObra)?_editReqObra:null;
+  const res=!q?[]:ob?buscaReqObra(q,ob,40).filter(x=>!_editReqCart.some(i=>i.code===x.p.code)).slice(0,8):searchProducts(q).filter(p=>!_editReqCart.some(i=>i.code===p.code)).slice(0,8).map(p=>({p,na:true}));
+  if(!q||!res.length){ box.innerHTML=q&&!res.length?'<div class="muted" style="font-size:12px;padding:6px 2px">Nenhum item encontrado.</div>':''; return; }
+  box.innerHTML=`<div class="tbl-wrap" style="margin-top:6px"><table><tbody>`+res.map(x=>{ const p=x.p; return `<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''}${ob?' · saldo '+numf(x.s)+' '+esc(p.unit||'')+tagSemEstoqueObra(x,ob):''}</span></td><td class="num" style="width:70px"><button class="btn ghost sm" onclick="addEditReqItem('${esc(p.code)}')">+ Add</button></td></tr>`; }).join('')+'</tbody></table></div>'; }
 function addEditReqItem(code){ const p=findProduct(code); if(!p)return;
   _editReqCart.push({code:p.code,desc:p.desc,unit:p.unit,qty:1});
   if($('#editReqSearch')){$('#editReqSearch').value='';} if($('#editReqResults'))$('#editReqResults').innerHTML=''; drawEditReqCart(); }
@@ -3335,9 +3342,8 @@ function reportBaixaGroup(gid){ const ms=state.movements.filter(m=>m.tipo==='bai
 function drawScanResults(q){ const box=$('#scanResults'); if(!box)return; q=(q||'').trim(); if(!q){box.innerHTML='';return;}
   const o=curObra()==='__all'?state.obras[0].id:curObra();
   if(findByCodeOrAux(q)){ box.innerHTML=''; return; }
-  const naObra=codigosNaObra(o), achou=searchProducts(q), list=achou.filter(p=>naObra.has(String(p.code))).slice(0,8);
-  if(!list.length){box.innerHTML=achou.length?`<div class="muted" style="font-size:12px;padding:8px 2px">${achou.length} item(ns) encontrado(s), mas sem saldo nem movimentação em ${esc(obraName(o))}.</div>`:'';return;}
-  box.innerHTML=`<div class="tbl-wrap" style="margin:6px 0 10px"><table><tbody>`+list.map(p=>`<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · saldo ${numf(saldoOf(o,p.code))} ${esc(p.unit||'')}</span></td><td class="num" style="width:90px"><button class="btn ghost sm" onclick="lookupScanPick('${esc(p.code)}')">Selecionar</button></td></tr>`).join('')+`</tbody></table></div>`; }
+  const res=buscaReqObra(q,o,8); if(!res.length){box.innerHTML='';return;}
+  box.innerHTML=`<div class="tbl-wrap" style="margin:6px 0 10px"><table><tbody>`+res.map(x=>{ const p=x.p; return `<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · saldo ${numf(x.s)} ${esc(p.unit||'')}${tagSemEstoqueObra(x,o)}</span></td><td class="num" style="width:90px"><button class="btn ghost sm" onclick="lookupScanPick('${esc(p.code)}')">Selecionar</button></td></tr>`; }).join('')+`</tbody></table></div>`; }
 function lookupScanPick(code){ if($('#scanResults'))$('#scanResults').innerHTML=''; lookupScan(code,true); }
 function lookupScan(code,exactCode){ code=String(code).trim(); if(!code)return; const o=curObra()==='__all'?state.obras[0].id:curObra();
   let p=findByCodeOrAux(code) || (exactCode?findProduct(code):null); const fc=$('#foundCard');
@@ -3363,9 +3369,9 @@ function addScanToCart(){ const p=baixaProduct; if(!p)return; const o=curObra()=
   if($('#scanInput')){$('#scanInput').value='';$('#scanInput').focus();} }
 function cancelBaixa(){ baixaProduct=null; const fc=$('#foundCard'); if(fc)fc.className='found-card'; if($('#scanInput'))$('#scanInput').focus(); }
 /* --- manual / saída de material --- */
-function drawSaidaResults(q,o){ const box=$('#saidaResults'); if(!box)return; const naObra=codigosNaObra(o), achou=searchProducts(q), list=achou.filter(p=>naObra.has(String(p.code))).slice(0,8);
-  if(!q||!list.length){ box.innerHTML=q&&!list.length?`<div class="muted" style="font-size:12px;padding:8px 2px">${achou.length?achou.length+' item(ns) encontrado(s), mas sem saldo nem movimentação em '+esc(obraName(o))+'.':'Nenhum item encontrado.'}</div>`:''; return; }
-  box.innerHTML=`<div class="tbl-wrap" style="margin-top:10px"><table><tbody>`+list.map(p=>`<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · saldo ${numf(saldoOf(o,p.code))} ${esc(p.unit||'')}</span></td><td class="num" style="width:80px"><button class="btn ghost sm" onclick="addSaida('${esc(p.code)}')">+ Add</button></td></tr>`).join('')+`</tbody></table></div>`; }
+function drawSaidaResults(q,o){ const box=$('#saidaResults'); if(!box)return; const res=q?buscaReqObra(q,o,8):[];
+  if(!q||!res.length){ box.innerHTML=q&&!res.length?`<div class="muted" style="font-size:12px;padding:8px 2px">Nenhum item encontrado.</div>`:''; return; }
+  box.innerHTML=`<div class="tbl-wrap" style="margin-top:10px"><table><tbody>`+res.map(x=>{ const p=x.p; return `<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · saldo ${numf(x.s)} ${esc(p.unit||'')}${tagSemEstoqueObra(x,o)}</span></td><td class="num" style="width:80px"><button class="btn ghost sm" onclick="addSaida('${esc(p.code)}')">+ Add</button></td></tr>`; }).join('')+`</tbody></table></div>`; }
 function addSaida(code){ const o=curObra()==='__all'?state.obras[0].id:curObra(); if(!saidaCart.some(i=>i.code===code))saidaCart.push({code,qty:1}); if($('#saidaSearch'))$('#saidaSearch').value=''; if($('#saidaResults'))$('#saidaResults').innerHTML=''; drawSaidaCart(o); if($('#saidaSearch'))$('#saidaSearch').focus(); }
 function rmSaida(code){ saidaCart=saidaCart.filter(i=>i.code!==code); const o=curObra()==='__all'?state.obras[0].id:curObra(); drawSaidaCart(o); }
 function setSaidaQty(code,v){ const it=saidaCart.find(i=>i.code===code); if(it)it.qty=parseFloat(v)||0; const p=findProduct(code); const cell=$('#sv_'+CSS.escape(code)); if(cell&&p)cell.textContent=money((it?it.qty:0)*((p.custo)||0)); updateSaidaTotal(); }
