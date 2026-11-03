@@ -6527,7 +6527,7 @@ function relTipoOpts(){ return '<option value="">Todos os tipos</option>'+(state
 function relSyncOpcoes(){ [['relObra',()=>obraOptions('__all',true)],['relGrupo',relGrupoOpts],['relLocal',relLocalOpts],['relTipoAplic',relTipoOpts]].forEach(([id,fn])=>{
     const el=document.getElementById(id); if(!el)return; const h=fn(); if(el._relOpts===h)return; const v=el.value; el.innerHTML=h; el._relOpts=h;
     if([...el.options].some(o=>o.value===v))el.value=v; }); }
-const REL_VISAO={aretirar:'A retirar por aplicação (posição atual)',atendidas:'Requisições atendidas — quem retirou',aplicacao:'Por aplicação',tipo:'Por tipo de aplicação',obra:'Por obra',produto:'Por produto',grupo:'Insumos por grupo',os:'Por Ordem de Serviço',consorcio:'P/ Consórcio (débito)',ajustes:'Ajustes de inventário — itens lançados'};
+const REL_VISAO={posicao:'Posição de estoque (saldo atual × custo médio)',aretirar:'A retirar por aplicação (posição atual)',atendidas:'Requisições atendidas — quem retirou',aplicacao:'Por aplicação',tipo:'Por tipo de aplicação',obra:'Por obra',produto:'Por produto',grupo:'Insumos por grupo',os:'Por Ordem de Serviço',consorcio:'P/ Consórcio (débito)',ajustes:'Ajustes de inventário — itens lançados'};
 function renderRelatorios(){ if(needObra())return;
   const d2=new Date(),d1=new Date(); d1.setDate(d1.getDate()-90);
   $('#view').innerHTML=`
@@ -6559,6 +6559,7 @@ function renderRelatorios(){ if(needObra())return;
       <button id="rtTipo" onclick="setRelTipo('tipo')">Por tipo de aplicação</button>
       <button id="rtObra" onclick="setRelTipo('obra')">Por obra</button>
       <button id="rtProd" onclick="setRelTipo('produto')">Por produto</button>
+      <button id="rtPos" onclick="setRelTipo('posicao')">Posição de estoque</button>
       <button id="rtGrupo" onclick="setRelTipo('grupo')">Insumos por grupo</button>
       <button id="rtOS" onclick="setRelTipo('os')">Por Ordem de Serviço</button>
       <button id="rtCons" onclick="setRelTipo('consorcio')">P/ Consórcio (débito)</button>
@@ -6575,7 +6576,7 @@ function renderRelatorios(){ if(needObra())return;
   ['relProdutoTxt','relOSTxt'].forEach(id=>{ const el=$('#'+id); if(el){ el.oninput=()=>relAgendar(300); el.onkeydown=e=>{ if(e.key==='Enter')relAgendar(0); }; } });
   ['relFrom','relTo'].forEach(id=>{ const el=$('#'+id); if(el){ el.onchange=()=>relAgendar(700); el.onkeydown=e=>{ if(e.key==='Enter')relAgendar(0); }; } });
 }
-function setRelTipo(t){ relTipo=t; [['aplicacao','rtAplic'],['tipo','rtTipo'],['obra','rtObra'],['produto','rtProd'],['grupo','rtGrupo'],['os','rtOS'],['consorcio','rtCons'],['aretirar','rtARet'],['ajustes','rtAjInv'],['duplicidades','rtDup']].forEach(([k,id])=>{const b=$('#'+id); if(b)b.classList.toggle('on',k===t);}); drawRelatorio(); }
+function setRelTipo(t){ relTipo=t; [['aplicacao','rtAplic'],['tipo','rtTipo'],['obra','rtObra'],['produto','rtProd'],['grupo','rtGrupo'],['posicao','rtPos'],['os','rtOS'],['consorcio','rtCons'],['aretirar','rtARet'],['ajustes','rtAjInv'],['duplicidades','rtDup']].forEach(([k,id])=>{const b=$('#'+id); if(b)b.classList.toggle('on',k===t);}); drawRelatorio(); }
 /* ===== Relatório: insumos lançados por Inventário / Ajuste de Saldo (movimentos 'ajuste') =====
    Um item por linha, para avaliar o que entrou (ou saiu) do estoque sem nota fiscal: saldo antes/depois,
    custo usado e valor. Usa De/Até, Obra, Grupo, Localização e Produto; Tipo de aplicação, Aplicação e OS
@@ -6873,6 +6874,66 @@ function drawRelDuplicidades(){ const box=$('#relView'); if(!box)return; relIdxO
           <td style="font-size:12.5px">${esc(produtoGrupo(p.code))}<div class="muted" style="font-size:11px">${esc(produtoLocal(p.code))}</div></td><td class="num">${numf(sal(p.code))}</td></tr>`).join('')}</tbody></table></div></div>`; }).join('')
       :'<div class="empty" style="padding:24px">Nenhuma possível duplicidade encontrada com estes filtros.</div>'}`;
 }
+/* ===== Relatório: posição de estoque com valor =====
+   Foto do estoque agora (não depende do período): saldo físico × custo médio do cadastro.
+   Obra escolhida: um produto por linha. Todas as obras: um produto por linha com o saldo somado e o detalhe por obra.
+   Usa Grupo, Localização e Produto. Resumos por grupo (e por obra, em "todas") acima da lista. */
+let _relPosZero=false, _relPosOrd='valor';
+function drawRelPosicao(){ const box=$('#relView'); if(!box)return; relIdxOn();
+  const fobra=$('#relObra')?$('#relObra').value:'__all', isAll=fobra==='__all';
+  const gf=$('#relGrupo')?$('#relGrupo').value:'', lf=$('#relLocal')?$('#relLocal').value:'';
+  const pf=($('#relProdutoTxt')?$('#relProdutoTxt').value:'').toLowerCase().trim();
+  const obras=isAll?state.obras:state.obras.filter(o=>o.id===fobra);
+  const naObra=isAll?null:codigosNaObra(fobra);
+  const lin=[];
+  state.products.forEach(p=>{ if(!p||p.code==null||!produtoPassaFiltros(p,gf,lf,pf))return; const c=String(p.code);
+    const por=obras.map(o=>({id:o.id,nome:o.nome,s:saldoTotalOf(o.id,c),b:saldoBloqueadoOf(o.id,c)})).filter(x=>x.s!==0||x.b);
+    const sal=por.reduce((t,x)=>t+x.s,0), blq=por.reduce((t,x)=>t+x.b,0);
+    if(sal===0&&!(_relPosZero&&(isAll?por.length:naObra.has(c))))return;
+    const custo=Number(p.custo)||0;
+    lin.push({p,code:c,grupo:produtoGrupo(c),local:produtoLocal(c),sal,blq,custo,valor:sal*custo,por}); });
+  const ORD={valor:(a,b)=>b.valor-a.valor,desc:(a,b)=>String(a.p.desc||'').localeCompare(String(b.p.desc||''),'pt-BR'),
+    grupo:(a,b)=>(a.grupo==='(sem grupo)'?1:b.grupo==='(sem grupo)'?-1:a.grupo.localeCompare(b.grupo,'pt-BR'))||String(a.p.desc||'').localeCompare(String(b.p.desc||''),'pt-BR'),
+    codigo:(a,b)=>a.code.localeCompare(b.code,'pt-BR',{numeric:true})};
+  lin.sort((a,b)=>(ORD[_relPosOrd]||ORD.valor)(a,b)||a.code.localeCompare(b.code,'pt-BR',{numeric:true}));
+  const totV=lin.reduce((t,l)=>t+l.valor,0), comSaldo=lin.filter(l=>l.sal>0).length, semCusto=lin.filter(l=>l.sal>0&&!l.custo).length, neg=lin.filter(l=>l.sal<0).length, temBlq=lin.some(l=>l.blq);
+  /* resumos */
+  const rg=new Map(); lin.forEach(l=>{ const g=rg.get(l.grupo)||{itens:0,valor:0}; if(l.sal>0)g.itens++; g.valor+=l.valor; rg.set(l.grupo,g); });
+  const resG=[...rg.entries()].map(([g,v])=>({g,...v})).sort((a,b)=>b.valor-a.valor);
+  const resO=isAll?obras.map(o=>{ let itens=0,valor=0; lin.forEach(l=>{ const x=l.por.find(y=>y.id===o.id); if(x){ if(x.s>0)itens++; valor+=x.s*l.custo; } }); return {nome:o.nome,itens,valor}; }).filter(x=>x.itens||x.valor).sort((a,b)=>b.valor-a.valor):[];
+  const pct=v=>totV?(v/totV*100).toFixed(1).replace('.',',')+'%':'—';
+  const titulo='Posição de estoque';
+  const sub=(isAll?'todas as obras':obraName(fobra))+(gf?' · grupo: '+gf:'')+(lf?' · local: '+lf:'')+(pf?' · produto: '+pf:'')+' · posição em '+fmtDate(Date.now())+(_relPosZero?' · inclui zerados':'');
+  const porTxt=l=>l.por.filter(x=>x.s).map(x=>x.nome.split(' - ')[0]+': '+numf(x.s)).join(' · ');
+  const headers=['Código','Cód. auxiliar','Descrição','Unid.','Grupo','Localização'].concat(isAll?['Saldo por obra']:[]).concat(['Saldo','Custo médio','Valor','% do total']);
+  _rel={titulo,sub:sub+' · '+lin.length+' item(ns)',view:'posicao',align:'llllll'+(isAll?'l':'')+'rrrr',headers,
+    rows:lin.map(l=>[l.code,l.p.aux||'—',l.p.desc||'',l.p.unit||'',l.grupo,l.local].concat(isAll?[porTxt(l)||'—']:[]).concat([numf(l.sal),money(l.custo),money(l.valor),pct(l.valor)])),
+    foot:['Total','',lin.length+' item(ns)','','',''].concat(isAll?['']:[]).concat(['','',money(totV),totV?'100%':''])};
+  const opt=(cur,v,l)=>`<option value="${v}" ${cur===v?'selected':''}>${l}</option>`, ss='style="width:auto;font-size:12.5px;padding:6px 8px"';
+  const MAXL=500, vis=lin.slice(0,window._relPosLim||MAXL);
+  const tabRes=(cab,arr,nome)=>`<div class="tbl-wrap" style="flex:1;min-width:300px;max-height:320px;overflow:auto"><table><thead><tr><th>${cab}</th><th class="num">Itens c/ saldo</th><th class="num">Valor</th><th class="num">%</th></tr></thead><tbody>${
+    arr.map(x=>`<tr><td>${esc(x[nome])}</td><td class="num">${x.itens}</td><td class="num">${money(x.valor)}</td><td class="num">${pct(x.valor)}</td></tr>`).join('')||'<tr><td colspan="4" class="empty" style="padding:14px">—</td></tr>'}</tbody></table></div>`;
+  box.innerHTML=`<div class="sechead" style="flex-wrap:wrap;gap:8px"><h3>${esc(titulo)}</h3><span style="font-size:12px;color:#8a8377">${esc(sub)}</span>
+      <select ${ss} onchange="_relPosOrd=this.value;drawRelatorio()">${opt(_relPosOrd,'valor','Ordenar: maior valor')}${opt(_relPosOrd,'grupo','Ordenar: grupo')}${opt(_relPosOrd,'desc','Ordenar: descrição')}${opt(_relPosOrd,'codigo','Ordenar: código')}</select>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;text-transform:none;font-weight:600;margin:0"><input type="checkbox" style="width:auto" ${_relPosZero?'checked':''} onchange="_relPosZero=this.checked;drawRelatorio()"> Incluir itens zerados${isAll?'':' da obra'}</label>
+      <button class="btn ghost sm" onclick="exportRelCsv()">⬇ Exportar CSV</button></div>
+    <div class="cards" style="margin-bottom:16px">
+      <div class="card ok"><div class="stripe"></div><div class="lbl">Valor em estoque</div><div class="val" style="font-size:22px">${money(totV)}</div><div class="sub">saldo × custo médio</div></div>
+      <div class="card neutral"><div class="stripe"></div><div class="lbl">Itens com saldo</div><div class="val">${comSaldo}</div><div class="sub">${resG.length} grupo(s)${isAll?' · '+resO.length+' obra(s)':''}</div></div>
+      <div class="card ${semCusto?'warn':'neutral'}"><div class="stripe"></div><div class="lbl">Sem custo cadastrado</div><div class="val">${semCusto}</div><div class="sub">${semCusto?'com saldo mas valor R$ 0':'todos os itens têm custo'}</div></div>
+      <div class="card ${neg?'alert':'neutral'}"><div class="stripe"></div><div class="lbl">Saldo negativo</div><div class="val">${neg}</div><div class="sub">${neg?'conferir no inventário':'nenhum'}</div></div>
+    </div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px">${tabRes('Grupo',resG,'g')}${isAll?tabRes('Obra',resO,'nome'):''}</div>
+    ${temBlq?'<p class="muted" style="font-size:12px;margin:0 0 8px">Saldo físico: inclui o que está reservado para devolução ao fornecedor (marcado com "reservado").</p>':''}
+    <div class="tbl-wrap"><table><thead><tr><th>Código</th><th>Cód. aux.</th><th>Descrição</th><th>Unid.</th><th>Grupo / Localização</th>${isAll?'<th>Saldo por obra</th>':''}<th class="num">Saldo</th><th class="num">Custo médio</th><th class="num">Valor</th><th class="num">%</th></tr></thead><tbody>${
+      vis.length?vis.map(l=>`<tr><td class="mono" style="font-size:12.5px"><a href="javascript:void 0" onclick="editProductModal('${esc(l.code)}')">${esc(l.code)}</a></td><td class="mono" style="font-size:12.5px">${esc(l.p.aux||'—')}</td><td>${esc(l.p.desc||'')}</td><td>${esc(l.p.unit||'')}</td>
+        <td style="font-size:12.5px">${esc(l.grupo)}<div class="muted" style="font-size:11px">${esc(l.local)}</div></td>${isAll?`<td style="font-size:11.5px">${esc(porTxt(l)||'—')}</td>`:''}
+        <td class="num ${l.sal<0?'neg':''}"><b>${numf(l.sal)}</b>${l.blq?`<div class="muted" style="font-size:10.5px">${numf(l.blq)} reservado</div>`:''}</td><td class="num">${l.custo?money(l.custo):'<span class="muted">sem custo</span>'}</td><td class="num"><b>${money(l.valor)}</b></td><td class="num muted" style="font-size:12px">${pct(l.valor)}</td></tr>`).join('')
+      :`<tr><td colspan="${isAll?10:9}" class="empty" style="padding:24px">Nenhum item com saldo com estes filtros.</td></tr>`}</tbody>
+      ${lin.length?`<tfoot><tr><td colspan="${isAll?6:5}"><b>Total · ${lin.length} item(ns)</b></td><td></td><td></td><td class="num"><b>${money(totV)}</b></td><td></td></tr></tfoot>`:''}</table></div>
+    ${lin.length>vis.length?`<div style="text-align:center;margin-top:10px"><button class="btn ghost sm" onclick="window._relPosLim=Infinity;drawRelatorio()">Mostrar todos os ${lin.length} itens</button> <span class="muted" style="font-size:12px">(impressão e CSV já levam todos)</span></div>`:''}
+    <p class="muted" style="font-size:11.5px;margin-top:8px">Valor = saldo físico atual × custo médio do cadastro do produto. Não depende do período (De/Até).</p>`;
+}
 /* ===== Unificar produtos (duplicados no cadastro) =====
    Escolhe o produto que FICA; dos outros, o saldo de cada obra passa para ele (dois movimentos de ajuste com
    "Unificação: ..." no documento — saída do que sai, entrada no que fica), o custo médio é recalculado pelos saldos,
@@ -6985,6 +7046,7 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
   if(!relDataOk($('#relFrom')&&$('#relFrom').value)||!relDataOk($('#relTo')&&$('#relTo').value)){ _rel=null; box.innerHTML='<div class="empty" style="padding:24px">Informe as datas De/Até completas (ano com 4 dígitos) para gerar o relatório.</div>'; return; }
   if(relTipo==='aretirar'){ drawRelARetirar(); return; }
   if(relTipo==='duplicidades'){ drawRelDuplicidades(); return; }
+  if(relTipo==='posicao'){ drawRelPosicao(); return; }
   const [f,t]=relPeriod();
   if(precisaHistorico(f)){ box.innerHTML='<div class="empty" style="padding:24px">Carregando histórico do período...</div>';
     ensureMovsSince(f).then(ok=>{ if(activeTab!=='relatorios'||!$('#relView'))return;
