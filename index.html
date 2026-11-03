@@ -5145,7 +5145,7 @@ function renderTransfer(){
   const cur=curObra()==='__all'?state.obras[0].id:curObra();
   $('#view').innerHTML=`
   <div class="panel"><h3>Transferir entre obras (romaneio)</h3><p class="desc">Selecione origem e destino, adicione vários itens e gere um romaneio único para assinatura.</p>
-    <div class="row c2"><div class="field"><label>Obra origem</label><select id="trOrig" onchange="trCancelScan();drawTrCart();checkTrEmpresa()">${obraOptions(cur,false)}</select></div><div class="field"><label>Obra destino</label><select id="trDest" onchange="checkTrEmpresa()">${obraOptions(state.obras.find(o=>o.id!==cur)?.id,false)}</select></div></div>
+    <div class="row c2"><div class="field"><label>Obra origem</label><select id="trOrig" onchange="trOrigChange()">${obraOptions(cur,false)}</select></div><div class="field"><label>Obra destino</label><select id="trDest" onchange="checkTrEmpresa()">${obraOptions(state.obras.find(o=>o.id!==cur)?.id,false)}</select></div></div>
     <div id="trEmpresaWarn"></div>
     <div class="scan-box"><label>📷 Leitura rápida — produto (código de barras, nome ou auxiliar)</label>
     <input id="trScan" placeholder="Leia o código de barras ou digite nome / código (parcial)" autocomplete="off">
@@ -5160,7 +5160,7 @@ function renderTransfer(){
       <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-weight:500;font-size:13px;margin:0;color:#1c1c1c"><input type="checkbox" id="trReport" checked style="width:auto"> Gerar romaneio para assinatura</label>
       <button class="btn primary" id="trTransferBtn" onclick="confirmTransfer()">⇄ Transferir e gerar romaneio</button></div>
   </div>
-  <div class="sechead" style="margin-top:24px"><h3>Últimas transferências</h3></div>
+  <div class="sechead" style="margin-top:24px"><h3 id="trHistTit">Últimas transferências</h3></div>
   <div class="tbl-wrap"><table><thead><tr><th>Data</th><th>Nº</th><th>De → Para</th><th>Produto</th><th class="num">Qtd</th><th class="num">Valor</th><th></th></tr></thead><tbody id="trHist"></tbody></table></div>`;
   drawTrHist(); drawTrCart(); checkTrEmpresa(); const inp=$('#trScan'); inp.focus();
   inp.oninput=e=>drawTrResults(e.target.value);
@@ -5196,6 +5196,13 @@ function checkTrEmpresa(){ const box=$('#trEmpresaWarn'); if(!box)return;
     if(btn){btn.disabled=true;btn.style.opacity='.5';btn.style.cursor='not-allowed';}
   } else { box.innerHTML=''; if(btn){btn.disabled=false;btn.style.opacity='';btn.style.cursor='';} }
 }
+/* trocar a origem: destino não pode ficar igual, a busca/lista passam a usar o saldo da nova origem e o histórico acompanha */
+function trOrigChange(){ const o=trOrigId(), d=$('#trDest');
+  if(d&&d.value===o){ const alt=state.obras.find(x=>x.id!==o); if(alt)d.value=alt.id; }
+  trCancelScan(); if($('#trResults'))$('#trResults').innerHTML='';
+  const semSaldo=trCart.filter(i=>(i.qty||0)>saldoOf(o,i.code)).length;
+  if(semSaldo)toast(semSaldo+' item(ns) da lista sem saldo suficiente em '+obraName(o)+' — ajuste ou remova antes de transferir.','warn');
+  drawTrCart(); checkTrEmpresa(); drawTrHist(); }
 function trOrigId(){ return $('#trOrig')?$('#trOrig').value:(state.obras[0]&&state.obras[0].id); }
 function drawTrResults(q){ const box=$('#trResults'); if(!box)return; const orig=trOrigId(); const list=searchProducts(q).filter(p=>saldoOf(orig,p.code)>0).slice(0,8); if(!q){box.innerHTML='';return;} if(!list.length){box.innerHTML=`<div class="muted" style="font-size:12px;padding:8px 2px">Nenhum item com saldo na obra de origem.</div>`;return;}
   box.innerHTML=`<div class="tbl-wrap" style="margin-top:10px"><table><tbody>`+list.map(p=>`<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · saldo ${numf(saldoOf(orig,p.code))} ${esc(p.unit||'')}</span></td><td class="num" style="width:90px"><button class="btn ghost sm" onclick="trLookupPick('${esc(p.code)}')">Selecionar</button></td></tr>`).join('')+`</tbody></table></div>`; }
@@ -5205,7 +5212,8 @@ function updateTrTotal(){ const el=$('#trTotal'); if(!el)return; let t=0; trCart
 function drawTrCart(){ const b=$('#trCartBody'); if(!b)return; const orig=trOrigId();
   if(!trCart.length){ b.innerHTML=`<tr><td colspan="5" class="empty" style="padding:20px">Nenhum item. Pesquise acima e adicione.</td></tr>`; updateTrTotal(); return; }
   b.innerHTML=trCart.map(i=>{const p=findProduct(i.code);const s=saldoOf(orig,i.code);const tot=(i.qty||0)*((p.custo)||0);return `<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''}</span></td><td class="num ${i.qty>s?'neg':''}">${numf(s)} ${esc(p.unit||'')}</td><td class="num"><input class="inline-edit" type="number" step="any" min="0" value="${i.qty}" oninput="setTrQty('${esc(i.code)}',this.value)"></td><td class="num" id="tv_${esc(i.code)}">${money(tot)}</td><td class="num"><button class="btn danger sm" onclick="rmTr('${esc(i.code)}')">✕</button></td></tr>`;}).join(''); updateTrTotal(); }
-function drawTrHist(){ const _o=curObra(); const list=state.movements.filter(m=>m.tipo==='transferencia'&&(_o==='__all'||m.obra===_o||m.obraDest===_o)).slice(0,40);
+function drawTrHist(){ const _o=$('#trOrig')?trOrigId():curObra(); const list=state.movements.filter(m=>m.tipo==='transferencia'&&(_o==='__all'||m.obra===_o||m.obraDest===_o)).slice(0,40);
+  if($('#trHistTit'))$('#trHistTit').textContent='Últimas transferências'+(_o&&_o!=='__all'?' · '+obraName(_o)+' (enviadas e recebidas)':'');
   $('#trHist').innerHTML=list.length?list.map(m=>`<tr><td class="muted" style="font-size:12px">${fmtDate(m.ts)}</td><td class="mono">${m.seq?seqf(m.seq):'—'}</td><td style="font-size:12.5px">${esc(obraName(m.obra))} → ${esc(obraName(m.obraDest))}</td><td>${esc(m.desc)}${m.obs?`<br><span class="muted" style="font-size:11px">obs: ${esc(m.obs)}</span>`:''}</td><td class="num"><span class="pill tr">${numf(m.qty)}</span></td><td class="num">${money(m.valorTotal)}</td><td class="num"><button class="btn ghost sm" title="Romaneio (agrupado)" onclick="reportRomaneio('${m.romaneioId||m.id}')">🖨</button> <button class="btn danger sm" title="Excluir e estornar (supervisor)" onclick="delTrMov('${m.id}')">🗑</button></td></tr>`).join(''):`<tr><td colspan="7" class="empty" style="padding:24px">Nenhuma transferência.</td></tr>`; }
 function delTrMov(id){ const m=state.movements.find(x=>x.id===id&&x.tipo==='transferencia'); if(!m)return; requireSupervisor('Excluir transferência Nº '+seqf(m.seq),()=>{ addSaldo(m.obra,m.code,m.qty,m.lotes); addSaldo(m.obraDest,m.code,-m.qty,m.lotes); state.movements=state.movements.filter(x=>x.id!==id); sb.from('movimentos_estoque').delete().eq('id',id).then(({error})=>{ if(error)toast('Erro ao excluir movimentação no banco: '+error.message,'err'); }); save('Transferência Nº '+seqf(m.seq)+' excluída e estornada'); drawTrHist(); toast('Transferência excluída e estornada.','warn'); }); }
 async function confirmTransfer(){ const orig=$('#trOrig').value, dest=$('#trDest').value;
