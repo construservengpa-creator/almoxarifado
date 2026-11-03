@@ -1218,6 +1218,9 @@ async function refreshDevolucoesBloqueio(){
 function obraEstoqueParaRequisicao(r){
   return r.mutuo_estoque_obra_id ? r.mutuo_estoque_obra_id : r.obra_id;
 }
+/* produtos que pertencem à obra: têm saldo registrado nela ou alguma movimentação (inclui transferência recebida) */
+function codigosNaObra(obra){ const s=new Set(Object.keys((state.estoque&&state.estoque[obra])||{}).map(String));
+  (state.movements||[]).forEach(m=>{ if(m&&m.code!=null&&(m.obra===obra||m.obraDest===obra))s.add(String(m.code)); }); return s; }
 function totalSaldo(code){ let s=0; state.obras.forEach(o=>s+=saldoOf(o.id,code)); return s; }
 /* lotes (opcional): na entrada, os lotes que entram; na saída, os lotes que saem (sem informar, sai por FEFO).
    Devolve os lotes movimentados (null se o produto não tem lote nesta obra). */
@@ -6034,13 +6037,18 @@ function renderConsulta(){ $('#topActions').innerHTML=obraSelectorHTML(true);
   const o=curObra(); const all=o==='__all'||!o;
   $('#view').innerHTML=`<div class="panel"><h3>Consultar produto</h3><p class="desc">Busque por <b>nome</b> ou <b>código de barras</b>. Para busca composta use <b>%</b> entre as partes — ex.: <span class="mono">pneu%275</span> acha "PNEU 275/80 R22.5". Veja saldo ${all?'total (todas as obras) ou por obra':'no estoque selecionado: <b>'+esc(obraName(o))+'</b>'} e valores de entrada e saída.</p><div class="search" style="max-width:none"><span class="si">⌕</span><input id="consInput" placeholder="Nome ou código... (ex.: pneu%275)" autocomplete="off"></div></div><div id="consResult"></div>`;
   const inp=$('#consInput'); inp.focus(); inp.addEventListener('keydown',e=>{if(e.key==='Enter'){const p=findProduct(inp.value.trim());if(p){showConsulta(p);return;}}}); inp.oninput=()=>drawConsList(inp.value); drawConsList(''); }
-let _consAtual=null;
+let _consAtual=null, _consOutras=false;
 function drawConsList(q){ _consAtual=null; q=q.toLowerCase().trim(); const box=$('#consResult'); const o=curObra(); const all=o==='__all'||!o; const sal=c=>all?totalSaldo(c):saldoOf(o,c);
-  const list=q?state.products.filter(buscaProduto(q)):state.products.slice();
+  const achados=q?state.products.filter(buscaProduto(q)):state.products.slice();
+  /* obra escolhida: só produtos da obra (saldo registrado ou movimentação nela), a não ser que se peça os de outras obras */
+  const naObra=all?null:codigosNaObra(o);
+  const list=naObra&&!_consOutras?achados.filter(p=>naObra.has(String(p.code))):achados;
+  const nFora=naObra?achados.length-achados.filter(p=>naObra.has(String(p.code))).length:0;
+  const aviso=naObra&&nFora?`<p class="muted" style="font-size:12.5px;margin:0 0 8px">${_consOutras?'Mostrando também '+nFora+' produto(s) sem saldo nem movimentação em '+esc(obraName(o))+'. <a href="javascript:void 0" onclick="_consOutras=false;drawConsList($(\'#consInput\').value)">Mostrar só os desta obra</a>':nFora+' produto(s) do cadastro sem saldo nem movimentação em '+esc(obraName(o))+' não aparecem. <a href="javascript:void 0" onclick="_consOutras=true;drawConsList($(\'#consInput\').value)">Mostrar também</a>'}</p>`:'';
   if(!state.products.length){ box.innerHTML=`<div class="tbl-wrap"><div class="empty"><div class="ico">⌕</div>Nenhum produto cadastrado.</div></div>`; return; }
-  if(!list.length){ box.innerHTML=`<div class="tbl-wrap"><div class="empty">Nada encontrado para "<b>${esc(q)}</b>".</div></div>`; return; }
+  if(!list.length){ box.innerHTML=aviso+`<div class="tbl-wrap"><div class="empty">Nada encontrado${q?' para "<b>'+esc(q)+'</b>"':''}${naObra&&!_consOutras?' em '+esc(obraName(o)):''}.</div></div>`; return; }
   if(q&&list.length===1){ showConsulta(list[0]); return; }
-  box.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>Foto</th><th>Cód. barras</th><th>Cód. aux.</th><th>Produto</th><th class="num">${all?'Saldo total':'Saldo em '+esc(obraName(o))}</th><th class="num">Custo</th><th class="num">Venda</th><th></th></tr></thead><tbody>`+list.map(p=>`<tr><td>${thumb(p.code)}</td><td class="mono">${esc(p.code)}</td><td class="mono">${esc(p.aux||'—')}</td><td>${esc(p.desc)}</td><td class="num">${numf(sal(p.code))}</td><td class="num">${money(p.custo||0)}</td><td class="num">${p.preco?money(p.preco):'—'}</td><td class="num"><button class="btn ghost sm" onclick='showConsultaCode("${esc(p.code)}")'>Detalhes</button></td></tr>`).join('')+`</tbody></table></div>`; }
+  box.innerHTML=aviso+`<div class="tbl-wrap"><table><thead><tr><th>Foto</th><th>Cód. barras</th><th>Cód. aux.</th><th>Produto</th><th class="num">${all?'Saldo total':'Saldo em '+esc(obraName(o))}</th><th class="num">Custo</th><th class="num">Venda</th><th></th></tr></thead><tbody>`+list.map(p=>`<tr><td>${thumb(p.code)}</td><td class="mono">${esc(p.code)}</td><td class="mono">${esc(p.aux||'—')}</td><td>${esc(p.desc)}</td><td class="num">${numf(sal(p.code))}</td><td class="num">${money(p.custo||0)}</td><td class="num">${p.preco?money(p.preco):'—'}</td><td class="num"><button class="btn ghost sm" onclick='showConsultaCode("${esc(p.code)}")'>Detalhes</button></td></tr>`).join('')+`</tbody></table></div>`; }
 function showConsultaCode(c){ const p=findProduct(c); if(p)showConsulta(p); }
 async function showConsulta(p){ _consAtual=p.code; const o=curObra(); const all=o==='__all'||!o;
   const movsAll=await movsDoProduto(p.code);
@@ -6810,8 +6818,7 @@ function drawRelDuplicidades(){ const box=$('#relView'); if(!box)return; relIdxO
   let grupos=dupGrupos(state.products.filter(p=>p&&p.code!=null));
   /* filtros: o grupo aparece se ALGUM produto dele atende (para não esconder o par do item filtrado) */
   /* obra: o grupo aparece se algum produto dele tem saldo registrado ou movimentação nessa obra */
-  const naObra=isAll?null:(()=>{ const s=new Set(Object.keys((state.estoque&&state.estoque[fobra])||{}).map(String));
-    (state.movements||[]).forEach(m=>{ if(m&&m.code!=null&&(m.obra===fobra||m.obraDest===fobra))s.add(String(m.code)); }); return s; })();
+  const naObra=isAll?null:codigosNaObra(fobra);
   if(naObra)grupos=grupos.filter(gr=>gr.itens.some(p=>naObra.has(String(p.code))));
   if(gf)grupos=grupos.filter(gr=>gr.itens.some(p=>produtoGrupo(p.code)===gf));
   if(lf)grupos=grupos.filter(gr=>gr.itens.some(p=>produtoLocal(p.code)===lf));
