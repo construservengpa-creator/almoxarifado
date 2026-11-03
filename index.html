@@ -2224,7 +2224,7 @@ function renderEntrada(){
   <div class="panel">
     <h3>Dados da entrada</h3><p class="desc">Defina a obra de destino e o documento. Depois preencha os itens por XML ou manualmente.</p>
     <div class="row c4">
-      <div class="field"><label>Obra (destino) *</label><select id="nfObra" onchange="ctrlSugerirObra('nf',this.value,$('#nfCnpjTom').value);drawNfHist()">${obraOptions(_nfRepos?_nfRepos.obra_id:(curObra()==='__all'?(state.obras[0]&&state.obras[0].id):curObra()),false)}</select></div>
+      <div class="field"><label>Obra (destino) *</label><select id="nfObra" onchange="ctrlSugerirObra('nf',this.value,$('#nfCnpjTom').value);drawNfHist();if($('#nfSearch'))drawNfSearch($('#nfSearch').value)">${obraOptions(_nfRepos?_nfRepos.obra_id:(curObra()==='__all'?(state.obras[0]&&state.obras[0].id):curObra()),false)}</select></div>
       <div class="field"><label>Nº da Nota *</label><input id="nfNum" class="mono" placeholder="000000" inputmode="numeric" pattern="[0-9]*" maxlength="9" autocomplete="off" data-noupper onbeforeinput="if(event.data&&/\D/.test(event.data))event.preventDefault()" oninput="nfSoDigitos(this)" onchange="nfSoDigitos(this)" onblur="nfSoDigitos(this)"></div>
       <div class="field"><label>Fornecedor *</label><input id="nfForn" placeholder="Nome"></div>
       <div class="field"><label>Data de emissão *</label><input id="nfData" type="date"></div>
@@ -2451,8 +2451,11 @@ function setEntradaTab(t){ entradaTab=t; $('#tbXml').classList.toggle('on',t==='
       <div class="field" style="margin:0"><label>⏳ Vencimento do lote (opcional)</label><input id="itVal" type="date"></div></div>`:''}`;
     const si=$('#nfSearch'); if(si)si.oninput=e=>drawNfSearch(e.target.value); }
 }
-function drawNfSearch(q){ const box=$('#nfSearchResults'); if(!box)return; const list=searchProducts(q).slice(0,8); if(!q||!list.length){box.innerHTML='';return;}
-  box.innerHTML=`<div class="tbl-wrap" style="margin-top:10px"><table><tbody>`+list.map(p=>`<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · saldo total ${numf(totalSaldo(p.code))} ${esc(p.unit||'')} · custo ${money(p.custo||0)}</span></td><td class="num" style="width:80px"><button class="btn ghost sm" onclick="addNfExisting('${esc(p.code)}')">+ Add</button></td></tr>`).join('')+`</tbody></table></div>`; }
+/* entrada pode ser de qualquer produto do cadastro (item novo na obra também); os que já são da obra de destino vêm primeiro */
+function nfObraDest(){ const v=$('#nfObra')&&$('#nfObra').value; return v&&state.obras.some(o=>o.id===v)?v:null; }
+function saldoNfTxt(p){ const ob=nfObraDest(); return ob?`saldo em ${esc(obraName(ob))} ${numf(saldoOf(ob,p.code))} ${esc(p.unit||'')} · total ${numf(totalSaldo(p.code))}`:`saldo total ${numf(totalSaldo(p.code))} ${esc(p.unit||'')}`; }
+function drawNfSearch(q){ const box=$('#nfSearchResults'); if(!box)return; const ob=nfObraDest(); const list=!q?[]:ob?buscaReqObra(q,ob,8).map(x=>x.p):searchProducts(q).slice(0,8); if(!q||!list.length){box.innerHTML='';return;}
+  box.innerHTML=`<div class="tbl-wrap" style="margin-top:10px"><table><tbody>`+list.map(p=>`<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · ${saldoNfTxt(p)} · custo ${money(p.custo||0)}</span></td><td class="num" style="width:80px"><button class="btn ghost sm" onclick="addNfExisting('${esc(p.code)}')">+ Add</button></td></tr>`).join('')+`</tbody></table></div>`; }
 function addNfExisting(code){ const p=findProduct(code); if(!p)return; const ex=nfItems.find(i=>i.code===code); if(ex){ex.qty=(ex.qty||0)+1;} else nfItems.push({code:p.code,desc:p.desc,unit:p.unit,qty:1,custo:p.custo||0,preco:p.preco||0}); if($('#nfSearch'))$('#nfSearch').value=''; if($('#nfSearchResults'))$('#nfSearchResults').innerHTML=''; drawNfItems(); if($('#nfSearch'))$('#nfSearch').focus(); }
 function tagsOf(root,name){ let r=root.getElementsByTagName(name); if(r.length)return r; return root.getElementsByTagNameNS('*',name); }
 function txt(root,name){ const n=tagsOf(root,name)[0]; return n?n.textContent.trim():''; }
@@ -2573,7 +2576,7 @@ function vincModal(i){ const it=nfItems[i]; if(!it||!it.xml)return; const x=it.x
   $('#vincSearch').oninput=e=>{ const list=searchProducts(e.target.value).slice(0,10); vincCtx.cands=list; $('#vincResults').innerHTML=e.target.value.trim()?(list.length?vincListHTML(list,'cand'):`<div class="muted" style="font-size:12.5px;padding:10px 2px">Nenhum insumo encontrado.</div>`):''; };
   drawVincSel(); setTimeout(()=>{ const s=$('#vincSearch'); if(s)s.focus(); },50);
 }
-function vincListHTML(list,src,scores){ return `<div class="tbl-wrap" style="margin-top:6px"><table><tbody>`+list.map((p,k)=>`<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · ${esc(p.unit||'UN')} · saldo ${numf(totalSaldo(p.code))} · custo ${money(p.custo||0)}${scores?` · ${Math.round(Math.min(1,scores[k])*100)}% semelhante`:''}</span></td><td class="num" style="width:96px"><button class="btn ghost sm" onclick="vincEscolher('${src}',${k})">Selecionar</button></td></tr>`).join('')+`</tbody></table></div>`; }
+function vincListHTML(list,src,scores){ return `<div class="tbl-wrap" style="margin-top:6px"><table><tbody>`+list.map((p,k)=>`<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · ${esc(p.unit||'UN')} · ${saldoNfTxt(p)} · custo ${money(p.custo||0)}${scores?` · ${Math.round(Math.min(1,scores[k])*100)}% semelhante`:''}</span></td><td class="num" style="width:96px"><button class="btn ghost sm" onclick="vincEscolher('${src}',${k})">Selecionar</button></td></tr>`).join('')+`</tbody></table></div>`; }
 function vincEscolher(src,k){ const p=src==='sug'?vincCtx.sug[k]:vincCtx.cands[k]; if(!p)return; vincCtx.sel=p; drawVincSel(); }
 function drawVincSel(){ const box=$('#vincSelBox'); if(!box)return; const it=nfItems[vincCtx.i]; const p=vincCtx.sel; const x=it.xml;
   if(!p){ box.innerHTML=`<div class="muted" style="font-size:12.5px">Selecione um insumo acima para vincular.</div>`; return; }
