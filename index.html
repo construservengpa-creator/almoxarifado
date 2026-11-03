@@ -6763,7 +6763,7 @@ async function drawRelAtendidas(){ const box=$('#relView'); if(!box)return;
            · mesmo código auxiliar, código de fabricante (código de barras) ou referência em produtos diferentes
      Média · mesmo código de peça escrito na descrição (ex.: "5280585", "7W-5495" = "7W5495", "132-8876" = "1328876")
      Baixa · descrições muito parecidas (pelo menos 75% das palavras em comum)
-   Usa Obra (saldo mostrado), Grupo, Localização e Produto. "Não é duplicidade" guarda o grupo em
+   Usa Obra (só grupos com algum produto que tem saldo/movimentação na obra; saldo mostrado é o da obra), Grupo, Localização e Produto. "Não é duplicidade" guarda o grupo em
    state.config.dupIgnorados (vale para todos) e ele deixa de aparecer, a não ser que se peça para mostrar. */
 let _relDupConf='media', _relDupIgn=false;
 const _DUP_STOP=new Set(['DE','DA','DO','DAS','DOS','E','EM','NA','NO','COM','SEM','PARA','P','C','A','O','AS','OS','UN','PC','PCS','CX','KG','LT','L','M','MM','CM','ORIGINAL','GENUINO','CAT','CATERPILLAR','TIPO','REF','COD','MOD','MODELO']);
@@ -6809,6 +6809,10 @@ function drawRelDuplicidades(){ const box=$('#relView'); if(!box)return; relIdxO
   const ign=new Set((state.config&&state.config.dupIgnorados)||[]);
   let grupos=dupGrupos(state.products.filter(p=>p&&p.code!=null));
   /* filtros: o grupo aparece se ALGUM produto dele atende (para não esconder o par do item filtrado) */
+  /* obra: o grupo aparece se algum produto dele tem saldo registrado ou movimentação nessa obra */
+  const naObra=isAll?null:(()=>{ const s=new Set(Object.keys((state.estoque&&state.estoque[fobra])||{}).map(String));
+    (state.movements||[]).forEach(m=>{ if(m&&m.code!=null&&(m.obra===fobra||m.obraDest===fobra))s.add(String(m.code)); }); return s; })();
+  if(naObra)grupos=grupos.filter(gr=>gr.itens.some(p=>naObra.has(String(p.code))));
   if(gf)grupos=grupos.filter(gr=>gr.itens.some(p=>produtoGrupo(p.code)===gf));
   if(lf)grupos=grupos.filter(gr=>gr.itens.some(p=>produtoLocal(p.code)===lf));
   if(pf)grupos=grupos.filter(gr=>gr.itens.some(p=>[p.code,p.desc,p.aux,p.fab,p.ref].some(v=>buscaTem(String(v||''),pf))));
@@ -6818,7 +6822,7 @@ function drawRelDuplicidades(){ const box=$('#relView'); if(!box)return; relIdxO
   grupos.sort((a,b)=>b.nivel-a.nivel||b.itens.length-a.itens.length||String(a.itens[0].desc).localeCompare(String(b.itens[0].desc),'pt-BR'));
   const nProd=grupos.reduce((t,gr)=>t+gr.itens.length,0), cont=k=>grupos.filter(gr=>gr.nivel===k).length;
   const titulo='Possíveis duplicidades no cadastro de produtos';
-  const sub=(isAll?'saldo de todas as obras':'saldo em '+obraName(fobra))+(gf?' · grupo: '+gf:'')+(lf?' · local: '+lf:'')+(pf?' · produto: '+pf:'')+' · confiança: '+({alta:'só alta',media:'média ou alta',baixa:'todas'}[_relDupConf]);
+  const sub=(isAll?'saldo de todas as obras':'obra: '+obraName(fobra)+' (produtos com saldo ou movimentação nela)')+(gf?' · grupo: '+gf:'')+(lf?' · local: '+lf:'')+(pf?' · produto: '+pf:'')+' · confiança: '+({alta:'só alta',media:'média ou alta',baixa:'todas'}[_relDupConf]);
   _rel={titulo,sub:sub+' · '+grupos.length+' grupo(s), '+nProd+' produto(s)',view:'duplicidades',align:'lllllllr',
     headers:['Grupo','Confiança','Código','Cód. auxiliar','Descrição','Unid.','Grupo / Localização','Saldo'],
     rows:grupos.flatMap((gr,gi)=>gr.itens.map((p,k)=>[k?'':String(gi+1),k?'':NIV[gr.nivel]+': '+gr.motivos.join('; '),String(p.code),p.aux||'—',p.desc||'',p.unit||'',produtoGrupo(p.code)+' / '+produtoLocal(p.code),numf(sal(p.code))])),
