@@ -1876,7 +1876,8 @@ function renderPainel(){
   $('#topActions').innerHTML=obraSelectorHTML(true);
   const o=curObra(); const all=o==='__all';
   const sal=code=>all?totalSaldo(code):saldoOf(o,code);
-  const ps=state.products;
+  /* obra escolhida: só os produtos da obra (saldo registrado ou movimentação nela) — "zerados" não traz o cadastro inteiro */
+  const naObra=all?null:codigosNaObra(o); const ps=naObra?state.products.filter(p=>naObra.has(String(p.code))):state.products;
   const tr=buildTracked(); const stOf=(p,s)=>statusRepor(p,s,o,tr);
   const low=ps.filter(p=>stOf(p,sal(p.code))==='low');
   const high=ps.filter(p=>acimaMax(p,o,sal(p.code)));
@@ -2864,7 +2865,7 @@ function renderProdutos(){
       <label style="display:flex;align-items:center;gap:6px;font-size:12px;text-transform:none;font-weight:500;margin:0;color:#5a544a"><input type="checkbox" id="prodZero" style="width:auto"> Incluir zerados</label>
     </div></div>`;
   if(!state.products.length){ html+=`<div class="tbl-wrap"><div class="empty"><div class="ico">≣</div>Nenhum produto.</div></div>`; $('#view').innerHTML=html; return; }
-  html+=`<div class="tbl-wrap"><table class="fixa"><colgroup><col style="width:70px"><col style="width:170px"><col style="width:110px"><col><col style="width:90px"><col style="width:100px"><col style="width:100px"><col style="width:110px"><col style="width:100px"><col style="width:96px"></colgroup><thead><tr><th>Foto</th><th>Cód. barras</th><th>Cód. aux.</th><th>Produto</th><th class="num">Saldo</th><th class="num">Mín</th><th class="num">Máx</th><th class="num">Custo</th><th class="num">Venda</th><th></th></tr></thead><tbody id="prodRows"></tbody></table></div>`;
+  html+=`<div id="prodAviso"></div><div class="tbl-wrap"><table class="fixa"><colgroup><col style="width:70px"><col style="width:170px"><col style="width:110px"><col><col style="width:90px"><col style="width:100px"><col style="width:100px"><col style="width:110px"><col style="width:100px"><col style="width:96px"></colgroup><thead><tr><th>Foto</th><th>Cód. barras</th><th>Cód. aux.</th><th>Produto</th><th class="num">Saldo</th><th class="num">Mín</th><th class="num">Máx</th><th class="num">Custo</th><th class="num">Venda</th><th></th></tr></thead><tbody id="prodRows"></tbody></table></div>`;
   $('#view').innerHTML=html;
   if(window._prodQ!=null)$('#prodSearch').value=window._prodQ;
   if(window._prodZero!=null)$('#prodZero').checked=window._prodZero;
@@ -2874,7 +2875,11 @@ function renderProdutos(){
       if(!zero && !(s>0))return false;
       if(q && !buscaProdutoTem(p,q))return false;
       return true; });
-    const sig=[q,zero,curObra()].join('|'); if(window._prodSig!==sig){ window._prodSig=sig; window._prodLim=LIST_PAGE; }
+    /* obra escolhida: só produtos da obra (saldo registrado ou movimentação nela), a não ser que se peça os de outras obras */
+    { const naObra=all?null:codigosNaObra(o), fora=naObra?list.filter(p=>!naObra.has(String(p.code))).length:0, av=$('#prodAviso');
+      if(naObra&&!window._prodOutras)list=list.filter(p=>naObra.has(String(p.code)));
+      if(av)av.innerHTML=fora?`<p class="muted" style="font-size:12.5px;margin:0 0 8px">${window._prodOutras?'Mostrando também '+fora+' produto(s) sem saldo nem movimentação em '+esc(obraName(o))+'. <a href="javascript:void 0" onclick="window._prodOutras=false;renderProdutos()">Mostrar só os desta obra</a>':fora+' produto(s) do cadastro sem saldo nem movimentação em '+esc(obraName(o))+' não aparecem. <a href="javascript:void 0" onclick="window._prodOutras=true;renderProdutos()">Mostrar também</a>'}</p>`:''; }
+    const sig=[q,zero,curObra(),!!window._prodOutras].join('|'); if(window._prodSig!==sig){ window._prodSig=sig; window._prodLim=LIST_PAGE; }
     /* ordenação pelo cabeçalho: feita na lista inteira (não só nas linhas já carregadas) e mantida entre redesenhos */
     const ord=window._prodOrd, chave=ord&&PROD_ORD_CHAVES[ord.idx];
     if(chave){ const k=p=>chave(p,sal(p.code),all?null:limDe(p,o)), dir=ord.asc?1:-1;
@@ -3330,7 +3335,8 @@ function reportBaixaGroup(gid){ const ms=state.movements.filter(m=>m.tipo==='bai
 function drawScanResults(q){ const box=$('#scanResults'); if(!box)return; q=(q||'').trim(); if(!q){box.innerHTML='';return;}
   const o=curObra()==='__all'?state.obras[0].id:curObra();
   if(findByCodeOrAux(q)){ box.innerHTML=''; return; }
-  const list=searchProducts(q).slice(0,8); if(!list.length){box.innerHTML='';return;}
+  const naObra=codigosNaObra(o), achou=searchProducts(q), list=achou.filter(p=>naObra.has(String(p.code))).slice(0,8);
+  if(!list.length){box.innerHTML=achou.length?`<div class="muted" style="font-size:12px;padding:8px 2px">${achou.length} item(ns) encontrado(s), mas sem saldo nem movimentação em ${esc(obraName(o))}.</div>`:'';return;}
   box.innerHTML=`<div class="tbl-wrap" style="margin:6px 0 10px"><table><tbody>`+list.map(p=>`<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · saldo ${numf(saldoOf(o,p.code))} ${esc(p.unit||'')}</span></td><td class="num" style="width:90px"><button class="btn ghost sm" onclick="lookupScanPick('${esc(p.code)}')">Selecionar</button></td></tr>`).join('')+`</tbody></table></div>`; }
 function lookupScanPick(code){ if($('#scanResults'))$('#scanResults').innerHTML=''; lookupScan(code,true); }
 function lookupScan(code,exactCode){ code=String(code).trim(); if(!code)return; const o=curObra()==='__all'?state.obras[0].id:curObra();
@@ -3357,8 +3363,8 @@ function addScanToCart(){ const p=baixaProduct; if(!p)return; const o=curObra()=
   if($('#scanInput')){$('#scanInput').value='';$('#scanInput').focus();} }
 function cancelBaixa(){ baixaProduct=null; const fc=$('#foundCard'); if(fc)fc.className='found-card'; if($('#scanInput'))$('#scanInput').focus(); }
 /* --- manual / saída de material --- */
-function drawSaidaResults(q,o){ const box=$('#saidaResults'); if(!box)return; const list=searchProducts(q).slice(0,8);
-  if(!q||!list.length){ box.innerHTML=q&&!list.length?`<div class="muted" style="font-size:12px;padding:8px 2px">Nenhum item encontrado.</div>`:''; return; }
+function drawSaidaResults(q,o){ const box=$('#saidaResults'); if(!box)return; const naObra=codigosNaObra(o), achou=searchProducts(q), list=achou.filter(p=>naObra.has(String(p.code))).slice(0,8);
+  if(!q||!list.length){ box.innerHTML=q&&!list.length?`<div class="muted" style="font-size:12px;padding:8px 2px">${achou.length?achou.length+' item(ns) encontrado(s), mas sem saldo nem movimentação em '+esc(obraName(o))+'.':'Nenhum item encontrado.'}</div>`:''; return; }
   box.innerHTML=`<div class="tbl-wrap" style="margin-top:10px"><table><tbody>`+list.map(p=>`<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · saldo ${numf(saldoOf(o,p.code))} ${esc(p.unit||'')}</span></td><td class="num" style="width:80px"><button class="btn ghost sm" onclick="addSaida('${esc(p.code)}')">+ Add</button></td></tr>`).join('')+`</tbody></table></div>`; }
 function addSaida(code){ const o=curObra()==='__all'?state.obras[0].id:curObra(); if(!saidaCart.some(i=>i.code===code))saidaCart.push({code,qty:1}); if($('#saidaSearch'))$('#saidaSearch').value=''; if($('#saidaResults'))$('#saidaResults').innerHTML=''; drawSaidaCart(o); if($('#saidaSearch'))$('#saidaSearch').focus(); }
 function rmSaida(code){ saidaCart=saidaCart.filter(i=>i.code!==code); const o=curObra()==='__all'?state.obras[0].id:curObra(); drawSaidaCart(o); }
@@ -5966,8 +5972,11 @@ function devolNotaChange(){ const notaId=$('#dvNota').value; const n=state.notas
   window._dvItens=[]; if(n&&n.itens){ n.itens.forEach(it=>{ window._dvItens.push({code:it.code,desc:it.desc,unit:it.unit||'',qty:0,max:it.qty,valorUnit:Number(it.valorUnit||it.custo||0)}); }); if(n.obra&&$('#dvObra'))$('#dvObra').value=n.obra; }
   devolRenderItens(); }
 function devolBuscaResults(q){ const box=$('#dvBuscaResults'); if(!box)return; q=(q||'').trim(); if(!q){box.innerHTML='';return;}
-  const list=searchProducts(q).slice(0,6);
-  box.innerHTML=list.map(p=>`<div class="tbl-wrap" style="margin-top:4px"><table><tbody><tr><td>${esc(p.desc)} <span class="muted" style="font-size:11px">${esc(p.code)}</span></td><td class="num" style="width:70px"><button class="btn ghost sm" onclick="devolAddItemManual('${esc(p.code)}')">+ Add</button></td></tr></tbody></table></div>`).join(''); }
+  /* só produtos da obra da devolução (saldo registrado ou movimentação nela) */
+  const ob=$('#dvObra')?$('#dvObra').value:''; const naObra=ob?codigosNaObra(ob):null, achou=searchProducts(q);
+  const list=(naObra?achou.filter(p=>naObra.has(String(p.code))):achou).slice(0,6);
+  if(!list.length){ box.innerHTML=`<div class="muted" style="font-size:12px;padding:8px 2px">${achou.length&&naObra?achou.length+' item(ns) encontrado(s), mas sem saldo nem movimentação em '+esc(obraName(ob))+'.':'Nenhum item encontrado.'}</div>`; return; }
+  box.innerHTML=list.map(p=>`<div class="tbl-wrap" style="margin-top:4px"><table><tbody><tr><td>${esc(p.desc)} <span class="muted" style="font-size:11px">${esc(p.code)}${ob?' · saldo '+numf(saldoOf(ob,p.code))+' '+esc(p.unit||''):''}</span></td><td class="num" style="width:70px"><button class="btn ghost sm" onclick="devolAddItemManual('${esc(p.code)}')">+ Add</button></td></tr></tbody></table></div>`).join(''); }
 function devolAddItemManual(code){ const p=findProduct(code); if(!p)return; if(!window._dvItens)window._dvItens=[];
   if(window._dvItens.some(i=>i.code===code)){toast('Item já está na lista.','warn');return;}
   window._dvItens.push({code:p.code,desc:p.desc,unit:p.unit||'',qty:0,max:null,valorUnit:p.custo||0});
@@ -7040,7 +7049,8 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
     foot=['Total',money(S('ent')),money(S('ajP')),money(S('ajN')),money(S('bx')),money(S('tIn')),money(S('tOut')),money(S('estoque'))];
   } else if(relTipo==='grupo'){
     titulo='Insumos cadastrados por grupo';
-    const list=state.products.filter(p=>produtoPassaFiltros(p,gf,lf,pf))
+    const naObra=isAll?null:codigosNaObra(fobra);
+    const list=state.products.filter(p=>produtoPassaFiltros(p,gf,lf,pf)&&(!naObra||naObra.has(String(p.code))))
       .map(p=>{ const s=isAll?totalSaldo(p.code):saldoOf(fobra,p.code); return {grupo:produtoGrupo(p.code),code:p.code,aux:p.aux||'',desc:p.desc,unit:p.unit||'',saldo:s,valor:s*(p.custo||0)}; })
       .sort((a,b)=>(a.grupo==='(sem grupo)'?1:b.grupo==='(sem grupo)'?-1:a.grupo.localeCompare(b.grupo,'pt-BR'))||a.desc.localeCompare(b.desc,'pt-BR'));
     headers=['Grupo do insumo','Código','Código auxiliar','Insumo (descrição)','Saldo','Valor em estoque'];
@@ -7078,7 +7088,8 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
     titulo='Movimentação por produto';
     const g={}; inP.forEach(m=>{ if(m.tipo==='transferencia')return; if(!g[m.code])g[m.code]={entQ:0,entV:0,bxQ:0,bxV:0}; if(m.tipo==='entrada'){g[m.code].entQ+=m.qty;g[m.code].entV+=m.valorTotal;} else if(m.tipo==='baixa'){g[m.code].bxQ+=m.qty;g[m.code].bxV+=m.valorTotal;} });
     /* "Incluir produtos sem movimentação": entram também os produtos do cadastro (respeitando grupo/localização/produto) sem entrada nem saída no período */
-    if(_relProdTodos)state.products.forEach(p=>{ const c=String(p.code); if(!g[c]&&produtoPassaFiltros(p,gf,lf,pf))g[c]={entQ:0,entV:0,bxQ:0,bxV:0}; });
+    const naObraP=isAll?null:codigosNaObra(fobra);
+    if(_relProdTodos)state.products.forEach(p=>{ const c=String(p.code); if(!g[c]&&produtoPassaFiltros(p,gf,lf,pf)&&(!naObraP||naObraP.has(c)))g[c]={entQ:0,entV:0,bxQ:0,bxV:0}; });
     let arr=Object.entries(g).map(([code,v])=>{const p=relProd(code); return {code,desc:p?p.desc:code,unit:p?(p.unit||''):'',saldo:isAll?totalSaldo(code):saldoOf(fobra,code),...v};});
     /* filtro de saldo atual: com saldo (> 0) ou sem saldo (zerado ou negativo) */
     if(_relProdSaldo==='com')arr=arr.filter(a=>a.saldo>0); else if(_relProdSaldo==='sem')arr=arr.filter(a=>a.saldo<=0);
