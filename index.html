@@ -1762,7 +1762,17 @@ function setorLabel(s){ return s==='almoxarifado'?'Almoxarifado':s==='compras'?'
 /* ===== Scanner de câmera (celular / tablet) ===== */
 let camScanner=null;
 let camOnCancel=null;
-async function openCameraScanner(onResult,onCancel){ camOnCancel=onCancel||null;
+/* Bip + vibração ao ler um código (mesmo aviso do app de Contagem). O áudio é preparado no toque que abre a câmera,
+   porque o navegador só libera som depois de um gesto do usuário. */
+let _scanAudioCtx=null;
+function scanAudioPrep(){ try{ if(!_scanAudioCtx)_scanAudioCtx=new (window.AudioContext||window.webkitAudioContext)(); if(_scanAudioCtx.state==='suspended')_scanAudioCtx.resume(); }catch(e){} }
+function scanBeep(){
+  try{ scanAudioPrep(); const ctx=_scanAudioCtx; if(ctx){ const o=ctx.createOscillator(), g=ctx.createGain(); o.type='square'; o.frequency.value=1040;
+    g.gain.setValueAtTime(0.08,ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.12);
+    o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime+0.12); } }catch(e){}
+  try{ if(navigator.vibrate)navigator.vibrate(80); }catch(e){}
+}
+async function openCameraScanner(onResult,onCancel){ camOnCancel=onCancel||null; scanAudioPrep();
   try{ await ensureHtml5Qrcode(); }catch(e){ toast('Leitor de câmera não carregou (verifique a conexão) — use a digitação manual.','err'); return; }
   $('#modalRoot').innerHTML=`<div class="ovl"><div class="modal"><h3>📷 Aponte para o código de barras</h3>
     <div id="camReaderBox"></div>
@@ -1770,7 +1780,7 @@ async function openCameraScanner(onResult,onCancel){ camOnCancel=onCancel||null;
     <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn ghost" onclick="closeCameraScanner(true)">Cancelar</button></div></div></div>`;
   camScanner=new Html5Qrcode('camReaderBox');
   camScanner.start({facingMode:'environment'},{fps:10,qrbox:{width:260,height:160}},
-    (decodedText)=>{ const cb=onResult; camOnCancel=null; closeCameraScanner(); cb&&cb(decodedText); },
+    (decodedText)=>{ if(!camScanner)return; scanBeep(); const cb=onResult; camOnCancel=null; closeCameraScanner(); cb&&cb(decodedText); },
     ()=>{}
   ).catch(err=>{ toast('Não foi possível abrir a câmera: '+(err&&err.message?err.message:err)+'. Verifique a permissão do navegador.','err'); camScanner=null; closeModal(); });
 }
