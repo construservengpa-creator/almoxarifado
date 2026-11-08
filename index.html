@@ -220,6 +220,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   /* ===== Botão de menu (só aparece no celular) ===== */
   .menu-btn{display:none;background:var(--panel);color:#fff;border:none;border-radius:8px;width:42px;height:42px;font-size:20px;line-height:1;cursor:pointer;flex-shrink:0;align-items:center;justify-content:center}
   #navOverlay{display:none}
+  /* ===== Recolher/expandir o menu lateral (computador) — mesmo padrão do Capivara Suprimentos e do Controle de Notas:
+     botão ☰ / » no topo; recolhido, a barra lateral some inteira e o conteúdo usa a largura toda. ===== */
+  aside{transition:width .18s ease}
+  .sidebar-toggle{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;min-width:30px;flex-shrink:0;background:var(--panel2);border:1px solid var(--line);border-radius:6px;color:var(--muted);font-size:13px;font-family:'IBM Plex Mono',monospace;cursor:pointer;line-height:1}
+  .sidebar-toggle:hover{color:var(--ink);border-color:var(--amber-dim)}
+  body.nav-collapsed aside{width:0;border-right-width:0;overflow:hidden}
+  body.nav-collapsed aside>*{min-width:236px} /* evita o texto do menu se espremer durante a animação */
   html{-webkit-text-size-adjust:100%}
   /* ===== Ajustes para celular / tablet ===== */
   @media(max-width:860px){
@@ -232,6 +239,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     nav button{padding:13px 13px;font-size:14.5px}
     .navgrp-hd{padding:13px 13px 8px}
     .menu-btn{display:inline-flex}
+    .sidebar-toggle{display:none} /* no celular o menu já abre por cima do conteúdo (botão ☰) — recolher não se aplica */
+    body.nav-collapsed aside{width:280px;overflow:visible;border-right-width:1px}
+    body.nav-collapsed aside>*{min-width:0}
     main{width:100%;min-height:100dvh}
     .topbar{padding:10px 14px;padding-top:calc(10px + env(safe-area-inset-top));gap:10px;flex-wrap:wrap;justify-content:flex-start}
     .topbar h2{font-size:16.5px;flex:1;min-width:0}
@@ -549,6 +559,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   <div id="globalAlerts" class="noprint"></div>
   <div class="topbar">
     <button class="menu-btn noprint" id="menuBtn" type="button" aria-label="Abrir menu">☰</button>
+    <button class="sidebar-toggle noprint" id="sidebarToggle" type="button" title="Recolher menu" aria-label="Recolher/expandir menu" aria-expanded="true">☰</button>
     <h2 id="pageTitle">Painel <small id="pageSub"></small></h2>
     <div id="offlineBadge" class="offbadge noprint" style="display:none"></div>
     <div class="noprint" id="topActions"></div>
@@ -1807,6 +1818,17 @@ document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>go(b.dataset.t
 /* ===== Menu lateral em gaveta (celular) ===== */
 function closeNav(){ document.body.classList.remove('nav-open'); }
 document.getElementById('menuBtn').addEventListener('click',()=>document.body.classList.toggle('nav-open'));
+/* Recolher/expandir o menu lateral no computador. A preferência fica guardada neste aparelho. */
+(function(){
+  const KEY_SB='capivaraEstoqueSidebarCollapsed', btn=document.getElementById('sidebarToggle'); if(!btn) return;
+  function aplicar(c){ document.body.classList.toggle('nav-collapsed',c); btn.setAttribute('aria-expanded',c?'false':'true'); btn.title=c?'Expandir menu':'Recolher menu'; btn.textContent=c?'»':'☰'; }
+  let salvo=null; try{ salvo=localStorage.getItem(KEY_SB); }catch(e){}
+  aplicar(salvo==='1');
+  btn.addEventListener('click',()=>{ const c=!document.body.classList.contains('nav-collapsed'); aplicar(c);
+    try{ localStorage.setItem(KEY_SB,c?'1':'0'); }catch(e){}
+    // gráficos (Chart.js) só se ajustam ao redimensionar a janela — avisa depois da transição do menu
+    setTimeout(()=>window.dispatchEvent(new Event('resize')),200); });
+})();
 document.getElementById('navOverlay').addEventListener('click',closeNav);
 document.querySelectorAll('#nav button[data-tab]').forEach(b=>b.addEventListener('click',()=>{ if(window.innerWidth<=860)closeNav(); }));
 window.addEventListener('resize',()=>{ if(window.innerWidth>860)closeNav(); });
