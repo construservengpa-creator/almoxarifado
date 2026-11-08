@@ -6,6 +6,15 @@
 <title>Capivara Estoque — Controle de Estoque por Obra</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%23F5C433'/><g fill='%231A1E24' transform='translate(0.00 0.00) scale(1.0)'><rect x='12' y='40' width='6' height='12' rx='2.5'/><rect x='22' y='41' width='5.5' height='11' rx='2.5'/><rect x='35.5' y='40' width='6' height='12' rx='2.5'/><circle cx='41.5' cy='18.8' r='2.7'/><path fill-rule='evenodd' d='M10 44C5.5 40 5.5 30 9.5 25.5C13.5 20 21 17 28.5 17.8C33 18.3 35.5 20 38 20L44 19.6C50.5 19.8 55.5 21 58.5 23.5C60.8 25.5 61 31 59.5 33.5C58.3 35.2 55.5 35.8 52.5 35.8L46 35.8C44.5 40.5 41 44.5 36 45.5L16 46.5C13.5 46.5 11.3 45.5 10 44ZM48.6 24.3a1.6 1.6 0 1 0-3.2 0a1.6 1.6 0 1 0 3.2 0ZM59.2 26.6a.8 1.1 0 1 0-1.6 0a.8 1.1 0 1 0 1.6 0Z'/></g></svg>">
 <link rel="apple-touch-icon" href="capivara-apple-touch-icon.png">
+<!-- Aplicativo instalável (PC e celular): manifesto + service worker app-sw.js -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="estoque-favicon-32.png">
+<meta name="theme-color" content="#1a2129">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Capivara Estoque">
+<meta name="application-name" content="Capivara Estoque">
 <link rel="preconnect" href="https://qjmqburjyqlgwjihvlgp.supabase.co" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
@@ -413,6 +422,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   #capAbertura .emp-logos .emp-sep{height:52px}
 }
 .brand .emp-logos{margin-bottom:12px}
+/* ===== Aplicativo instalado (PC e celular) ===== */
+.app-instalar{margin:0 12px 8px;background:var(--panel2);color:var(--amber);border:1px dashed var(--amber-dim);border-radius:8px;padding:9px 12px;font:600 12.5px 'IBM Plex Sans',sans-serif;cursor:pointer;text-align:center}
+.app-instalar:hover{background:var(--amber);color:#1a1206;border-style:solid}
+/* Rodando como app (janela própria): respeita as áreas do sistema (entalhe/barra de gestos) */
+@media (display-mode:standalone){
+  body{overscroll-behavior-y:none}
+  aside{padding-bottom:env(safe-area-inset-bottom)}
+}
 </style>
 </head>
 <body>
@@ -525,6 +542,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     <button title="Trocar senha" onclick="trocarSenhaModal()">🔑</button>
     <button title="Sair" onclick="doLogout()">⏻</button>
   </div>
+  <button class="app-instalar noprint" id="btnInstalarApp" type="button" style="display:none" title="Instalar o Capivara Estoque como aplicativo neste aparelho">⤓ Instalar aplicativo</button>
   <div class="app-ver" id="appVer" title="Versão publicada do aplicativo"></div>
 </aside>
 <main>
@@ -7286,6 +7304,40 @@ document.addEventListener('click',function(e){ const th=e.target.closest('th'); 
   ths.forEach(h=>{const i=h.querySelector('.si-sort'); if(i)i.remove();}); const ind=document.createElement('span'); ind.className='si-sort'; ind.style.cssText='font-size:9px;opacity:.6;margin-left:3px'; ind.textContent=asc?'▲':'▼'; th.appendChild(ind); });
 document.addEventListener('input',function(e){ const el=e.target; if(!el||(el.tagName!=='INPUT'&&el.tagName!=='TEXTAREA'))return; const t=(el.type||'text').toLowerCase(); if(['password','number','date','datetime-local','time','email','file','checkbox','radio','color','range'].includes(t))return; if(el.dataset.noupper!==undefined)return; const a=el.selectionStart,b=el.selectionEnd; const up=el.value.toUpperCase(); if(up!==el.value){ el.value=up; try{el.setSelectionRange(a,b);}catch(_){} } });
 (function(){ const s=document.createElement('style'); s.textContent='.tbl-wrap table thead th{cursor:pointer;user-select:none}.tbl-wrap table thead th:hover{background:#e4dfd4}'; document.head.appendChild(s); })();
+
+/* ===== Aplicativo instalável (PC e celular) =====
+   O sistema pode ser instalado como aplicativo: abre em janela própria, com ícone na área de trabalho/menu
+   Iniciar (Chrome/Edge no PC) ou na tela inicial (Android/iPhone). O service worker app-sw.js só cuida da
+   abertura da página e dos ícones; os dados continuam vindo sempre do banco (Supabase). */
+const appInstalado=()=>{ try{ return matchMedia('(display-mode: standalone)').matches||matchMedia('(display-mode: minimal-ui)').matches||navigator.standalone===true; }catch(e){ return false; } };
+const ehIOS=()=>/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+let _promptInstalar=null;
+function atualizarBotaoInstalar(){
+  const b=document.getElementById('btnInstalarApp'); if(!b)return;
+  b.style.display=(!appInstalado()&&(_promptInstalar||ehIOS()))?'block':'none';
+}
+async function instalarApp(){
+  if(_promptInstalar){
+    const p=_promptInstalar; _promptInstalar=null;
+    try{ p.prompt(); const r=await p.userChoice; if(r&&r.outcome==='accepted')toast('Instalando o Capivara Estoque…','ok'); }catch(e){}
+    atualizarBotaoInstalar(); return;
+  }
+  if(ehIOS()){
+    modal(`<h3>📲 Instalar no iPhone / iPad</h3><p class="mp">Abra este endereço no <b>Safari</b> e:</p>
+      <ol style="margin:10px 0 0 20px;line-height:1.9;font-size:14px"><li>Toque em <b>Compartilhar</b> (o quadrado com a seta ↑).</li><li>Escolha <b>Adicionar à Tela de Início</b>.</li><li>Toque em <b>Adicionar</b>.</li></ol>
+      <p class="mp" style="margin-top:10px">O ícone da capivara aparece na tela inicial e o sistema abre em tela cheia, como um aplicativo.</p>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="closeModal()">Fechar</button></div>`);
+  }
+}
+window.addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); _promptInstalar=e; atualizarBotaoInstalar(); });
+window.addEventListener('appinstalled',()=>{ _promptInstalar=null; atualizarBotaoInstalar(); toast('Aplicativo instalado. Procure o ícone da capivara na área de trabalho ou na tela inicial.','ok'); });
+(function(){
+  const b=document.getElementById('btnInstalarApp'); if(b)b.addEventListener('click',instalarApp);
+  atualizarBotaoInstalar();
+  if('serviceWorker' in navigator && location.protocol!=='file:'){
+    window.addEventListener('load',()=>{ navigator.serviceWorker.register('app-sw.js',{scope:'./'}).catch(e=>console.warn('Service worker do app não registrado:',e)); });
+  }
+})();
 
 /* ===== Init ===== */
 (async function(){
