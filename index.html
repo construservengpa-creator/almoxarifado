@@ -1220,18 +1220,74 @@ function pickAplic(id){ const hid=$('#saidaAplic'); if(!hid)return; hid.value=id
   const box=$('#saidaAplicResults'); if(box){box.innerHTML=''; box.style.display='none';}
   onAplicChange(); }
 function printSignReport(opt){ const w=opt.win||window.open('','_blank'); if(!w){toast('Permita pop-ups para gerar o relatório.','err');return;} if(opt.win){ try{ w.document.open(); }catch(e){} }
-  let total=0; const conf=!!opt.conferencia;
-  const linhas=opt.itens.map((it,i)=>{const vu=it.valor||0;const vt=it.qty*vu;total+=vt;return `<tr><td>${i+1}</td><td class="mono">${esc(it.code||'')}</td><td class="mono">${esc(it.aux||'—')}</td><td>${esc(it.desc)}</td><td style="text-align:right">${numf(it.qty)} ${esc(it.unit||'')}</td><td style="text-align:right">${money(vu)}</td><td style="text-align:right">${money(vt)}</td>${conf?'<td class="chk"></td>':''}</tr>`;}).join('');
-  const asn=(opt.assinaturas||[]).map(a=>typeof a==='string'?`<div class="sig"><div class="line"></div><div>${esc(a)}</div></div>`:`<div class="sig"><div class="dig">${a.html||''}</div><div class="line"></div><div>${esc(a.label||'')}</div></div>`).join('');
-  w.document.write(`<html><head><title>${esc(opt.titulo)}${opt.numero?' Nº '+esc(opt.numero):''}</title><style>body{font-family:Arial,Helvetica,sans-serif;margin:36px;color:#111;font-size:13px}.hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:6px}h1{font-size:18px;margin:0 0 2px}.sub{color:#555;font-size:12px}.numbox{text-align:right;border:2px solid #111;border-radius:6px;padding:6px 14px;min-width:120px}.numbox .l{font-size:9px;letter-spacing:1px;color:#555;text-transform:uppercase}.numbox .n{font-size:26px;font-weight:bold;font-family:'Courier New',monospace;line-height:1.1}.meta{margin:12px 0;font-size:13px;line-height:1.7}.meta b{display:inline-block;min-width:120px}table{width:100%;border-collapse:collapse;margin-top:8px}th,td{border:1px solid #999;padding:6px 8px;font-size:11.5px}th{background:#eee;text-align:left}.mono{font-family:'Courier New',monospace}td.chk{width:70px;height:26px}tfoot td{font-weight:bold;background:#f6f6f6}.sigs{display:flex;gap:40px;margin-top:60px;flex-wrap:wrap}.sig{flex:1;min-width:180px;text-align:center}.sig .line{border-top:1px solid #333;margin-bottom:6px;height:1px}.sig div:last-child{font-size:12px;color:#333}.sig .dig{min-height:78px;display:flex;align-items:flex-end;justify-content:center;margin-bottom:4px}.obs{margin-top:16px;font-size:12px;color:#444}.confnote{margin-top:8px;font-size:11px;color:#666;font-style:italic}</style></head><body>
-  <div class="hd"><div><h1>${esc(opt.titulo)}</h1><div class="sub">${esc(opt.subtitulo||'')}</div></div>${opt.numero?`<div class="numbox"><div class="l">Documento Nº</div><div class="n">${esc(opt.numero)}</div></div>`:''}</div>
-  <div class="meta"><div><b>Data:</b> ${esc(opt.data)}</div>${opt.obra?`<div><b>Obra:</b> ${esc(opt.obra)}</div>`:''}${opt.obraDest?`<div><b>Obra destino:</b> ${esc(opt.obraDest)}</div>`:''}${opt.aplicacao?`<div><b>Aplicação:</b> ${esc(opt.aplicacao)}</div>`:''}${opt.doc?`<div><b>Documento:</b> ${esc(opt.doc)}</div>`:''}${opt.responsavel?`<div><b>Responsável:</b> ${esc(opt.responsavel)}</div>`:''}</div>
-  <table><thead><tr><th style="width:28px">#</th><th>Cód. barras</th><th>Cód. auxiliar</th><th>Descrição</th><th style="text-align:right">Qtd</th><th style="text-align:right">Valor un.</th><th style="text-align:right">Valor total</th>${conf?'<th style="text-align:center;width:70px">Conferido (X)</th>':''}</tr></thead><tbody>${linhas}</tbody><tfoot><tr><td colspan="6" style="text-align:right">Total</td><td style="text-align:right">${money(total)}</td>${conf?'<td></td>':''}</tr></tfoot></table>
-  ${conf?'<div class="confnote">Marque com "X" na coluna "Conferido" cada item recebido/conferido na obra de destino.</div>':''}
+  let total=0; const conf=!!opt.conferencia; const nItens=opt.itens.length;
+  const linhas=opt.itens.map((it,i)=>{const vu=it.valor||0;const vt=it.qty*vu;total+=vt;return `<tr><td class="c n">${i+1}</td><td class="mono">${esc(it.code||'')}</td><td class="mono">${esc(it.aux||'—')}</td><td class="desc">${esc(it.desc)}</td><td class="r nw"><b>${numf(it.qty)}</b> ${esc(it.unit||'')}</td><td class="r nw">${money(vu)}</td><td class="r nw">${money(vt)}</td>${conf?'<td class="chk"><span></span></td>':''}</tr>`;}).join('');
+  const asn=(opt.assinaturas||[]).map(a=>typeof a==='string'?`<div class="sig"><div class="dig"></div><div class="line"></div><div class="lb">${esc(a)}</div></div>`:`<div class="sig"><div class="dig">${a.html||''}</div><div class="line"></div><div class="lb">${esc(a.label||'')}</div></div>`).join('');
+  const rota=(opt.obra&&opt.obraDest)?`<div class="rota"><div class="pt"><div class="pl">Origem</div><div class="pv">${esc(opt.obra)}</div></div><div class="arr">➜</div><div class="pt"><div class="pl">Destino</div><div class="pv">${esc(opt.obraDest)}</div></div></div>`:'';
+  const metaItens=[['Data',opt.data],(!rota&&opt.obra)?['Obra',opt.obra]:null,(!rota&&opt.obraDest)?['Obra destino',opt.obraDest]:null,opt.aplicacao?['Aplicação',opt.aplicacao]:null,opt.doc?['Documento',opt.doc]:null,opt.responsavel?['Responsável',opt.responsavel]:null].filter(Boolean);
+  const meta=metaItens.map(([l,v])=>`<div class="mi"><div class="ml">${l}</div><div class="mv">${esc(v||'—')}</div></div>`).join('');
+  const agora=new Date(); const emitido=agora.toLocaleDateString('pt-BR')+' '+agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  const docTit=esc(opt.titulo)+(opt.numero?' Nº '+esc(opt.numero):'');
+  w.document.write(`<html><head><meta charset="utf-8"><title>${docTit}</title><style>
+  @page{size:A4;margin:12mm 11mm 14mm}
+  @page{@bottom-left{content:"${docTit.replace(/"/g,"'")}";font:9px Arial,sans-serif;color:#777}@bottom-right{content:"Página " counter(page) " de " counter(pages);font:9px Arial,sans-serif;color:#777}}
+  *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{font-family:Arial,Helvetica,sans-serif;margin:0;color:#1a1a1a;font-size:11.5px;background:#fff}
+  .pg{max-width:190mm;margin:0 auto;padding:6mm 0}
+  @media screen{.pg{padding:24px 18px}}
+  .hd{display:flex;justify-content:space-between;align-items:stretch;gap:16px;border-bottom:3px solid #1f3a5f;padding-bottom:10px}
+  .hd .tt{display:flex;flex-direction:column;justify-content:center}
+  h1{font-size:19px;margin:0 0 3px;color:#1f3a5f;letter-spacing:.2px}
+  .sub{color:#555;font-size:12px}
+  .numbox{text-align:center;border:2px solid #1f3a5f;border-radius:6px;padding:5px 14px;min-width:130px;flex:none}
+  .numbox .l{font-size:8.5px;letter-spacing:1.2px;color:#1f3a5f;text-transform:uppercase;font-weight:bold}
+  .numbox .n{font-size:24px;font-weight:bold;font-family:'Courier New',monospace;line-height:1.15}
+  .rota{display:flex;align-items:stretch;gap:10px;margin-top:12px}
+  .rota .pt{flex:1;border:1px solid #c9d3df;border-radius:6px;padding:7px 10px;background:#f4f7fa}
+  .rota .arr{align-self:center;font-size:18px;color:#1f3a5f}
+  .pl,.ml{font-size:8.5px;letter-spacing:.8px;text-transform:uppercase;color:#6b7785;font-weight:bold}
+  .pv{font-size:13px;font-weight:bold;margin-top:2px}
+  .meta{display:grid;grid-template-columns:repeat(${Math.min(metaItens.length,3)||1},1fr);gap:0;margin-top:10px;border:1px solid #c9d3df;border-radius:6px;overflow:hidden}
+  .mi{padding:6px 10px;border-right:1px solid #e1e6ec;border-bottom:1px solid #e1e6ec}
+  .mv{font-size:12px;margin-top:2px;word-break:break-word}
+  table{width:100%;border-collapse:collapse;margin-top:12px}
+  thead{display:table-header-group} tfoot{display:table-row-group}
+  tr{break-inside:avoid;page-break-inside:avoid}
+  th{background:#1f3a5f;color:#fff;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px;padding:6px 7px;border:1px solid #1f3a5f;white-space:nowrap}
+  td{border-bottom:1px solid #d5dbe2;padding:5px 7px;font-size:11px;vertical-align:top}
+  tbody tr:nth-child(even) td{background:#f6f8fa}
+  td.desc{width:100%} .r{text-align:right} .c{text-align:center} .nw{white-space:nowrap} td.n{color:#777}
+  .mono{font-family:'Courier New',monospace;font-size:10.5px;white-space:nowrap}
+  td.chk{text-align:center;vertical-align:middle} td.chk span{display:inline-block;width:15px;height:15px;border:1.5px solid #555;border-radius:2px;background:#fff}
+  tfoot td{font-weight:bold;background:#e8edf3;border-top:2px solid #1f3a5f;border-bottom:none;font-size:12px}
+  .resumo{display:flex;justify-content:space-between;margin-top:5px;font-size:10.5px;color:#555}
+  .confnote{font-style:italic}
+  .obs{margin-top:12px;font-size:11.5px;border-left:3px solid #1f3a5f;background:#f6f8fa;padding:7px 10px;break-inside:avoid}
+  .rec{margin-top:16px;border:1px solid #9aa6b4;border-radius:6px;padding:10px 14px;break-inside:avoid;page-break-inside:avoid}
+  .rec .t{font-size:12.5px;font-weight:bold;color:#1f3a5f}
+  .rec .ops{margin-top:8px;display:flex;gap:34px;font-size:13px}
+  .rec .ops span{display:inline-block;width:14px;height:14px;border:1.5px solid #333;vertical-align:-2px;margin-right:6px}
+  .rec .hint{margin-top:5px;font-size:10px;color:#666}
+  .rec .ln{margin-top:30px;display:flex;gap:30px}
+  .rec .ln div{flex:1;border-top:1px solid #333;padding-top:4px;font-size:11px;text-align:center}
+  .rec .ln div.dt{flex:none;width:170px}
+  .sigs{display:grid;grid-template-columns:repeat(${Math.min((opt.assinaturas||[]).length,3)||1},1fr);gap:28px;margin-top:40px;break-inside:avoid;page-break-inside:avoid}
+  .sig{text-align:center}
+  .sig .dig{min-height:46px;display:flex;align-items:flex-end;justify-content:center;margin-bottom:4px}
+  .sig .line{border-top:1px solid #333;margin-bottom:5px}
+  .sig .lb{font-size:11px;color:#333}
+  .emit{margin-top:18px;font-size:9.5px;color:#888;text-align:right}
+  </style></head><body><div class="pg">
+  <div class="hd"><div class="tt"><h1>${esc(opt.titulo)}</h1><div class="sub">${esc(opt.subtitulo||'')}</div></div>${opt.numero?`<div class="numbox"><div class="l">Documento Nº</div><div class="n">${esc(opt.numero)}</div></div>`:''}</div>
+  ${rota}
+  ${meta?`<div class="meta">${meta}</div>`:''}
+  <table><thead><tr><th class="c" style="width:26px">#</th><th>Cód. barras</th><th>Cód. aux.</th><th>Descrição</th><th class="r">Qtd</th><th class="r">Valor un.</th><th class="r">Valor total</th>${conf?'<th class="c">Conf.</th>':''}</tr></thead><tbody>${linhas}</tbody><tfoot><tr><td colspan="6" class="r">Total</td><td class="r nw">${money(total)}</td>${conf?'<td></td>':''}</tr></tfoot></table>
+  <div class="resumo"><span>${nItens} ${nItens===1?'item':'itens'}</span>${conf?'<span class="confnote">Marque a coluna "Conf." em cada item recebido/conferido na obra de destino.</span>':''}</div>
   ${opt.obs?`<div class="obs"><b>Observação:</b><br>${esc(opt.obs).replace(/\n/g,'<br>')}</div>`:''}
-  ${opt.recebimento?`<div style="margin-top:22px;border:1px solid #999;border-radius:6px;padding:12px 14px"><b style="font-size:13px">Declaração de recebimento</b><div style="margin-top:8px;font-size:12.5px">Declaro o recebimento dos itens relacionados acima na forma assinalada:</div><div style="margin-top:10px;display:flex;gap:34px;font-size:14px"><div>☐&nbsp; <b>TOTAL</b></div><div>☐&nbsp; <b>PARCIAL</b></div></div><div style="margin-top:6px;font-size:11px;color:#666">(Em caso de recebimento parcial, indicar na coluna "Conferido" os itens efetivamente recebidos.)</div><div style="margin-top:34px;display:flex;gap:40px"><div style="flex:1;text-align:center"><div style="border-top:1px solid #333;padding-top:5px;font-size:12px">Recebedor (nome e assinatura)</div></div><div style="width:200px;text-align:center"><div style="border-top:1px solid #333;padding-top:5px;font-size:12px">Data&nbsp;&nbsp;/&nbsp;&nbsp;/</div></div></div></div>`:''}
+  ${opt.recebimento?`<div class="rec"><div class="t">Declaração de recebimento</div><div style="margin-top:5px;font-size:11.5px">Declaro o recebimento dos itens relacionados acima na forma assinalada:</div><div class="ops"><div><span></span><b>TOTAL</b></div><div><span></span><b>PARCIAL</b></div></div><div class="hint">(Em caso de recebimento parcial, marcar na coluna "Conf." apenas os itens efetivamente recebidos.)</div><div class="ln"><div>Recebedor (nome e assinatura)</div><div class="dt">Data&nbsp;&nbsp;&nbsp;/&nbsp;&nbsp;&nbsp;/</div></div></div>`:''}
   <div class="sigs">${asn}</div>${opt.rodapeHTML||''}
-  <script>setTimeout(()=>window.print(),350);<\/script></body></html>`); w.document.close(); }
+  <div class="emit">Emitido em ${esc(emitido)}</div>
+  </div><script>setTimeout(()=>window.print(),350);<\/script></body></html>`); w.document.close(); }
 function obraName(id){ const o=state.obras.find(o=>o.id===id); return o?o.nome:'(obra removida)'; }
 function curObra(){ return state.currentObra; }
 let devolucoesBloqueio={};
