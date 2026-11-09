@@ -1349,6 +1349,11 @@ async function movsDoProduto(code){
 // Inventário: traz lançamentos antigos das contagens em tela, para não lançar o mesmo ajuste duas vezes
 async function ensureMovsInv(keys){ keys=[...new Set((keys||[]).filter(Boolean))]; if(!keys.length||movLoadedFrom===0||!isOnline)return;
   for(let i=0;i<keys.length;i+=100){ const {data}=await sb.from('movimentos_estoque').select('*').in('inv_id',keys.slice(i,i+100)); if(data)mergeMovs(data); } }
+/* Bloqueio: insumo sem valor (custo médio zerado) não pode entrar em requisição nem em transferência */
+function insumoSemValor(p){ return !p||!(Number(p.custo)>0); }
+function bloqueiaSemValor(p,acao){ if(!insumoSemValor(p))return false;
+  toast(`${p?p.desc:'Insumo'} está com valor zerado — não é possível vincular à ${acao||'requisição'}. Atualize o custo do insumo antes.`,'err'); return true; }
+function itensSemValor(itens){ return (itens||[]).map(i=>findProduct(i.code)||{code:i.code,desc:i.desc||i.code}).filter(insumoSemValor); }
 function valorAtualEstoque(obraId){ const cm={}; state.products.forEach(p=>cm[p.code]=p.custo||0); let v=0;
   (obraId==='__all'?Object.keys(state.estoque):[obraId]).forEach(ob=>Object.entries(state.estoque[ob]||{}).forEach(([c,q])=>{ v+=(Number(q)||0)*(cm[c]||0); }));
   return v; }
@@ -3200,12 +3205,12 @@ async function drawMinhasFrotasPendentes(){ const box=$('#minhasFrotas'); if(!bo
   if(error){ box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>'; return; }
   box.innerHTML=`<table><thead><tr><th>Nº</th><th>Data</th><th>Obra / OS</th><th>Aplicação</th><th>Itens</th><th></th></tr></thead><tbody>${
     (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(r.criado_em).getTime())}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${esc(r.aplicacao_nome||'—')}</td><td>${r.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="abrirRequisicao(${r.id})">✎ Editar</button> <button class="btn danger sm" onclick="cancelarRequisicao(${r.id})">Cancelar</button></td></tr>`).join('')||`<tr><td colspan="6" class="empty" style="padding:20px">Nenhuma pendência.</td></tr>`}</tbody></table>`; }
-let _editReqId=null, _editReqCart=null, _editReqStatus=null, _editReqObra=null;
+let _editReqId=null, _editReqCart=null, _editReqStatus=null, _editReqObra=null, _editReqOrigCodes=new Set();
 function editarRequisicaoModal(id){
   sb.from('requisicoes').select('*').eq('id',id).single().then(({data:r,error})=>{
     if(error||!r){ toast('Erro ao carregar requisição: '+(error?error.message:'não encontrada'),'err'); return; }
     if(!REQ_EDITAVEL.includes(r.status)){ toast('Esta requisição não pode mais ser alterada.','err'); if(activeTab==='baixa'){drawMinhasFrotasPendentes();drawMinhasEmAndamento();} return; }
-    _editReqId=id; _editReqStatus=r.status; _editReqObra=r.obra_id||null; _editReqCart=(r.itens||[]).map(i=>({...i}));
+    _editReqId=id; _editReqStatus=r.status; _editReqObra=r.obra_id||null; _editReqCart=(r.itens||[]).map(i=>({...i})); _editReqOrigCodes=new Set(_editReqCart.map(i=>String(i.code)));
     modal(`<h3>✎ Editar requisição REQ-${String(r.id).padStart(5,'0')}</h3>
       <p class="mp">Obra: <b>${esc(r.obra_nome)}</b>${r.aplicacao_nome?' · Aplicação: <b>'+esc(r.aplicacao_nome)+'</b>':''}. ${r.status==='pendente'?'Só é possível alterar enquanto não houver separação de estoque.':'<b>Atenção:</b> esta requisição já foi aprovada. Ao salvar, ela <b>volta para aprovação</b> do encarregado com os novos itens (a verificação de estoque e as compras pendentes são refeitas).'}</p>
       <div class="field"><label>Adicionar item</label>
@@ -3223,7 +3228,7 @@ function drawEditReqResults(q){ const box=$('#editReqResults'); if(!box)return; 
   const res=!q?[]:ob?buscaReqObra(q,ob,40).filter(x=>!_editReqCart.some(i=>i.code===x.p.code)).slice(0,8):searchProducts(q).filter(p=>!_editReqCart.some(i=>i.code===p.code)).slice(0,8).map(p=>({p,na:true}));
   if(!q||!res.length){ box.innerHTML=q&&!res.length?'<div class="muted" style="font-size:12px;padding:6px 2px">Nenhum item encontrado.</div>':''; return; }
   box.innerHTML=`<div class="tbl-wrap" style="margin-top:6px"><table><tbody>`+res.map(x=>{ const p=x.p; return `<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''}${ob?' · saldo '+numf(x.s)+' '+esc(p.unit||'')+tagSemEstoqueObra(x,ob):''}</span></td><td class="num" style="width:70px"><button class="btn ghost sm" onclick="addEditReqItem('${esc(p.code)}')">+ Add</button></td></tr>`; }).join('')+'</tbody></table></div>'; }
-function addEditReqItem(code){ const p=findProduct(code); if(!p)return;
+function addEditReqItem(code){ const p=findProduct(code); if(!p)return; if(bloqueiaSemValor(p,'requisição'))return;
   _editReqCart.push({code:p.code,desc:p.desc,unit:p.unit,qty:1});
   if($('#editReqSearch')){$('#editReqSearch').value='';} if($('#editReqResults'))$('#editReqResults').innerHTML=''; drawEditReqCart(); }
 function setEditReqQty(code,v){ const it=_editReqCart.find(i=>i.code===code); if(it)it.qty=parseFloat(v)||0; }
@@ -3234,6 +3239,7 @@ function drawEditReqCart(){ const b=$('#editReqCartBody'); if(!b)return;
 async function salvarEdicaoRequisicao(){
   const itens=(_editReqCart||[]).filter(i=>i.qty>0);
   if(!itens.length){ toast('A requisição precisa de ao menos 1 item com quantidade.','err'); return; }
+  { const sv=itensSemValor(itens.filter(i=>!_editReqOrigCodes.has(String(i.code)))); if(sv.length){ toast('Item(ns) com valor zerado — remova antes de salvar: '+sv.map(p=>p.desc).join(', '),'err'); return; } }
   const os=$('#editReqOS')?$('#editReqOS').value.trim():''; const obs=$('#editReqObs')?$('#editReqObs').value.trim():'';
   const id=_editReqId;
   // Confere de novo na hora de salvar — a separação pode ter começado com o modal aberto
@@ -3413,7 +3419,7 @@ function lookupScan(code,exactCode){ code=String(code).trim(); if(!code)return; 
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="cancelBaixa()">Cancelar</button><button class="btn primary" onclick="addScanToCart()">+ Adicionar à lista</button></div>`;
   $('#scanInput').value=''; const bq=$('#baixaQty'); bq.focus(); bq.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();addScanToCart();}});
 }
-function addScanToCart(){ const p=baixaProduct; if(!p)return; const o=curObra()==='__all'?state.obras[0].id:curObra();
+function addScanToCart(){ const p=baixaProduct; if(!p)return; if(bloqueiaSemValor(p,'requisição'))return; const o=curObra()==='__all'?state.obras[0].id:curObra();
   const qty=parseFloat($('#baixaQty').value); if(!(qty>0)){toast('Informe a quantidade.','err');return;}
   const s=saldoOf(o,p.code); const ex=saidaCart.find(i=>i.code===p.code); const have=ex?(ex.qty||0):0;
   if(have+qty>s){toast(`Atenção: ${p.desc} ficará com falta (disponível ${numf(s)}) — vai gerar compra pendente após aprovação.`,'warn');}
@@ -3425,7 +3431,7 @@ function cancelBaixa(){ baixaProduct=null; const fc=$('#foundCard'); if(fc)fc.cl
 function drawSaidaResults(q,o){ const box=$('#saidaResults'); if(!box)return; const res=q?buscaReqObra(q,o,8):[];
   if(!q||!res.length){ box.innerHTML=q&&!res.length?`<div class="muted" style="font-size:12px;padding:8px 2px">Nenhum item encontrado.</div>`:''; return; }
   box.innerHTML=`<div class="tbl-wrap" style="margin-top:10px"><table><tbody>`+res.map(x=>{ const p=x.p; return `<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''} · saldo ${numf(x.s)} ${esc(p.unit||'')}${tagSemEstoqueObra(x,o)}</span></td><td class="num" style="width:80px"><button class="btn ghost sm" onclick="addSaida('${esc(p.code)}')">+ Add</button></td></tr>`; }).join('')+`</tbody></table></div>`; }
-function addSaida(code){ const o=curObra()==='__all'?state.obras[0].id:curObra(); if(!saidaCart.some(i=>i.code===code))saidaCart.push({code,qty:1}); if($('#saidaSearch'))$('#saidaSearch').value=''; if($('#saidaResults'))$('#saidaResults').innerHTML=''; drawSaidaCart(o); if($('#saidaSearch'))$('#saidaSearch').focus(); }
+function addSaida(code){ if(bloqueiaSemValor(findProduct(code),'requisição'))return; const o=curObra()==='__all'?state.obras[0].id:curObra(); if(!saidaCart.some(i=>i.code===code))saidaCart.push({code,qty:1}); if($('#saidaSearch'))$('#saidaSearch').value=''; if($('#saidaResults'))$('#saidaResults').innerHTML=''; drawSaidaCart(o); if($('#saidaSearch'))$('#saidaSearch').focus(); }
 function rmSaida(code){ saidaCart=saidaCart.filter(i=>i.code!==code); const o=curObra()==='__all'?state.obras[0].id:curObra(); drawSaidaCart(o); }
 function setSaidaQty(code,v){ const it=saidaCart.find(i=>i.code===code); if(it)it.qty=parseFloat(v)||0; const p=findProduct(code); const cell=$('#sv_'+CSS.escape(code)); if(cell&&p)cell.textContent=money((it?it.qty:0)*((p.custo)||0)); updateSaidaTotal(); }
 /* Obra de onde o saldo vai sair: a do mútuo (se marcado e selecionado) ou a obra atual */
@@ -3439,6 +3445,7 @@ function drawSaidaCart(o){ const b=$('#saidaCartBody'); if(!b)return; const oSrc
   b.innerHTML=saidaCart.map(i=>{const p=findProduct(i.code);const s=saldoOf(oSrc,i.code);const tot=(i.qty||0)*((p.custo)||0);return `<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''}</span></td><td class="num ${s<(i.qty||0)?'neg':''}">${numf(s)} ${esc(p.unit||'')}${oSrc!==o?`<div class="muted" style="font-size:10.5px;font-family:inherit">em ${esc(obraName(oSrc))}</div>`:''}</td><td class="num"><input class="inline-edit" type="number" step="any" min="0" value="${i.qty}" oninput="setSaidaQty('${esc(i.code)}',this.value)"></td><td class="num" id="sv_${esc(i.code)}">${money(tot)}</td><td class="num"><button class="btn danger sm" onclick="rmSaida('${esc(i.code)}')">✕</button></td></tr>`;}).join(''); updateSaidaTotal(); }
 function confirmSaida(){ const o=curObra()==='__all'?state.obras[0].id:curObra(); if(!saidaCart.length){toast('Adicione itens à solicitação.','err');return;}
   const itens=saidaCart.filter(i=>i.qty>0); if(!itens.length){toast('Informe as quantidades.','err');return;}
+  { const sv=itensSemValor(itens); if(sv.length){ toast('Item(ns) com valor zerado — remova antes de solicitar: '+sv.map(p=>p.desc).join(', '),'err'); return; } }
   if(!state.aplicacoes.length){toast('Cadastre uma aplicação antes de solicitar.','err');return;}
   const aplic=($('#saidaAplic')?$('#saidaAplic').value:''); if(!aplic){toast('Informe a aplicação (obrigatório).','err'); if($('#saidaAplicSearch'))$('#saidaAplicSearch').focus(); return;}
   const os=($('#saidaOS')?$('#saidaOS').value.trim():''); if(aplicRequerOS(aplic)&&!os){ toast('Ordem de Serviço é obrigatória para Equipamento/Veículo.','err'); if($('#saidaOS'))$('#saidaOS').focus(); return; }
@@ -5235,7 +5242,7 @@ function trLookup(code,exactCode){ code=String(code||'').trim(); if(!code)return
       :`<div class="field" style="margin:8px 0 0"><label>Quantidade a transferir</label><input id="trQty" type="number" step="any" min="0"></div>`}
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="trCancelScan()">Cancelar</button>${s>0?'<button class="btn primary" onclick="trAddScan()">+ Adicionar à lista</button>':''}</div>`;
   $('#trScan').value=''; const q=$('#trQty'); if(q){ q.focus(); q.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();trAddScan();}}); } else $('#trScan').focus(); }
-function trAddScan(){ const p=trProduct; if(!p)return; const orig=trOrigId(); const qty=parseFloat($('#trQty')&&$('#trQty').value); if(!(qty>0)){toast('Informe a quantidade.','err');return;}
+function trAddScan(){ const p=trProduct; if(!p)return; if(bloqueiaSemValor(p,'transferência'))return; const orig=trOrigId(); const qty=parseFloat($('#trQty')&&$('#trQty').value); if(!(qty>0)){toast('Informe a quantidade.','err');return;}
   const s=saldoOf(orig,p.code); const ex=trCart.find(i=>i.code===p.code); const total=(ex?(ex.qty||0):0)+qty;
   if(total>s){toast(`Quantidade maior que o saldo na origem (${numf(s)} ${p.unit||''}).`,'err');return;}
   if(ex)ex.qty=total; else trCart.push({code:p.code,qty});
@@ -5276,6 +5283,7 @@ async function confirmTransfer(){ const orig=$('#trOrig').value, dest=$('#trDest
     toast('Empresas diferentes — transferência direta não é permitida. Faça baixa por consumo e registre o mútuo.','err'); return; }
   if(!trCart.length){toast('Adicione itens.','err');return;}
   const itens=trCart.filter(i=>i.qty>0); if(!itens.length){toast('Informe as quantidades.','err');return;}
+  { const sv=itensSemValor(itens); if(sv.length){ toast('Item(ns) com valor zerado — remova antes de transferir: '+sv.map(p=>p.desc).join(', '),'err'); return; } }
   for(const i of itens){ const s=saldoOf(orig,i.code); if(i.qty>s){const p=findProduct(i.code); toast(`Saldo insuficiente: ${p.desc} (${numf(s)}).`,'err'); return;} }
   const wantReport=$('#trReport')&&$('#trReport').checked; const obs=($('#trObs')?$('#trObs').value.trim():'');
   const {data:numData,error:eNum}=await sb.rpc('proximo_numero_documento',{p_tipo:'transferencia'});
