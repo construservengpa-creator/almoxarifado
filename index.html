@@ -526,6 +526,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       <button data-tab="comprovantes" data-role="retiradas_acesso"><span class="ic">🧾</span><span>Comprovantes de Entrega</span><span class="badge" id="navBadgeComprov" style="display:none"></span></button>
     </div>
 
+    <div class="navgrp-hd" data-grp-toggle="pat"><span class="navgrp-hd-l">Patrimônio</span><span class="navgrp-chev">▸</span></div>
+    <div class="navgrp-body" id="navgrpBody-pat" style="display:none">
+      <button data-tab="patrimonio"><span class="ic">🏗</span><span>Bens Patrimoniais</span></button>
+      <button data-tab="patlocal"><span class="ic">📍</span><span>Localização por Obra</span></button>
+      <button data-tab="patmov"><span class="ic">🚚</span><span>Envios e Retornos</span><span class="badge" id="navBadgePat" style="display:none"></span></button>
+      <button data-tab="patdeprec"><span class="ic">📉</span><span>Depreciação</span></button>
+    </div>
+
     <div class="navgrp-hd" data-grp-toggle="consulta"><span class="navgrp-hd-l">Consulta e Relatórios</span><span class="navgrp-chev">▸</span></div>
     <div class="navgrp-body" id="navgrpBody-consulta" style="display:none">
       <button data-tab="consulta"><span class="ic">⌕</span><span>Consulta</span></button>
@@ -865,7 +873,7 @@ async function _drainSave(k){ const q=_saveQ[k]; q.busy=true;
 let state={ obras:[], aplicacoes:[], products:[], estoque:{}, movements:[], notas:[], seq:{baixa:0,transfer:0}, config:{supHash:null}, currentObra:null };
 let photos={};
 // Garante a estrutura mínima do state (usado no load e quando chega atualização em tempo real)
-function normalizeState(){ if(!state.obras)state.obras=[]; if(!state.aplicacoes)state.aplicacoes=[]; if(!state.estoque)state.estoque={}; if(!state.movements)state.movements=[]; if(!state.notas)state.notas=[]; if(!state.limitesObra||typeof state.limitesObra!=='object')state.limitesObra={}; if(!state.seq)state.seq={baixa:0,transfer:0}; if(!state.config)state.config={supHash:null}; if(!state.empresas)state.empresas=[]; if(!state.aplicTipos||!state.aplicTipos.length)state.aplicTipos=[{id:'equipamento',label:'EQUIPAMENTO',icone:'⚙',usaSetor:false},{id:'veiculo',label:'VEÍCULO',icone:'🚚',usaSetor:false},{id:'sede',label:'SEDE',icone:'🏢',usaSetor:true}]; if(!state.setores||!state.setores.length)state.setores=[{id:'oficina',nome:'OFICINA'},{id:'escritorio',nome:'ESCRITÓRIO / ADM'},{id:'lavajato',nome:'LAVAJATO'},{id:'diretoria',nome:'DIRETORIA'}]; }
+function normalizeState(){ if(!state.obras)state.obras=[]; if(!state.aplicacoes)state.aplicacoes=[]; if(!state.estoque)state.estoque={}; if(!state.movements)state.movements=[]; if(!state.notas)state.notas=[]; if(!state.limitesObra||typeof state.limitesObra!=='object')state.limitesObra={}; if(!state.seq)state.seq={baixa:0,transfer:0}; if(!state.config)state.config={supHash:null}; if(!state.empresas)state.empresas=[]; if(!state.aplicTipos||!state.aplicTipos.length)state.aplicTipos=[{id:'equipamento',label:'EQUIPAMENTO',icone:'⚙',usaSetor:false},{id:'veiculo',label:'VEÍCULO',icone:'🚚',usaSetor:false},{id:'sede',label:'SEDE',icone:'🏢',usaSetor:true}]; if(!state.setores||!state.setores.length)state.setores=[{id:'oficina',nome:'OFICINA'},{id:'escritorio',nome:'ESCRITÓRIO / ADM'},{id:'lavajato',nome:'LAVAJATO'},{id:'diretoria',nome:'DIRETORIA'}]; patNormalizar(); }
 async function load(){ const pMov=isOnline?fetchMovimentosEDaldos():null; /* dispara junto com o documento principal */ const d=await Store.get(KEY);
   if(d===undefined){ if(loadCache())toast('Sem conexão — carregando última cópia salva neste aparelho.','warn'); }
   else if(d&&d.products){state=d;}
@@ -1012,7 +1020,7 @@ window.addEventListener('beforeunload',e=>{ if(gravacoesPendentes()||docsPendent
    digitando/com um campo em foco, ou com uma janela (modal) aberta, espera ela terminar. */
 /* 'produtos' fica de fora: lá a pessoa ordena/filtra para fazer ajustes em série, e o redesenho a cada
    gravação desfazia a ordenação. A tela tem o botão "↻ Atualizar" para buscar as mudanças quando quiser. */
-const LIVE_REFRESH_TABS=['painel','obras','aplic','consulta','relatorios'];
+const LIVE_REFRESH_TABS=['painel','obras','aplic','consulta','relatorios','patrimonio','patlocal','patmov','patdeprec'];
 let _liveRefreshTimer=null;
 function modalAberto(){ const mr=document.getElementById('modalRoot'); return !!(mr&&mr.children.length); }
 function usuarioInteragindo(){ const a=document.activeElement, v=document.getElementById('view');
@@ -1446,7 +1454,7 @@ function needsRepor(p,s,obra,tr){
 function statusRepor(p,s,obra,tr){ if(needsRepor(p,s,obra,tr))return'low'; if(acimaMax(p,obra,s))return'high'; return'good'; }
 function toast(msg,type='ok'){ const t=document.createElement('div'); t.className='toast '+type; t.innerHTML=msg; $('#toasts').appendChild(t);
   setTimeout(()=>{t.style.transition='.3s';t.style.opacity='0';t.style.transform='translateX(40px)';setTimeout(()=>t.remove(),300);},3400); }
-function refreshBadge(){ const o=curObra(); const b=$('#navBadge'); if(!o){b.style.display='none';return;}
+function refreshBadge(){ patRefreshBadge(); const o=curObra(); const b=$('#navBadge'); if(!o){b.style.display='none';return;}
   const tr=buildTracked(); const low=state.products.filter(p=>needsRepor(p,(o==='__all'?totalSaldo(p.code):saldoOf(o,p.code)),o,tr)).length;
   if(low>0){b.style.display='';b.textContent=low;}else{b.style.display='none';} }
 /* ===== LOTES E VALIDADE =====
@@ -1856,7 +1864,8 @@ const titles={ painel:['Painel','Visão por obra'],entrada:['Entrada / Nota Fisc
   devolucao:['Devolução de Materiais','Ao fornecedor (nota de devolução) e de requisição (retorno ao estoque)'],
   compras:['Compras','Faltantes de requisições e reposição de estoque'],
   transfer:['Transferência entre Obras','Mover saldo de uma obra para outra'],consulta:['Consulta','Buscar por nome, código ou equipamento'],
-  obras:['Obras','Cadastro de obras'],aplic:['Aplicações','Equipamentos e veículos (placa/tag)'],tiposetor:['Tipos & Setores','Opções de tipo e setor usadas em Aplicações'],produtos:['Produtos & Etiquetas','Catálogo e códigos de barras'],importar:['Importar Planilha','Carga inicial por obra'],empresas:['Empresas','Razão social, CNPJ e endereço'],admin:['Administração','Usuários e exclusões protegidas'],relatorios:['Relatórios','Consumo por aplicação, tipo, obra e produto'],auditoria:['Auditoria','Histórico de ações no sistema'] };
+  obras:['Obras','Cadastro de obras'],aplic:['Aplicações','Equipamentos e veículos (placa/tag)'],tiposetor:['Tipos & Setores','Opções de tipo e setor usadas em Aplicações'],produtos:['Produtos & Etiquetas','Catálogo e códigos de barras'],importar:['Importar Planilha','Carga inicial por obra'],empresas:['Empresas','Razão social, CNPJ e endereço'],admin:['Administração','Usuários e exclusões protegidas'],relatorios:['Relatórios','Consumo por aplicação, tipo, obra e produto'],
+  patrimonio:['Bens Patrimoniais','Cadastro, plaqueta, valor contábil e histórico de cada equipamento'],patlocal:['Localização por Obra','Onde está cada equipamento agora'],patmov:['Envios e Retornos','Guias de remessa para as obras, transferências e recebimento'],patdeprec:['Depreciação','Mapa mensal, rateio por obra e por categoria'],auditoria:['Auditoria','Histórico de ações no sistema'] };
 let activeTab='painel';
 function go(tab){
   if(isEncAlmox()&&ABAS_BLOQUEADAS_ENCALMOX.includes(tab)){ toast('O perfil Encarregado do almoxarifado não tem acesso a esta área.','err'); return; }
@@ -1872,7 +1881,7 @@ function go(tab){
 const ABA_KEY='estoque_aba_ativa_v1';
 /* Desenha a tela sem mexer na navegação (usado pelo go() e pela atualização ao vivo) */
 function renderAba(tab){ $('#topActions').innerHTML='';
-  ({painel:renderPainel,entrada:renderEntrada,baixa:renderBaixa,notificacoes:renderNotificacoes,ajuste:renderAjuste,inventario:renderInventario,aprovacoes:renderAprovacoes,separacao:renderSeparacao,expedicao:renderExpedicao,retiradas:renderRetiradaPendente,comprovantes:renderComprovantes,compras:renderCompras,transfer:renderTransfer,mutuo:renderMutuo,devolucao:renderDevolucao,consulta:renderConsulta,obras:renderObras,aplic:renderAplic,tiposetor:renderTipoSetor,produtos:renderProdutos,importar:renderImportar,empresas:renderEmpresas,admin:renderAdmin,relatorios:renderRelatorios,auditoria:renderAuditoria}[tab])();
+  ({painel:renderPainel,entrada:renderEntrada,baixa:renderBaixa,notificacoes:renderNotificacoes,ajuste:renderAjuste,inventario:renderInventario,aprovacoes:renderAprovacoes,separacao:renderSeparacao,expedicao:renderExpedicao,retiradas:renderRetiradaPendente,comprovantes:renderComprovantes,compras:renderCompras,transfer:renderTransfer,mutuo:renderMutuo,devolucao:renderDevolucao,consulta:renderConsulta,obras:renderObras,aplic:renderAplic,tiposetor:renderTipoSetor,produtos:renderProdutos,importar:renderImportar,empresas:renderEmpresas,admin:renderAdmin,relatorios:renderRelatorios,auditoria:renderAuditoria,patrimonio:renderPatrimonio,patlocal:renderPatLocal,patmov:renderPatMov,patdeprec:renderPatDeprec}[tab])();
 }
 function abaPermitida(t){ if(!t||!titles[t])return false;
   if(isEncAlmox()&&ABAS_BLOQUEADAS_ENCALMOX.includes(t))return false;
@@ -1909,7 +1918,7 @@ function toggleNavGrp(key,forceOpen){
 }
 function initNavGrps(){
   document.querySelectorAll('.navgrp-hd').forEach(hd=>hd.onclick=()=>toggleNavGrp(hd.dataset.grpToggle));
-  [['mov',true],['fluxo',true],['consulta',false],['cad',false]].forEach(([key,def])=>{
+  [['mov',true],['fluxo',true],['pat',false],['consulta',false],['cad',false]].forEach(([key,def])=>{
     let saved=null; try{saved=localStorage.getItem('navgrp_'+key);}catch(e){}
     const open=saved===null?def:saved==='1';
     const body=document.getElementById('navgrpBody-'+key); const chev=document.querySelector('.navgrp-hd[data-grp-toggle="'+key+'"] .navgrp-chev');
@@ -7426,6 +7435,528 @@ window.addEventListener('appinstalled',()=>{ _promptInstalar=null; atualizarBota
     window.addEventListener('load',()=>{ navigator.serviceWorker.register('app-sw.js',{scope:'./'}).catch(e=>console.warn('Service worker do app não registrado:',e)); });
   }
 })();
+
+/* ===== PATRIMÔNIO (controle patrimonial, depreciação e localização dos equipamentos nas obras) =====
+   Tudo fica no documento compartilhado (mesma gravação/mescla item a item por id das demais listas):
+   - state.patrimonio     : bens patrimoniais. Cada bem guarda a localização atual (obraId), o que está em trânsito
+                            (transito) e o próprio histórico (cadastro, envios, recebimentos, manutenção, baixa).
+   - state.patGuias       : guias de remessa (envio do almoxarifado para a obra, transferência entre obras, retorno).
+                            O bem fica "em trânsito" até a obra de destino confirmar o recebimento.
+   - state.patCategorias  : categorias com vida útil e valor residual padrão (sugestão para o cadastro).
+   - state.seq.patrimonio / state.seq.patGuia : numeração da plaqueta (PAT-000001) e da guia (GR-0001).
+   Depreciação: método linear, mês a mês — (valor de aquisição − valor residual) ÷ vida útil em meses, contada a
+   partir do início da depreciação (padrão: data de aquisição), por meses completos, até o fim da vida útil ou a baixa. */
+const PAT_CAT_PADRAO=[
+  {id:'maquinas',nome:'MÁQUINAS E EQUIPAMENTOS',vidaMeses:120,residualPct:0},
+  {id:'veiculos',nome:'VEÍCULOS LEVES',vidaMeses:60,residualPct:0},
+  {id:'caminhoes',nome:'CAMINHÕES E ÔNIBUS',vidaMeses:48,residualPct:0},
+  {id:'tratores',nome:'TRATORES E MÁQUINAS PESADAS',vidaMeses:48,residualPct:0},
+  {id:'ferramentas',nome:'FERRAMENTAS',vidaMeses:60,residualPct:0},
+  {id:'andaimes',nome:'ANDAIMES, ESCORAS E FÔRMAS',vidaMeses:120,residualPct:0},
+  {id:'moveis',nome:'MÓVEIS E UTENSÍLIOS',vidaMeses:120,residualPct:0},
+  {id:'informatica',nome:'INFORMÁTICA',vidaMeses:60,residualPct:0},
+  {id:'instalacoes',nome:'CONTÊINERES E INSTALAÇÕES DE CANTEIRO',vidaMeses:120,residualPct:0}
+];
+const PAT_STATUS={ativo:['Em uso','good'],manutencao:['Em manutenção','high'],baixado:['Baixado','low']};
+const PAT_MOTIVOS_BAIXA=['Venda','Sucata / fim de vida útil','Perda','Furto / roubo','Doação','Outro'];
+const PAT_TABS=['patrimonio','patlocal','patmov','patdeprec'];
+function patNormalizar(){ if(!Array.isArray(state.patrimonio))state.patrimonio=[]; if(!Array.isArray(state.patGuias))state.patGuias=[];
+  if(!Array.isArray(state.patCategorias)||!state.patCategorias.length)state.patCategorias=PAT_CAT_PADRAO.map(c=>Object.assign({},c)); }
+/* quem cadastra, envia e recebe: almoxarifado, encarregados e admin. Baixa e reativação: admin e encarregado do almoxarifado. */
+function podeOperarPat(){ return isAlmoxarife()||isEncarregado(); }
+function podeBaixarPat(){ return isAdminOuEncAlmox(); }
+function patUsuario(){ return profile?(profile.nome||profile.email||''):''; }
+function patHoje(){ return isoDia(new Date()); }
+function patBem(id){ return (state.patrimonio||[]).find(b=>b.id===id); }
+function patCat(id){ return (state.patCategorias||[]).find(c=>c.id===id); }
+function patCatNome(id){ const c=patCat(id); return c?c.nome:(id?'(categoria removida)':'—'); }
+function patGuia(id){ return (state.patGuias||[]).find(g=>g.id===id); }
+function patObraCentral(){ const o=state.obras.find(o=>o.ehEstoque); return o?o.id:(state.obras[0]?state.obras[0].id:null); }
+function patDataBR(s){ if(!s)return '—'; const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(s); return m?m[3]+'/'+m[2]+'/'+m[1]:String(s); }
+function patNum(v){ if(typeof v==='number')return v; const s=String(v==null?'':v).trim(); if(!s)return 0;
+  const n=Number(s.includes(',')?s.replace(/\./g,'').replace(',','.'):s); return isFinite(n)?n:0; }
+function patModalLargo(html,w){ modal(html); const m=document.querySelector('#modalRoot .modal'); if(m&&window.innerWidth>860)m.style.maxWidth=(w||760)+'px'; }
+function patStatusPill(b){ if(b.transito)return '<span class="pill tr">Em trânsito</span>'; const s=PAT_STATUS[b.status]||PAT_STATUS.ativo; return `<span class="pill ${s[1]}">${s[0]}</span>`; }
+function patLocalTxt(b){ if(b.status==='baixado')return 'Baixado'; if(b.transito)return 'Em trânsito → '+obraName(b.transito.para); return b.obraId?obraName(b.obraId):'—'; }
+function patProxPlaqueta(){ if(!state.seq)state.seq={}; let n=(Number(state.seq.patrimonio)||0)+1; let p;
+  do{ p='PAT-'+String(n).padStart(6,'0'); n++; }while(state.patrimonio.some(b=>String(b.plaqueta).toUpperCase()===p));
+  state.seq.patrimonio=n-1; return p; }
+function patProxGuia(){ if(!state.seq)state.seq={}; let n=(Number(state.seq.patGuia)||0)+1; let g;
+  do{ g='GR-'+seqf(n); n++; }while(state.patGuias.some(x=>x.numero===g)); state.seq.patGuia=n-1; return g; }
+function patHist(b,ev){ if(!Array.isArray(b.historico))b.historico=[]; b.historico.push(Object.assign({id:uid(),ts:Date.now(),por:patUsuario()},ev)); }
+function patBuscaBem(term){ const t=String(term||'').trim().toUpperCase(); if(!t)return null;
+  return state.patrimonio.find(b=>String(b.plaqueta||'').toUpperCase()===t)||state.patrimonio.find(b=>b.serie&&String(b.serie).toUpperCase()===t)||null; }
+function patFiltroTexto(b,q){ return buscaTem(b.plaqueta,q)||buscaTem(b.desc,q)||buscaTem(b.marca,q)||buscaTem(b.modelo,q)||buscaTem(b.serie,q)||buscaTem(b.nf,q)||buscaTem(b.fornecedor,q)||buscaTem(b.responsavel,q); }
+
+/* ---------- Depreciação (linear, mensal) ---------- */
+function patParseDia(s){ const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(s||''); return m?{y:+m[1],m:+m[2],d:+m[3]}:null; }
+/* meses completos entre duas datas (último dia do mês fecha o mês: 31/01 → 28/02 conta 1) */
+function patMesesEntre(ini,fim){ const a=patParseDia(ini), b=patParseDia(fim); if(!a||!b)return 0;
+  let n=(b.y-a.y)*12+(b.m-a.m); const ultimo=new Date(b.y,b.m,0).getDate(); if(b.d<a.d&&b.d<ultimo)n--; return Math.max(0,n); }
+function patUltimoDia(comp){ const [y,m]=comp.split('-').map(Number); return comp+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0'); }
+function patMesAnterior(comp){ let [y,m]=comp.split('-').map(Number); m--; if(m<1){m=12;y--;} return y+'-'+String(m).padStart(2,'0'); }
+function patInicioDeprec(b){ return b.inicioDeprec||b.dataAquisicao||''; }
+function patDeprec(b,ref){ ref=ref||patHoje();
+  const valor=Math.max(0,Number(b.valor)||0), resid=Math.min(Math.max(0,Number(b.residual)||0),valor), base=valor-resid;
+  const vida=Math.max(0,Math.round(Number(b.vidaMeses)||0)), ini=patInicioDeprec(b);
+  let fim=ref; if(b.status==='baixado'&&b.baixa&&b.baixa.data&&b.baixa.data<fim)fim=b.baixa.data;
+  const meses=vida>0&&ini&&fim>=ini?Math.min(vida,patMesesEntre(ini,fim)):0;
+  const mensal=vida>0?base/vida:0;
+  const acum=meses>=vida?base:Math.round(mensal*meses*100)/100;
+  return {valor,residual:resid,base,vida,meses,mensal,acum,contabil:valor-acum,pct:base>0?acum/base:0,total:vida>0&&meses>=vida,restam:Math.max(0,vida-meses)}; }
+function patTaxaAnual(b){ const v=Number(b.vidaMeses)||0; return v>0?1200/v:0; }
+function pctf(n){ return (Number(n)||0).toLocaleString('pt-BR',{maximumFractionDigits:2})+'%'; }
+function patVidaTxt(m){ m=Number(m)||0; if(!m)return '—'; const a=Math.floor(m/12), r=m%12; return (a?a+(a===1?' ano':' anos'):'')+(a&&r?' e ':'')+(r?r+(r===1?' mês':' meses'):''); }
+
+/* Onde o bem estava em cada dia: a partir do histórico (eventos que mudam o local guardam "obraNova"; em trânsito = null) */
+function patLinhaDoTempo(b){ return (b.historico||[]).filter(h=>Object.prototype.hasOwnProperty.call(h,'obraNova')).slice().sort((x,y)=>x.ts-y.ts); }
+function patLocalNoDia(linha,fimDoDiaTs,atual){ let loc; let achou=false;
+  for(const h of linha){ if(h.ts<=fimDoDiaTs){ loc=h.obraNova; achou=true; } else break; }
+  if(!achou)return linha.length?linha[0].obraNova:atual; return loc; }
+/* rateio da depreciação do mês pelas obras onde o bem ficou (proporcional aos dias); dias em trânsito → '__transito' */
+function patRateioMes(b,comp){ const [y,m]=comp.split('-').map(Number); const dias=new Date(y,m,0).getDate(); const linha=patLinhaDoTempo(b); const r={};
+  for(let d=1;d<=dias;d++){ const fim=new Date(y,m-1,d,23,59,59,999).getTime(); const loc=patLocalNoDia(linha,fim,b.obraId); const k=loc||'__transito'; r[k]=(r[k]||0)+1; }
+  Object.keys(r).forEach(k=>r[k]=r[k]/dias); return r; }
+
+/* ---------- Tela: Bens patrimoniais ---------- */
+let _patFiltro={q:'',obra:'',cat:'',status:'ativos'};
+function renderPatrimonio(){ patNormalizar();
+  $('#topActions').innerHTML=(podeOperarPat()?`<button class="btn primary sm" onclick="patBemModal()">+ Novo bem</button> `:'')+`<button class="btn ghost sm" onclick="patCategoriasModal()">Categorias</button> <button class="btn ghost sm" onclick="patExportarBens()">⤓ Excel</button> <button class="btn ghost sm" onclick="patPlaquetasModal()">🏷 Plaquetas</button>`;
+  const f=_patFiltro, hoje=patHoje();
+  const ativos=state.patrimonio.filter(b=>b.status!=='baixado');
+  let vAq=0,vAc=0,vCo=0; ativos.forEach(b=>{ const d=patDeprec(b,hoje); vAq+=d.valor; vAc+=d.acum; vCo+=d.contabil; });
+  const nTr=ativos.filter(b=>b.transito).length, nMan=ativos.filter(b=>b.status==='manutencao').length;
+  let html=`<div class="cards">
+    <div class="card neutral"><div class="stripe"></div><div class="lbl">Bens ativos</div><div class="val">${numf(ativos.length)}</div><div class="sub">${nMan?nMan+' em manutenção · ':''}${nTr} em trânsito</div></div>
+    <div class="card neutral"><div class="stripe"></div><div class="lbl">Valor de aquisição</div><div class="val" style="font-size:20px">${money(vAq)}</div><div class="sub">bens ativos</div></div>
+    <div class="card warn"><div class="stripe"></div><div class="lbl">Depreciação acumulada</div><div class="val" style="font-size:20px">${money(vAc)}</div><div class="sub">até hoje</div></div>
+    <div class="card ok"><div class="stripe"></div><div class="lbl">Valor contábil</div><div class="val" style="font-size:20px">${money(vCo)}</div><div class="sub">aquisição − depreciação</div></div></div>`;
+  html+=`<div class="sechead"><h3>Bens patrimoniais</h3><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <div class="search" style="min-width:180px"><span class="si">⌕</span><input id="patQ" placeholder="Plaqueta, descrição, marca, série, NF..." value="${esc(f.q)}" autocomplete="off"></div>
+    <select id="patFObra" style="width:auto"><option value="">Todos os locais</option><option value="__transito"${f.obra==='__transito'?' selected':''}>Em trânsito</option>${state.obras.map(o=>`<option value="${o.id}"${f.obra===o.id?' selected':''}>${esc(o.nome)}</option>`).join('')}</select>
+    <select id="patFCat" style="width:auto"><option value="">Todas as categorias</option>${state.patCategorias.map(c=>`<option value="${c.id}"${f.cat===c.id?' selected':''}>${esc(c.nome)}</option>`).join('')}</select>
+    <select id="patFStatus" style="width:auto">${[['ativos','Ativos'],['ativo','Em uso'],['manutencao','Em manutenção'],['baixado','Baixados'],['todos','Todos']].map(([v,t])=>`<option value="${v}"${f.status===v?' selected':''}>${t}</option>`).join('')}</select>
+  </div></div><div id="patLista"></div>`;
+  $('#view').innerHTML=html;
+  const upd=()=>{ f.q=$('#patQ').value; f.obra=$('#patFObra').value; f.cat=$('#patFCat').value; f.status=$('#patFStatus').value; drawPatLista(); };
+  $('#patQ').oninput=upd; $('#patQ').onkeydown=e=>{ if(e.key==='Enter'){ const b=patBuscaBem(e.target.value); if(b)patVer(b.id); } };
+  ['#patFObra','#patFCat','#patFStatus'].forEach(s=>$(s).onchange=upd);
+  drawPatLista(); }
+function patListaFiltrada(){ const f=_patFiltro;
+  return state.patrimonio.filter(b=>{
+    if(f.status==='ativos'&&b.status==='baixado')return false;
+    if(f.status!=='ativos'&&f.status!=='todos'&&b.status!==f.status)return false;
+    if(f.cat&&b.categoria!==f.cat)return false;
+    if(f.obra==='__transito'&&!b.transito)return false;
+    if(f.obra&&f.obra!=='__transito'&&(b.transito||b.obraId!==f.obra))return false;
+    if(f.q&&!patFiltroTexto(b,f.q))return false;
+    return true; }).sort((a,b)=>String(a.plaqueta).localeCompare(String(b.plaqueta),'pt-BR',{numeric:true})); }
+function drawPatLista(){ const box=$('#patLista'); if(!box)return; const lista=patListaFiltrada(), hoje=patHoje();
+  if(!state.patrimonio.length){ box.innerHTML=`<div class="tbl-wrap"><div class="empty"><div class="ico">🏗</div>Nenhum bem patrimonial cadastrado ainda.${podeOperarPat()?'<br><button class="btn primary" onclick="patBemModal()">+ Cadastrar primeiro bem</button>':''}</div></div>`; return; }
+  if(!lista.length){ box.innerHTML=`<div class="tbl-wrap"><div class="empty">Nenhum bem encontrado com esses filtros.</div></div>`; return; }
+  let tAq=0,tAc=0,tCo=0;
+  const rows=lista.slice(0,500).map(b=>{ const d=patDeprec(b,hoje); tAq+=d.valor; tAc+=d.acum; tCo+=d.contabil;
+    const mm=[b.marca,b.modelo].filter(Boolean).join(' ');
+    return `<tr style="cursor:pointer" onclick="patVer('${b.id}')"><td class="mono"><b>${esc(b.plaqueta)}</b></td><td>${esc(b.desc)}${mm||b.serie?`<div class="muted" style="font-size:11.5px">${esc(mm)}${b.serie?(mm?' · ':'')+'Série '+esc(b.serie):''}</div>`:''}</td>
+      <td style="font-size:12.5px">${esc(patCatNome(b.categoria))}</td><td style="font-size:12.5px">${esc(patLocalTxt(b))}</td><td>${patStatusPill(b)}</td>
+      <td class="num">${money(d.valor)}</td><td class="num">${money(d.acum)}<div class="muted" style="font-size:11px">${pctf(d.pct*100)}</div></td><td class="num"><b>${money(d.contabil)}</b></td></tr>`; }).join('');
+  const sobra=lista.length>500?`<div class="muted" style="font-size:12px;margin-top:8px">Mostrando 500 de ${lista.length} bens — refine a busca. O Excel traz todos.</div>`:'';
+  box.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>Plaqueta</th><th>Descrição</th><th>Categoria</th><th>Localização</th><th>Situação</th><th class="num">Aquisição</th><th class="num">Deprec. acum.</th><th class="num">Valor contábil</th></tr></thead><tbody>${rows}</tbody>
+    <tfoot><tr><td colspan="5" style="font-weight:700">${lista.length} ${lista.length===1?'bem':'bens'}</td><td class="num"><b>${money(tAq)}</b></td><td class="num"><b>${money(tAc)}</b></td><td class="num"><b>${money(tCo)}</b></td></tr></tfoot></table></div>${sobra}`; }
+
+/* ---------- Cadastro / edição ---------- */
+function patBemModal(id){ patNormalizar(); if(!podeOperarPat()){ toast('Sem permissão para cadastrar bens.','err'); return; }
+  if(!state.obras.length){ toast('Cadastre ao menos uma obra (o almoxarifado central também é uma obra).','err'); return; }
+  const b=id?patBem(id):null; const v=(k,d)=>esc(b&&b[k]!=null?b[k]:(d==null?'':d));
+  const catSel=b?b.categoria:(state.patCategorias[0]&&state.patCategorias[0].id);
+  patModalLargo(`<h3>${b?'Editar bem '+esc(b.plaqueta):'Novo bem patrimonial'}</h3>
+    <div class="row c2"><div class="field"><label>Descrição *</label><input id="pbDesc" value="${v('desc')}" placeholder="Ex.: Betoneira 400 L"></div>
+      <div class="field"><label>Categoria</label><select id="pbCat" onchange="patCatSugerir()">${state.patCategorias.map(c=>`<option value="${c.id}"${c.id===catSel?' selected':''}>${esc(c.nome)}</option>`).join('')}</select></div></div>
+    <div class="row c3"><div class="field"><label>Marca</label><input id="pbMarca" value="${v('marca')}"></div><div class="field"><label>Modelo</label><input id="pbModelo" value="${v('modelo')}"></div><div class="field"><label>Nº de série / chassi</label><input id="pbSerie" class="mono" value="${v('serie')}"></div></div>
+    <div class="row c3"><div class="field"><label>Plaqueta</label><input id="pbPlaq" class="mono" value="${b?v('plaqueta'):''}" placeholder="automática (PAT-000001)"></div>
+      <div class="field"><label>Empresa proprietária</label><select id="pbEmp"><option value="">—</option>${(state.empresas||[]).map(e=>`<option value="${e.id}"${b&&b.empresaId===e.id?' selected':''}>${esc(e.razaoSocial)}</option>`).join('')}</select></div>
+      ${b?'<div></div>':`<div class="field"><label>Quantidade</label><input id="pbQtd" type="number" min="1" max="200" step="1" value="1" title="Bens iguais: cada unidade recebe a sua plaqueta"></div>`}</div>
+    <div class="row c3"><div class="field"><label>Fornecedor</label><input id="pbForn" value="${v('fornecedor')}"></div><div class="field"><label>Nota fiscal</label><input id="pbNf" class="mono" value="${v('nf')}"></div><div class="field"><label>Data de aquisição *</label><input id="pbData" type="date" value="${v('dataAquisicao',patHoje())}"></div></div>
+    <div class="panel" style="padding:14px 16px;margin:4px 0 14px;background:#faf8f3"><h3 style="font-size:13px">Depreciação (método linear)</h3>
+    <div class="row c4" style="margin-top:8px"><div class="field"><label>Valor de aquisição (R$) *</label><input id="pbValor" inputmode="decimal" value="${b?esc(String(b.valor||0).replace('.',',')):''}" oninput="patPrevDeprec()"></div>
+      <div class="field"><label>Valor residual (R$)</label><input id="pbResid" inputmode="decimal" value="${b?esc(String(b.residual||0).replace('.',',')):''}" oninput="patPrevDeprec()"></div>
+      <div class="field"><label>Vida útil (meses)</label><input id="pbVida" type="number" min="0" step="1" value="${b?esc(b.vidaMeses||0):''}" oninput="patPrevDeprec()"></div>
+      <div class="field"><label>Início da depreciação</label><input id="pbIni" type="date" value="${b?v('inicioDeprec',b.dataAquisicao):''}" onchange="patPrevDeprec()" title="Em branco = data de aquisição"></div></div>
+    <div id="pbPrev" class="muted" style="font-size:12.5px"></div></div>
+    ${b?`<div class="muted" style="font-size:12.5px;margin-bottom:12px">Localização atual: <b>${esc(patLocalTxt(b))}</b> — para mudar, use <b>Envios e Retornos</b>.</div>`:
+      `<div class="row c2"><div class="field"><label>Localização inicial</label><select id="pbObra">${state.obras.map(o=>`<option value="${o.id}"${o.id===patObraCentral()?' selected':''}>${esc(o.nome)}${o.ehEstoque?' (almoxarifado)':''}</option>`).join('')}</select></div>
+        <div class="field"><label>Responsável no local</label><input id="pbResp" placeholder="Quem responde pelo bem"></div></div>`}
+    <div class="field"><label>Observações</label><textarea id="pbObs" rows="2">${v('obs')}</textarea></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="${b?`patVer('${b.id}')`:'closeModal()'}">Cancelar</button><button class="btn primary" onclick="patSalvarBem('${id||''}')">Salvar</button></div>`,820);
+  if(!b)patCatSugerir(); else patPrevDeprec(); }
+function patCatSugerir(){ if(!$('#pbQtd')){ patPrevDeprec(); return; } /* só no cadastro novo: na edição não troca a vida útil do bem */
+  const c=patCat($('#pbCat').value); if(!c)return; const vida=$('#pbVida'); if(vida)vida.value=c.vidaMeses||'';
+  const r=$('#pbResid'); if(r&&!r.value&&c.residualPct){ const v=patNum($('#pbValor').value); if(v)r.value=String(Math.round(v*c.residualPct)/100).replace('.',','); }
+  patPrevDeprec(); }
+function patPrevDeprec(){ const el=$('#pbPrev'); if(!el)return; const valor=patNum($('#pbValor').value), resid=patNum($('#pbResid').value), vida=parseInt($('#pbVida').value)||0;
+  if(!valor||!vida){ el.textContent='Informe valor e vida útil para ver a depreciação mensal.'; return; }
+  if(resid>valor){ el.innerHTML='<span style="color:#c0392b">O valor residual não pode ser maior que o de aquisição.</span>'; return; }
+  const fake={valor,residual:resid,vidaMeses:vida,dataAquisicao:$('#pbData').value,inicioDeprec:$('#pbIni').value||$('#pbData').value};
+  const d=patDeprec(fake,patHoje());
+  el.innerHTML=`Depreciação mensal <b>${money(d.mensal)}</b> · taxa ${pctf(1200/vida)} ao ano · vida útil ${patVidaTxt(vida)} · hoje: ${d.meses} ${d.meses===1?'mês':'meses'} depreciados, valor contábil <b>${money(d.contabil)}</b>`; }
+function patSalvarBem(id){ patNormalizar();
+  const desc=$('#pbDesc').value.trim(); if(!desc){ toast('Informe a descrição.','err'); return; }
+  const dataAq=$('#pbData').value; if(!dataAq){ toast('Informe a data de aquisição.','err'); return; }
+  const valor=patNum($('#pbValor').value), residual=patNum($('#pbResid').value), vidaMeses=Math.max(0,parseInt($('#pbVida').value)||0);
+  if(valor<0||residual<0){ toast('Valores não podem ser negativos.','err'); return; }
+  if(residual>valor){ toast('O valor residual não pode ser maior que o de aquisição.','err'); return; }
+  const ini=$('#pbIni').value; if(ini&&ini<dataAq){ toast('O início da depreciação não pode ser antes da aquisição.','err'); return; }
+  let plaq=$('#pbPlaq').value.trim().toUpperCase();
+  if(plaq&&state.patrimonio.some(x=>x.id!==id&&String(x.plaqueta).toUpperCase()===plaq)){ toast('Já existe um bem com a plaqueta '+esc(plaq)+'.','err'); return; }
+  const dados={desc,categoria:$('#pbCat').value,marca:$('#pbMarca').value.trim(),modelo:$('#pbModelo').value.trim(),serie:$('#pbSerie').value.trim(),empresaId:$('#pbEmp').value||null,
+    fornecedor:$('#pbForn').value.trim(),nf:$('#pbNf').value.trim(),dataAquisicao:dataAq,valor:Math.round(valor*100)/100,residual:Math.round(residual*100)/100,vidaMeses,inicioDeprec:ini||null,obs:$('#pbObs').value.trim()};
+  if(id){ const b=patBem(id); if(!b)return;
+    const mud=['desc','valor','residual','vidaMeses','inicioDeprec','dataAquisicao','categoria'].filter(k=>String(b[k]??'')!==String(dados[k]??''));
+    Object.assign(b,dados); if(plaq&&plaq!==b.plaqueta){ mud.push('plaqueta'); b.plaqueta=plaq; }
+    if(mud.length)patHist(b,{tipo:'edicao',obs:'Alterado: '+mud.join(', ')});
+    save('Patrimônio: bem editado '+b.plaqueta); toast('Bem atualizado.','ok'); patVer(id); refreshPatTela(); return; }
+  const qtd=Math.min(200,Math.max(1,parseInt($('#pbQtd').value)||1));
+  if(qtd>1&&plaq){ toast('Para cadastrar vários bens de uma vez, deixe a plaqueta em branco (numeração automática).','err'); return; }
+  const obraId=$('#pbObra').value, resp=$('#pbResp').value.trim(); const criados=[];
+  for(let i=0;i<qtd;i++){ const b=Object.assign({id:uid()+i,plaqueta:plaq||patProxPlaqueta(),status:'ativo',obraId,responsavel:resp,desde:Date.now(),transito:null,criadoEm:Date.now(),criadoPor:patUsuario(),historico:[]},dados);
+    patHist(b,{tipo:'cadastro',obraNova:obraId,para:obraId,resp,obs:'Cadastro do bem'}); state.patrimonio.push(b); criados.push(b); }
+  save('Patrimônio: '+(qtd>1?qtd+' bens cadastrados ('+criados[0].plaqueta+' a '+criados[qtd-1].plaqueta+')':'bem cadastrado '+criados[0].plaqueta+' — '+desc));
+  closeModal(); toast(qtd>1?qtd+' bens cadastrados: '+esc(criados[0].plaqueta)+' a '+esc(criados[qtd-1].plaqueta)+'.':'Bem cadastrado: '+esc(criados[0].plaqueta)+'.','ok'); refreshPatTela(); }
+/* guias de remessa ainda não recebidas (número no item Envios e Retornos do menu) */
+function patRefreshBadge(){ const b=document.getElementById('navBadgePat'); if(!b)return; const n=(state.patGuias||[]).filter(g=>g.status==='em_transito'||g.status==='parcial').length; if(n){ b.textContent=n; b.style.display=''; } else b.style.display='none'; }
+function refreshPatTela(){ patRefreshBadge(); if(PAT_TABS.includes(activeTab))renderAba(activeTab); }
+
+/* ---------- Ficha do bem ---------- */
+const PAT_EV={cadastro:'📥 Cadastro',envio:'🚚 Envio',recebimento:'✅ Recebimento',cancelamento:'↩ Envio cancelado',manutencao:'🔧 Enviado p/ manutenção',fim_manutencao:'🔧 Voltou da manutenção',baixa:'⛔ Baixa',reativacao:'♻ Reativado',edicao:'✎ Edição',responsavel:'👤 Responsável'};
+function patVer(id){ const b=patBem(id); if(!b){ closeModal(); return; } const d=patDeprec(b,patHoje()); const op=podeOperarPat();
+  const hist=(b.historico||[]).slice().sort((x,y)=>y.ts-x.ts).map(h=>{ const g=h.guiaId?patGuia(h.guiaId):null;
+    const rota=h.de&&h.para&&h.de!==h.para?esc(obraName(h.de))+' → '+esc(obraName(h.para)):h.para?esc(obraName(h.para)):'';
+    return `<tr><td style="white-space:nowrap;font-size:12px">${esc(fmtDate(h.ts))}</td><td style="font-size:12.5px"><b>${PAT_EV[h.tipo]||esc(h.tipo)}</b>${g?` · <a href="javascript:void(0)" onclick="patGuiaVer('${g.id}')">${esc(g.numero)}</a>`:''}${rota?`<div>${rota}</div>`:''}${h.resp?`<div class="muted">Resp.: ${esc(h.resp)}</div>`:''}${h.custo?`<div class="muted">Custo: ${money(h.custo)}</div>`:''}${h.obs?`<div class="muted">${esc(h.obs)}</div>`:''}</td><td class="muted" style="font-size:12px">${esc(h.por||'')}</td></tr>`; }).join('');
+  const linha=(l,v)=>`<div><div class="muted" style="font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;font-weight:600">${l}</div><div style="font-size:13.5px;margin-top:2px">${v||'—'}</div></div>`;
+  const emp=(state.empresas||[]).find(e=>e.id===b.empresaId);
+  const barra=`<div style="background:#eee8dc;border-radius:6px;height:8px;overflow:hidden;margin-top:6px"><div style="background:var(--amber);height:100%;width:${Math.min(100,d.pct*100).toFixed(1)}%"></div></div>`;
+  let acoes='';
+  if(op&&b.status!=='baixado'){
+    acoes+=`<button class="btn ghost sm" onclick="patBemModal('${b.id}')">✎ Editar</button> `;
+    if(!b.transito&&b.status!=='manutencao')acoes+=`<button class="btn ghost sm" onclick="patGuiaModal(['${b.id}'])">🚚 Enviar / transferir</button> `;
+    if(!b.transito)acoes+=b.status==='manutencao'?`<button class="btn ghost sm" onclick="patManutModal('${b.id}')">🔧 Voltou da manutenção</button> `:`<button class="btn ghost sm" onclick="patManutModal('${b.id}')">🔧 Manutenção</button> `;
+    if(!b.transito)acoes+=`<button class="btn ghost sm" onclick="patRespModal('${b.id}')">👤 Responsável</button> `;
+  }
+  if(podeBaixarPat()&&!b.transito)acoes+=b.status==='baixado'?`<button class="btn ghost sm" onclick="patReativar('${b.id}')">♻ Reativar</button> `:`<button class="btn danger sm" onclick="patBaixaModal('${b.id}')">⛔ Baixar</button> `;
+  acoes+=`<button class="btn ghost sm" onclick="patImprimirPlaquetas(['${b.id}'])">🏷 Plaqueta</button> `;
+  if(isEncarregado()&&(b.historico||[]).every(h=>h.tipo==='cadastro'||h.tipo==='edicao'))acoes+=`<button class="btn danger sm" onclick="patExcluir('${b.id}')">✕ Excluir</button>`;
+  patModalLargo(`<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap"><div><div class="mono muted" style="font-size:12px">${esc(b.plaqueta)}</div><h3 style="margin:2px 0 4px">${esc(b.desc)}</h3><div>${patStatusPill(b)} <span class="muted" style="font-size:12.5px">${esc(patCatNome(b.categoria))}</span></div></div><button class="btn ghost sm" onclick="closeModal()">Fechar</button></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px 16px;margin:16px 0">
+      ${linha('Localização',`<b>${esc(patLocalTxt(b))}</b>`)}${linha('No local desde',b.desde&&!b.transito?esc(fmtDate(b.desde)):'—')}${linha('Responsável',esc(b.responsavel||''))}
+      ${linha('Marca / modelo',esc([b.marca,b.modelo].filter(Boolean).join(' ')))}${linha('Nº de série',esc(b.serie||''))}${linha('Empresa',esc(emp?emp.razaoSocial:''))}
+      ${linha('Fornecedor',esc(b.fornecedor||''))}${linha('Nota fiscal',esc(b.nf||''))}${linha('Aquisição',patDataBR(b.dataAquisicao))}
+      ${b.status==='manutencao'&&b.manutencao?linha('Manutenção',esc((b.manutencao.local||'')+(b.manutencao.obs?' — '+b.manutencao.obs:''))):''}
+      ${b.status==='baixado'&&b.baixa?linha('Baixa',esc(patDataBR(b.baixa.data)+' · '+(b.baixa.motivo||''))+(b.baixa.valorVenda?' · venda '+money(b.baixa.valorVenda):'')):''}
+    </div>
+    <div class="panel" style="padding:14px 16px;background:#faf8f3;margin-bottom:14px"><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px 14px">
+      ${linha('Valor de aquisição',money(d.valor))}${linha('Valor residual',money(d.residual))}${linha('Vida útil',patVidaTxt(d.vida)+(d.vida?' ('+pctf(patTaxaAnual(b))+' a.a.)':''))}
+      ${linha('Depreciação mensal',money(d.mensal))}${linha('Depreciação acumulada',money(d.acum)+' <span class="muted">('+d.meses+' '+(d.meses===1?'mês':'meses')+')</span>')}${linha('Valor contábil',`<b>${money(d.contabil)}</b>`)}</div>
+      ${barra}<div class="muted" style="font-size:11.5px;margin-top:4px">${d.vida?(d.total?'Totalmente depreciado.':pctf(d.pct*100)+' depreciado · faltam '+patVidaTxt(d.restam)):'Sem vida útil informada — não deprecia.'} Início: ${patDataBR(patInicioDeprec(b))}.</div></div>
+    ${b.obs?`<div class="muted" style="font-size:12.5px;margin-bottom:12px"><b>Obs.:</b> ${esc(b.obs)}</div>`:''}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">${acoes}</div>
+    <h3 style="font-size:14px;margin-bottom:8px">Histórico e movimentação</h3>
+    <div class="tbl-wrap" style="max-height:300px"><table><thead><tr><th>Data</th><th>Evento</th><th>Por</th></tr></thead><tbody>${hist||'<tr><td colspan="3" class="muted">Sem registros.</td></tr>'}</tbody></table></div>`,820); }
+function patExcluir(id){ const b=patBem(id); if(!b)return;
+  if(state.patGuias.some(g=>(g.itens||[]).includes(id))){ toast('Este bem já foi movimentado em guia de remessa — use a baixa em vez de excluir.','err'); return; }
+  requireSupervisor('Excluir o bem '+b.plaqueta+' — '+b.desc,()=>{ state.patrimonio=state.patrimonio.filter(x=>x.id!==id); save('Patrimônio: bem excluído '+b.plaqueta+' — '+b.desc); toast('Bem excluído.','ok'); refreshPatTela(); }); }
+function patRespModal(id){ const b=patBem(id); if(!b)return;
+  modal(`<h3>Responsável pelo bem</h3><p class="muted" style="font-size:12.5px;margin-bottom:10px">${esc(b.plaqueta)} — ${esc(b.desc)} · ${esc(patLocalTxt(b))}</p>
+    <div class="field"><label>Responsável no local</label><input id="prNome" value="${esc(b.responsavel||'')}"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="patVer('${id}')">Cancelar</button><button class="btn primary" onclick="patSalvarResp('${id}')">Salvar</button></div>`); }
+function patSalvarResp(id){ const b=patBem(id); if(!b)return; const n=$('#prNome').value.trim(); if(n===(b.responsavel||'')){ patVer(id); return; }
+  b.responsavel=n; patHist(b,{tipo:'responsavel',resp:n,para:b.obraId}); save('Patrimônio: responsável de '+b.plaqueta+' → '+(n||'—')); toast('Responsável atualizado.','ok'); patVer(id); refreshPatTela(); }
+
+/* ---------- Manutenção ---------- */
+function patManutModal(id){ const b=patBem(id); if(!b)return; const volta=b.status==='manutencao';
+  modal(`<h3>${volta?'Retorno da manutenção':'Enviar para manutenção'}</h3><p class="muted" style="font-size:12.5px;margin-bottom:10px">${esc(b.plaqueta)} — ${esc(b.desc)}</p>
+    ${volta?`<div class="field"><label>Custo da manutenção (R$)</label><input id="pmCusto" inputmode="decimal" placeholder="0,00"></div>`:`<div class="field"><label>Onde (oficina / fornecedor)</label><input id="pmLocal" placeholder="Ex.: Oficina própria, assistência técnica..."></div>`}
+    <div class="field"><label>${volta?'Serviço realizado / observação':'Defeito / motivo'}</label><textarea id="pmObs" rows="2"></textarea></div>
+    <p class="muted" style="font-size:11.5px">A manutenção não muda a obra do bem nem interrompe a depreciação.</p>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px"><button class="btn ghost" onclick="patVer('${id}')">Cancelar</button><button class="btn primary" onclick="patSalvarManut('${id}')">Confirmar</button></div>`); }
+function patSalvarManut(id){ const b=patBem(id); if(!b)return; const obs=$('#pmObs').value.trim();
+  if(b.status==='manutencao'){ const custo=patNum($('#pmCusto').value); b.status='ativo'; b.manutencao=null; patHist(b,{tipo:'fim_manutencao',obs,custo:custo||0}); save('Patrimônio: '+b.plaqueta+' voltou da manutenção'); }
+  else{ const local=$('#pmLocal').value.trim(); b.status='manutencao'; b.manutencao={desde:Date.now(),local,obs}; patHist(b,{tipo:'manutencao',obs:[local,obs].filter(Boolean).join(' — ')}); save('Patrimônio: '+b.plaqueta+' enviado para manutenção'); }
+  toast('Registrado.','ok'); patVer(id); refreshPatTela(); }
+
+/* ---------- Baixa ---------- */
+function patBaixaModal(id){ const b=patBem(id); if(!b)return; if(!podeBaixarPat()){ toast('A baixa é restrita ao administrador e ao encarregado do almoxarifado.','err'); return; }
+  modal(`<h3>Baixa do bem</h3><p class="muted" style="font-size:12.5px;margin-bottom:10px">${esc(b.plaqueta)} — ${esc(b.desc)}</p>
+    <div class="row c2"><div class="field"><label>Data da baixa</label><input id="pxData" type="date" value="${patHoje()}" onchange="patPrevBaixa('${id}')"></div><div class="field"><label>Motivo</label><select id="pxMotivo">${PAT_MOTIVOS_BAIXA.map(m=>`<option>${m}</option>`).join('')}</select></div></div>
+    <div class="field"><label>Valor recebido (venda / indenização) R$</label><input id="pxValor" inputmode="decimal" placeholder="0,00" oninput="patPrevBaixa('${id}')"></div>
+    <div class="field"><label>Observação / documento</label><textarea id="pxObs" rows="2"></textarea></div>
+    <div id="pxPrev" class="muted" style="font-size:12.5px;margin-bottom:10px"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="patVer('${id}')">Cancelar</button><button class="btn danger" onclick="patSalvarBaixa('${id}')">Confirmar baixa</button></div>`); patPrevBaixa(id); }
+function patPrevBaixa(id){ const b=patBem(id), el=$('#pxPrev'); if(!b||!el)return; const data=$('#pxData').value||patHoje(); const d=patDeprec(Object.assign({},b,{status:'ativo'}),data); const venda=patNum($('#pxValor').value); const r=venda-d.contabil;
+  el.innerHTML=`Valor contábil em ${patDataBR(data)}: <b>${money(d.contabil)}</b> · resultado na baixa: <b style="color:${r<0?'#c0392b':'#1c7a52'}">${r<0?'perda ':'ganho '}${money(Math.abs(r))}</b>`; }
+function patSalvarBaixa(id){ const b=patBem(id); if(!b)return; const data=$('#pxData').value; if(!data){ toast('Informe a data da baixa.','err'); return; }
+  if(b.dataAquisicao&&data<b.dataAquisicao){ toast('A data da baixa não pode ser antes da aquisição.','err'); return; }
+  const motivo=$('#pxMotivo').value, valorVenda=patNum($('#pxValor').value), obs=$('#pxObs').value.trim();
+  const d=patDeprec(Object.assign({},b,{status:'ativo'}),data);
+  b.status='baixado'; b.manutencao=null; b.baixa={data,motivo,valorVenda,obs,contabil:d.contabil,resultado:Math.round((valorVenda-d.contabil)*100)/100,por:patUsuario(),ts:Date.now()};
+  patHist(b,{tipo:'baixa',obs:motivo+(obs?' — '+obs:'')+(valorVenda?' · valor recebido '+money(valorVenda):'')});
+  save('Patrimônio: baixa de '+b.plaqueta+' ('+motivo+')'); toast('Baixa registrada.','ok'); patVer(id); refreshPatTela(); }
+function patReativar(id){ const b=patBem(id); if(!b)return;
+  requireSupervisor('Reativar o bem '+b.plaqueta+' (desfazer a baixa)',()=>{ b.status='ativo'; b.baixa=null; patHist(b,{tipo:'reativacao'}); save('Patrimônio: bem reativado '+b.plaqueta); toast('Bem reativado.','ok'); patVer(id); refreshPatTela(); }); }
+
+/* ---------- Categorias ---------- */
+function patCategoriasModal(){ patNormalizar(); const pode=podeOperarPat();
+  const rows=state.patCategorias.map((c,i)=>{ const n=state.patrimonio.filter(b=>b.categoria===c.id).length;
+    return `<tr><td><input id="pcN${i}" value="${esc(c.nome)}" ${pode?'':'disabled'}></td><td class="num" style="width:110px"><input id="pcV${i}" type="number" min="0" step="1" value="${esc(c.vidaMeses||0)}" ${pode?'':'disabled'}></td><td class="num" style="width:90px"><input id="pcR${i}" type="number" min="0" max="100" step="any" value="${esc(c.residualPct||0)}" ${pode?'':'disabled'}></td><td class="num muted">${n}</td><td class="num">${pode&&!n?`<button class="btn danger sm" onclick="patCatRemover(${i})">✕</button>`:''}</td></tr>`; }).join('');
+  patModalLargo(`<h3>Categorias de bens</h3><p class="muted" style="font-size:12.5px;margin-bottom:12px">Vida útil e valor residual aqui são só a <b>sugestão</b> preenchida no cadastro — cada bem guarda os seus. Os prazos iniciais seguem as taxas usuais de depreciação fiscal (ex.: máquinas 10% a.a., veículos 20% a.a., caminhões e tratores 25% a.a.); confirme com a contabilidade.</p>
+    <div class="tbl-wrap"><table><thead><tr><th>Categoria</th><th class="num">Vida (meses)</th><th class="num">Resid. %</th><th class="num">Bens</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div style="display:flex;gap:10px;justify-content:space-between;margin-top:14px;flex-wrap:wrap">${pode?`<button class="btn ghost" onclick="patCatAdicionar()">+ Categoria</button>`:'<span></span>'}<div style="display:flex;gap:10px"><button class="btn ghost" onclick="closeModal()">Fechar</button>${pode?`<button class="btn primary" onclick="patCatSalvar()">Salvar</button>`:''}</div></div>`,680); }
+function patCatLerTela(){ state.patCategorias.forEach((c,i)=>{ const n=$('#pcN'+i); if(!n)return; c.nome=n.value.trim().toUpperCase()||c.nome; c.vidaMeses=Math.max(0,parseInt($('#pcV'+i).value)||0); c.residualPct=Math.min(100,Math.max(0,patNum($('#pcR'+i).value))); }); }
+function patCatAdicionar(){ patCatLerTela(); state.patCategorias.push({id:uid(),nome:'NOVA CATEGORIA',vidaMeses:60,residualPct:0}); patCategoriasModal(); }
+function patCatRemover(i){ patCatLerTela(); state.patCategorias.splice(i,1); patCategoriasModal(); }
+function patCatSalvar(){ patCatLerTela(); save('Patrimônio: categorias atualizadas'); closeModal(); toast('Categorias salvas.','ok'); refreshPatTela(); }
+
+/* ---------- Guias de remessa (envio, transferência, retorno) ---------- */
+let _patGuiaItens=[];
+function patGuiaTipo(de,para){ const o1=state.obras.find(o=>o.id===de), o2=state.obras.find(o=>o.id===para);
+  if(o2&&o2.ehEstoque)return 'Retorno ao almoxarifado'; if(o1&&o1.ehEstoque)return 'Envio para obra'; return 'Transferência entre obras'; }
+function patGuiaModal(ids){ patNormalizar(); if(!podeOperarPat()){ toast('Sem permissão para movimentar bens.','err'); return; }
+  if(state.obras.length<2){ toast('Cadastre ao menos duas obras (o almoxarifado central e uma obra).','err'); return; }
+  _patGuiaItens=(ids||[]).filter(id=>{ const b=patBem(id); return b&&!b.transito&&b.status==='ativo'; });
+  const de=_patGuiaItens.length?patBem(_patGuiaItens[0]).obraId:patObraCentral();
+  const outra=state.obras.find(o=>o.id!==de);
+  patModalLargo(`<h3>🚚 Nova guia de remessa</h3><p class="muted" style="font-size:12.5px;margin-bottom:12px">Os bens saem da origem na emissão e ficam <b>em trânsito</b> até a obra de destino confirmar o recebimento.</p>
+    <div class="row c2"><div class="field"><label>Origem</label><select id="pgDe" onchange="patGuiaOrigemMudou()">${state.obras.map(o=>`<option value="${o.id}"${o.id===de?' selected':''}>${esc(o.nome)}${o.ehEstoque?' (almoxarifado)':''}</option>`).join('')}</select></div>
+      <div class="field"><label>Destino</label><select id="pgPara" onchange="patGuiaDesenhar()">${state.obras.map(o=>`<option value="${o.id}"${outra&&o.id===outra.id?' selected':''}>${esc(o.nome)}${o.ehEstoque?' (almoxarifado)':''}</option>`).join('')}</select></div></div>
+    <div class="row c3"><div class="field"><label>Responsável no destino</label><input id="pgResp" placeholder="Quem vai receber/responder"></div><div class="field"><label>Motorista / transportador</label><input id="pgTransp"></div><div class="field"><label>Placa do veículo</label><input id="pgPlaca" class="mono"></div></div>
+    <div class="row c2"><div class="field"><label>Previsão de retorno (opcional)</label><input id="pgPrev" type="date"></div><div class="field"><label>Observação</label><input id="pgObs"></div></div>
+    <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-weight:500;font-size:13px;margin:0 0 12px"><input type="checkbox" id="pgConfirma" style="width:auto" checked> Exigir confirmação de recebimento no destino (desmarque para registrar uma movimentação já concluída)</label>
+    <div class="field"><label>Adicionar bem (plaqueta, nº de série ou descrição)</label><div style="display:flex;gap:8px"><input id="pgBusca" placeholder="Digite ou leia a plaqueta e tecle Enter" autocomplete="off" oninput="patGuiaBuscar(this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();patGuiaAddTermo(this.value);}"><button type="button" class="btn ghost sm" style="white-space:nowrap" onclick="patGuiaCamera()">📷 Ler</button></div><div id="pgRes"></div></div>
+    <div id="pgItens"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" id="pgEmitir" onclick="patGuiaEmitir()">Emitir guia</button></div>`,820);
+  patGuiaDesenhar(); setTimeout(()=>{ const i=$('#pgBusca'); if(i&&window.innerWidth>860)i.focus(); },50); }
+function patGuiaDisponivel(b,de){ return b&&b.status==='ativo'&&!b.transito&&b.obraId===de; }
+function patGuiaOrigemMudou(){ const de=$('#pgDe').value; const antes=_patGuiaItens.length; _patGuiaItens=_patGuiaItens.filter(id=>patGuiaDisponivel(patBem(id),de));
+  if(antes!==_patGuiaItens.length)toast('Itens de outra origem foram retirados da guia.','warn'); patGuiaDesenhar(); patGuiaBuscar($('#pgBusca').value); }
+function patGuiaBuscar(q){ const box=$('#pgRes'); if(!box)return; q=String(q||'').trim(); if(!q){ box.innerHTML=''; return; } const de=$('#pgDe').value;
+  const lista=state.patrimonio.filter(b=>patGuiaDisponivel(b,de)&&!_patGuiaItens.includes(b.id)&&patFiltroTexto(b,q)).slice(0,8);
+  box.innerHTML=lista.length?`<div class="tbl-wrap" style="margin-top:6px"><table><tbody>${lista.map(b=>`<tr><td class="mono">${esc(b.plaqueta)}</td><td>${esc(b.desc)}${b.serie?' <span class="muted" style="font-size:11px">· '+esc(b.serie)+'</span>':''}</td><td class="num"><button class="btn ghost sm" onclick="patGuiaAdd('${b.id}')">Adicionar</button></td></tr>`).join('')}</tbody></table></div>`
+    :`<div class="muted" style="font-size:12px;padding:6px 2px">Nenhum bem disponível em ${esc(obraName(de))} para "${esc(q)}".</div>`; }
+function patGuiaAddTermo(t){ const b=patBuscaBem(t); const de=$('#pgDe').value;
+  if(!b){ const r=state.patrimonio.filter(x=>patGuiaDisponivel(x,de)&&!_patGuiaItens.includes(x.id)&&patFiltroTexto(x,t)); if(r.length===1){ patGuiaAdd(r[0].id); return; } toast('Plaqueta não encontrada: '+esc(t),'err'); return; }
+  if(_patGuiaItens.includes(b.id)){ toast('Esse bem já está na guia.','warn'); return; }
+  if(b.status==='baixado'){ toast(esc(b.plaqueta)+' está baixado.','err'); return; }
+  if(b.transito){ toast(esc(b.plaqueta)+' já está em trânsito para '+esc(obraName(b.transito.para))+'.','err'); return; }
+  if(b.status==='manutencao'){ toast(esc(b.plaqueta)+' está em manutenção.','err'); return; }
+  if(b.obraId!==de){ toast(esc(b.plaqueta)+' está em '+esc(obraName(b.obraId))+', não na origem escolhida.','err'); return; }
+  patGuiaAdd(b.id); }
+function patGuiaAdd(id){ if(!_patGuiaItens.includes(id))_patGuiaItens.push(id); const i=$('#pgBusca'); if(i){ i.value=''; i.focus(); } $('#pgRes').innerHTML=''; patGuiaDesenhar(); }
+function patGuiaRemover(id){ _patGuiaItens=_patGuiaItens.filter(x=>x!==id); patGuiaDesenhar(); }
+function patGuiaCamera(){ const snap={}; document.querySelectorAll('#modalRoot input,#modalRoot select').forEach(el=>{ if(el.id)snap[el.id]=el.type==='checkbox'?el.checked:el.value; });
+  const itens=_patGuiaItens.slice();
+  const volta=()=>{ patGuiaModal(itens); Object.keys(snap).forEach(id=>{ const el=document.getElementById(id); if(!el)return; if(el.type==='checkbox')el.checked=snap[id]; else el.value=snap[id]; }); _patGuiaItens=itens; patGuiaDesenhar(); };
+  openCameraScanner(txt=>{ volta(); patGuiaAddTermo(txt); },volta); }
+function patGuiaDesenhar(){ const box=$('#pgItens'); if(!box)return; const de=$('#pgDe').value, para=$('#pgPara').value; const hoje=patHoje();
+  const tipo=de===para?'<span style="color:#c0392b">Origem e destino iguais</span>':esc(patGuiaTipo(de,para));
+  if(!_patGuiaItens.length){ box.innerHTML=`<div class="muted" style="font-size:12.5px;padding:10px;border:1px dashed #d8d2c4;border-radius:8px;text-align:center">${tipo} · nenhum bem adicionado.</div>`; return; }
+  let tot=0; const rows=_patGuiaItens.map(id=>{ const b=patBem(id); if(!b)return ''; const d=patDeprec(b,hoje); tot+=d.contabil;
+    return `<tr><td class="mono">${esc(b.plaqueta)}</td><td>${esc(b.desc)}${b.serie?' <span class="muted" style="font-size:11px">· '+esc(b.serie)+'</span>':''}</td><td class="num">${money(d.contabil)}</td><td class="num"><button class="btn danger sm" onclick="patGuiaRemover('${id}')">✕</button></td></tr>`; }).join('');
+  box.innerHTML=`<div style="font-size:12.5px;margin-bottom:6px"><b>${tipo}</b> · ${_patGuiaItens.length} ${_patGuiaItens.length===1?'bem':'bens'} · valor contábil ${money(tot)}</div><div class="tbl-wrap"><table><thead><tr><th>Plaqueta</th><th>Bem</th><th class="num">Valor contábil</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`; }
+function patGuiaEmitir(){ const de=$('#pgDe').value, para=$('#pgPara').value;
+  if(de===para){ toast('Origem e destino precisam ser diferentes.','err'); return; }
+  if(!_patGuiaItens.length){ toast('Adicione ao menos um bem.','err'); return; }
+  const inval=_patGuiaItens.map(patBem).filter(b=>!patGuiaDisponivel(b,de)); if(inval.length){ toast('Alguns bens não estão mais disponíveis na origem ('+inval.map(b=>b?esc(b.plaqueta):'?').join(', ')+'). Revise a guia.','err'); return; }
+  const confirma=$('#pgConfirma').checked, agora=Date.now();
+  const g={id:uid(),numero:patProxGuia(),ts:agora,tipo:patGuiaTipo(de,para),de,para,itens:_patGuiaItens.slice(),resp:$('#pgResp').value.trim(),transportador:$('#pgTransp').value.trim(),placa:$('#pgPlaca').value.trim().toUpperCase(),
+    previsaoRetorno:$('#pgPrev').value||null,obs:$('#pgObs').value.trim(),por:patUsuario(),status:confirma?'em_transito':'recebida',recebidos:confirma?[]:_patGuiaItens.slice()};
+  if(!confirma){ g.recebidoEm=agora; g.recebidoPor=patUsuario(); }
+  g.itens.forEach(id=>{ const b=patBem(id);
+    patHist(b,{tipo:'envio',guiaId:g.id,de,para,resp:g.resp,obraNova:confirma?null:para,obs:g.tipo});
+    if(confirma){ b.transito={guiaId:g.id,de,para,ts:agora}; }
+    else{ b.obraId=para; b.desde=agora; b.transito=null; if(g.resp)b.responsavel=g.resp; patHist(b,{tipo:'recebimento',guiaId:g.id,de,para,resp:g.resp,obraNova:para,obs:'Movimentação registrada já concluída'}); } });
+  state.patGuias.push(g);
+  save('Patrimônio: guia '+g.numero+' — '+g.itens.length+' bem(ns) de '+obraName(de)+' para '+obraName(para));
+  _patGuiaItens=[]; toast('Guia '+esc(g.numero)+' emitida.','ok'); patGuiaVer(g.id); refreshPatTela(); }
+function patGuiaStatusPill(g){ return g.status==='em_transito'?'<span class="pill high">Em trânsito</span>':g.status==='parcial'?'<span class="pill high">Recebida parcial</span>':g.status==='cancelada'?'<span class="pill low">Cancelada</span>':'<span class="pill good">Recebida</span>'; }
+function patGuiaVer(id){ const g=patGuia(id); if(!g)return; const hoje=patHoje(); const pend=(g.itens||[]).filter(x=>!(g.recebidos||[]).includes(x)&&!(g.cancelados||[]).includes(x));
+  const rows=(g.itens||[]).map(x=>{ const b=patBem(x); const st=(g.recebidos||[]).includes(x)?'<span class="pill good">Recebido</span>':(g.cancelados||[]).includes(x)?'<span class="pill low">Cancelado</span>':'<span class="pill high">Em trânsito</span>';
+    return `<tr><td class="mono">${esc(b?b.plaqueta:'?')}</td><td>${b?`<a href="javascript:void(0)" onclick="patVer('${b.id}')">${esc(b.desc)}</a>`:'(bem excluído)'}</td><td>${st}</td></tr>`; }).join('');
+  const linha=(l,v)=>`<div><div class="muted" style="font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;font-weight:600">${l}</div><div style="font-size:13.5px;margin-top:2px">${v||'—'}</div></div>`;
+  const op=podeOperarPat();
+  patModalLargo(`<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap"><div><div class="muted" style="font-size:12px">${esc(g.tipo)}</div><h3 style="margin:2px 0 4px">Guia ${esc(g.numero)}</h3>${patGuiaStatusPill(g)}</div><button class="btn ghost sm" onclick="closeModal()">Fechar</button></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px 16px;margin:16px 0">
+      ${linha('Origem',`<b>${esc(obraName(g.de))}</b>`)}${linha('Destino',`<b>${esc(obraName(g.para))}</b>`)}${linha('Emitida em',esc(fmtDate(g.ts))+' por '+esc(g.por||''))}
+      ${linha('Responsável no destino',esc(g.resp||''))}${linha('Transportador',esc([g.transportador,g.placa].filter(Boolean).join(' · ')))}${linha('Previsão de retorno',g.previsaoRetorno?patDataBR(g.previsaoRetorno):'')}
+      ${g.recebidoEm?linha('Recebimento',esc(fmtDate(g.recebidoEm))+' por '+esc(g.recebidoPor||'')):''}${g.obs?linha('Observação',esc(g.obs)):''}</div>
+    <div class="tbl-wrap" style="max-height:320px"><table><thead><tr><th>Plaqueta</th><th>Bem</th><th>Situação</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap"><button class="btn ghost" onclick="patGuiaImprimir('${g.id}')">🖨 Imprimir guia</button>
+      ${op&&pend.length?`<button class="btn danger" onclick="patGuiaCancelar('${g.id}')">Cancelar envio</button><button class="btn primary" onclick="patGuiaReceberModal('${g.id}')">✅ Confirmar recebimento</button>`:''}</div>`,760); }
+function patGuiaReceberModal(id){ const g=patGuia(id); if(!g)return; const pend=(g.itens||[]).filter(x=>!(g.recebidos||[]).includes(x)&&!(g.cancelados||[]).includes(x));
+  modal(`<h3>Confirmar recebimento · ${esc(g.numero)}</h3><p class="muted" style="font-size:12.5px;margin-bottom:10px">Destino: <b>${esc(obraName(g.para))}</b>. Desmarque o que não chegou — esses itens continuam em trânsito.</p>
+    <div class="tbl-wrap" style="max-height:300px"><table><tbody>${pend.map(x=>{ const b=patBem(x); return `<tr><td style="width:30px"><input type="checkbox" class="pgRec" value="${x}" checked style="width:auto"></td><td class="mono">${esc(b?b.plaqueta:'?')}</td><td>${esc(b?b.desc:'')}</td></tr>`; }).join('')}</tbody></table></div>
+    <div class="field" style="margin-top:12px"><label>Recebido por (responsável no local)</label><input id="prcResp" value="${esc(g.resp||'')}"></div>
+    <div class="field"><label>Observação</label><input id="prcObs" placeholder="Estado de conservação, avarias..."></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="patGuiaVer('${id}')">Voltar</button><button class="btn primary" onclick="patGuiaReceber('${id}')">Confirmar</button></div>`); }
+function patGuiaFinalizarStatus(g){ const fim=(g.itens||[]).every(x=>(g.recebidos||[]).includes(x)||(g.cancelados||[]).includes(x));
+  if(!fim){ g.status=(g.recebidos||[]).length?'parcial':'em_transito'; return; }
+  g.status=(g.recebidos||[]).length?'recebida':'cancelada'; }
+function patGuiaReceber(id){ const g=patGuia(id); if(!g)return; const sel=[...document.querySelectorAll('.pgRec')].filter(c=>c.checked).map(c=>c.value);
+  if(!sel.length){ toast('Marque ao menos um item recebido.','err'); return; }
+  const resp=$('#prcResp').value.trim(), obs=$('#prcObs').value.trim(), agora=Date.now();
+  if(!Array.isArray(g.recebidos))g.recebidos=[];
+  sel.forEach(x=>{ const b=patBem(x); if(!b||!b.transito||b.transito.guiaId!==g.id)return; b.obraId=g.para; b.desde=agora; b.transito=null; if(resp)b.responsavel=resp;
+    patHist(b,{tipo:'recebimento',guiaId:g.id,de:g.de,para:g.para,resp,obraNova:g.para,obs}); if(!g.recebidos.includes(x))g.recebidos.push(x); });
+  g.recebidoEm=agora; g.recebidoPor=patUsuario(); if(obs)g.obsRecebimento=obs; patGuiaFinalizarStatus(g);
+  save('Patrimônio: recebimento da guia '+g.numero+' em '+obraName(g.para)+' ('+sel.length+' bem(ns))'); toast('Recebimento confirmado.','ok'); patGuiaVer(id); refreshPatTela(); }
+function patGuiaCancelar(id){ const g=patGuia(id); if(!g)return;
+  requireSupervisor('Cancelar o envio dos itens ainda em trânsito da guia '+g.numero+' (voltam para '+obraName(g.de)+')',()=>{
+    if(!Array.isArray(g.cancelados))g.cancelados=[];
+    (g.itens||[]).forEach(x=>{ if((g.recebidos||[]).includes(x)||g.cancelados.includes(x))return; const b=patBem(x);
+      if(b&&b.transito&&b.transito.guiaId===g.id){ b.transito=null; b.obraId=g.de; patHist(b,{tipo:'cancelamento',guiaId:g.id,de:g.de,para:g.para,obraNova:g.de}); }
+      g.cancelados.push(x); });
+    patGuiaFinalizarStatus(g); save('Patrimônio: guia '+g.numero+' cancelada'); toast('Envio cancelado — os bens voltaram para a origem.','ok'); patGuiaVer(id); refreshPatTela(); }); }
+function patGuiaImprimir(id){ const g=patGuia(id); if(!g)return; const w=window.open('','_blank'); if(!w){ toast('Permita pop-ups para imprimir a guia.','err'); return; }
+  const dia=isoDia(new Date(g.ts)); let tot=0;
+  const linhas=(g.itens||[]).map((x,i)=>{ const b=patBem(x)||{}; const d=b.id?patDeprec(b,dia):{contabil:0}; tot+=d.contabil;
+    return `<tr><td class="c n">${i+1}</td><td class="mono">${esc(b.plaqueta||'')}</td><td>${esc(b.desc||'')}</td><td>${esc([b.marca,b.modelo].filter(Boolean).join(' '))}</td><td class="mono">${esc(b.serie||'')}</td><td class="r nw">${money(d.contabil)}</td><td class="chk"><span></span></td></tr>`; }).join('');
+  const meta=[['Data de emissão',fmtDate(g.ts)],['Emitida por',g.por],['Responsável no destino',g.resp],['Transportador',g.transportador],['Placa',g.placa],['Previsão de retorno',g.previsaoRetorno?patDataBR(g.previsaoRetorno):'']].map(([l,v])=>`<div class="mi"><div class="ml">${l}</div><div class="mv">${esc(v||'—')}</div></div>`).join('');
+  w.document.write(`<html><head><meta charset="utf-8"><title>Guia de remessa ${esc(g.numero)}</title><style>
+  @page{size:A4;margin:12mm 11mm 14mm}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{font-family:Arial,Helvetica,sans-serif;margin:0;color:#1a1a1a;font-size:11.5px}.pg{max-width:190mm;margin:0 auto;padding:6mm 0}
+  .hd{display:flex;justify-content:space-between;gap:16px;border-bottom:3px solid #1f3a5f;padding-bottom:10px}h1{font-size:19px;margin:0 0 3px;color:#1f3a5f}.sub{color:#555;font-size:12px}
+  .numbox{text-align:center;border:2px solid #1f3a5f;border-radius:6px;padding:5px 14px;min-width:130px}.numbox .l{font-size:8.5px;letter-spacing:1.2px;color:#1f3a5f;text-transform:uppercase;font-weight:bold}.numbox .n{font-size:22px;font-weight:bold;font-family:'Courier New',monospace}
+  .rota{display:flex;gap:10px;margin-top:12px}.rota .pt{flex:1;border:1px solid #c9d3df;border-radius:6px;padding:7px 10px;background:#f4f7fa}.rota .arr{align-self:center;font-size:18px;color:#1f3a5f}
+  .pl,.ml{font-size:8.5px;letter-spacing:.8px;text-transform:uppercase;color:#6b7785;font-weight:bold}.pv{font-size:13px;font-weight:bold;margin-top:2px}
+  .meta{display:grid;grid-template-columns:repeat(3,1fr);margin-top:10px;border:1px solid #c9d3df;border-radius:6px;overflow:hidden}.mi{padding:6px 10px;border-right:1px solid #e1e6ec;border-bottom:1px solid #e1e6ec}.mv{font-size:12px;margin-top:2px}
+  table{width:100%;border-collapse:collapse;margin-top:12px}thead{display:table-header-group}tr{break-inside:avoid}
+  th{background:#1f3a5f;color:#fff;text-align:left;font-size:10px;text-transform:uppercase;padding:6px 7px;white-space:nowrap}td{border-bottom:1px solid #d5dbe2;padding:5px 7px;font-size:11px;vertical-align:top}
+  tbody tr:nth-child(even) td{background:#f6f8fa}.r{text-align:right}.c{text-align:center}.nw{white-space:nowrap}td.n{color:#777}.mono{font-family:'Courier New',monospace;white-space:nowrap}
+  td.chk{text-align:center}td.chk span{display:inline-block;width:14px;height:14px;border:1.5px solid #555;border-radius:2px}
+  tfoot td{font-weight:bold;background:#e8edf3;border-top:2px solid #1f3a5f}.obs{margin-top:12px;border-left:3px solid #1f3a5f;background:#f6f8fa;padding:7px 10px}
+  .rec{margin-top:16px;border:1px solid #9aa6b4;border-radius:6px;padding:10px 14px;break-inside:avoid}.rec .t{font-weight:bold;color:#1f3a5f}
+  .sigs{display:grid;grid-template-columns:repeat(3,1fr);gap:28px;margin-top:46px;break-inside:avoid}.sig{text-align:center;border-top:1px solid #333;padding-top:5px;font-size:11px}.emit{margin-top:18px;font-size:9.5px;color:#888;text-align:right}
+  </style></head><body><div class="pg">
+  <div class="hd"><div><h1>Guia de Remessa de Patrimônio</h1><div class="sub">${esc(g.tipo)} · AMETA Engenharia</div></div><div class="numbox"><div class="l">Guia Nº</div><div class="n">${esc(g.numero)}</div></div></div>
+  <div class="rota"><div class="pt"><div class="pl">Origem</div><div class="pv">${esc(obraName(g.de))}</div></div><div class="arr">➜</div><div class="pt"><div class="pl">Destino</div><div class="pv">${esc(obraName(g.para))}</div></div></div>
+  <div class="meta">${meta}</div>
+  <table><thead><tr><th class="c">#</th><th>Plaqueta</th><th>Descrição</th><th>Marca / modelo</th><th>Nº série</th><th class="r">Valor contábil</th><th class="c">Conf.</th></tr></thead><tbody>${linhas}</tbody>
+  <tfoot><tr><td colspan="5" class="r">${(g.itens||[]).length} ${(g.itens||[]).length===1?'bem':'bens'} · Total</td><td class="r nw">${money(tot)}</td><td></td></tr></tfoot></table>
+  ${g.obs?`<div class="obs"><b>Observação:</b> ${esc(g.obs)}</div>`:''}
+  <div class="rec"><div class="t">Declaração de recebimento</div><div style="margin-top:5px">Declaro ter recebido os bens patrimoniais acima, em bom estado, e assumo a responsabilidade pela guarda e conservação enquanto estiverem neste local. Itens não recebidos: deixar a coluna "Conf." em branco.</div></div>
+  <div class="sigs"><div class="sig">Expedido por</div><div class="sig">Transportador</div><div class="sig">Recebido por (nome, assinatura e data)</div></div>
+  <div class="emit">Impresso em ${esc(fmtDate(Date.now()))}</div></div><script>setTimeout(()=>window.print(),350);<\/script></body></html>`); w.document.close(); }
+
+/* ---------- Tela: Envios e Retornos ---------- */
+let _patMovFiltro={obra:'',status:'',q:''};
+function renderPatMov(){ patNormalizar(); const f=_patMovFiltro;
+  $('#topActions').innerHTML=podeOperarPat()?`<button class="btn primary sm" onclick="patGuiaModal()">+ Nova guia de remessa</button>`:'';
+  const transito=state.patGuias.filter(g=>g.status==='em_transito'||g.status==='parcial').sort((a,b)=>a.ts-b.ts);
+  let html='';
+  if(transito.length){ html+=`<div class="sechead"><h3>🚚 Em trânsito — aguardando recebimento</h3></div><div class="tbl-wrap" style="margin-bottom:24px"><table><thead><tr><th>Guia</th><th>Emissão</th><th>Origem → destino</th><th class="num">Bens</th><th>Dias</th><th></th></tr></thead><tbody>${transito.map(g=>{ const pend=(g.itens||[]).filter(x=>!(g.recebidos||[]).includes(x)&&!(g.cancelados||[]).includes(x)).length; const dias=Math.floor((Date.now()-g.ts)/864e5);
+      return `<tr><td class="mono"><a href="javascript:void(0)" onclick="patGuiaVer('${g.id}')"><b>${esc(g.numero)}</b></a></td><td style="font-size:12.5px">${esc(fmtDate(g.ts))}</td><td>${esc(obraName(g.de))} → <b>${esc(obraName(g.para))}</b><div class="muted" style="font-size:11.5px">${esc(g.tipo)}${g.transportador?' · '+esc(g.transportador):''}</div></td><td class="num">${pend}/${(g.itens||[]).length}</td><td>${dias>=3?`<span class="pill low">${dias} dias</span>`:dias+(dias===1?' dia':' dias')}</td><td class="num" style="white-space:nowrap">${podeOperarPat()?`<button class="btn primary sm" onclick="patGuiaReceberModal('${g.id}')">✅ Receber</button>`:''}</td></tr>`; }).join('')}</tbody></table></div>`; }
+  html+=`<div class="sechead"><h3>Guias de remessa</h3><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <div class="search" style="min-width:160px"><span class="si">⌕</span><input id="pmQ" placeholder="Nº da guia, plaqueta, transportador..." value="${esc(f.q)}"></div>
+    <select id="pmObra" style="width:auto"><option value="">Todas as obras</option>${state.obras.map(o=>`<option value="${o.id}"${f.obra===o.id?' selected':''}>${esc(o.nome)}</option>`).join('')}</select>
+    <select id="pmStatus" style="width:auto">${[['','Todas'],['em_transito','Em trânsito'],['parcial','Recebida parcial'],['recebida','Recebidas'],['cancelada','Canceladas']].map(([v,t])=>`<option value="${v}"${f.status===v?' selected':''}>${t}</option>`).join('')}</select></div></div><div id="pmLista"></div>`;
+  $('#view').innerHTML=html;
+  const upd=()=>{ f.q=$('#pmQ').value; f.obra=$('#pmObra').value; f.status=$('#pmStatus').value; drawPatMov(); };
+  $('#pmQ').oninput=upd; $('#pmObra').onchange=upd; $('#pmStatus').onchange=upd; drawPatMov(); }
+function drawPatMov(){ const box=$('#pmLista'); if(!box)return; const f=_patMovFiltro;
+  const lista=state.patGuias.filter(g=>{ if(f.obra&&g.de!==f.obra&&g.para!==f.obra)return false; if(f.status&&g.status!==f.status)return false;
+    if(f.q){ const pl=(g.itens||[]).map(x=>{ const b=patBem(x); return b?b.plaqueta+' '+b.desc:''; }).join(' '); if(!buscaTem(g.numero,f.q)&&!buscaTem(g.transportador,f.q)&&!buscaTem(g.placa,f.q)&&!buscaTem(g.resp,f.q)&&!buscaTem(pl,f.q))return false; }
+    return true; }).sort((a,b)=>b.ts-a.ts);
+  if(!state.patGuias.length){ box.innerHTML=`<div class="tbl-wrap"><div class="empty"><div class="ico">🚚</div>Nenhuma guia de remessa emitida ainda.${podeOperarPat()?'<br><button class="btn primary" onclick="patGuiaModal()">+ Emitir primeira guia</button>':''}</div></div>`; return; }
+  if(!lista.length){ box.innerHTML=`<div class="tbl-wrap"><div class="empty">Nenhuma guia encontrada.</div></div>`; return; }
+  box.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>Guia</th><th>Emissão</th><th>Tipo</th><th>Origem → destino</th><th class="num">Bens</th><th>Situação</th><th></th></tr></thead><tbody>${lista.slice(0,300).map(g=>`<tr style="cursor:pointer" onclick="patGuiaVer('${g.id}')"><td class="mono"><b>${esc(g.numero)}</b></td><td style="font-size:12.5px">${esc(fmtDate(g.ts))}<div class="muted" style="font-size:11px">${esc(g.por||'')}</div></td><td style="font-size:12.5px">${esc(g.tipo)}</td><td>${esc(obraName(g.de))} → <b>${esc(obraName(g.para))}</b></td><td class="num">${(g.itens||[]).length}</td><td>${patGuiaStatusPill(g)}</td><td class="num"><button class="btn ghost sm" onclick="event.stopPropagation();patGuiaImprimir('${g.id}')">🖨</button></td></tr>`).join('')}</tbody></table></div>`; }
+
+/* ---------- Tela: Localização por obra ---------- */
+let _patLocObra='';
+function renderPatLocal(){ patNormalizar(); const hoje=patHoje();
+  $('#topActions').innerHTML=podeOperarPat()?`<button class="btn primary sm" onclick="patGuiaModal()">+ Nova guia de remessa</button>`:'';
+  const ativos=state.patrimonio.filter(b=>b.status!=='baixado');
+  const grupos={}; ativos.forEach(b=>{ const k=b.transito?'__transito':(b.obraId||'__sem'); (grupos[k]=grupos[k]||[]).push(b); });
+  const ordem=state.obras.map(o=>o.id).filter(id=>grupos[id]).concat(grupos.__transito?['__transito']:[]).concat(grupos.__sem?['__sem']:[]);
+  const nomeG=k=>k==='__transito'?'Em trânsito':k==='__sem'?'Sem localização':obraName(k);
+  if(!ativos.length){ $('#view').innerHTML=`<div class="tbl-wrap"><div class="empty"><div class="ico">⌂</div>Nenhum bem patrimonial ativo.<br><button class="btn primary" onclick="go('patrimonio')">Ir para Bens Patrimoniais</button></div></div>`; return; }
+  let html=`<div class="cards">${ordem.map(k=>{ const l=grupos[k]; const v=l.reduce((s,b)=>s+patDeprec(b,hoje).contabil,0); const man=l.filter(b=>b.status==='manutencao').length; const o=state.obras.find(x=>x.id===k);
+    return `<div class="card ${k==='__transito'?'warn':o&&o.ehEstoque?'neutral':'ok'}" style="cursor:pointer;${_patLocObra===k?'outline:2px solid var(--amber)':''}" onclick="_patLocObra=(_patLocObra==='${k}'?'':'${k}');renderPatLocal()"><div class="stripe"></div><div class="lbl">${esc(nomeG(k))}${o&&o.ehEstoque?' · almoxarifado':''}</div><div class="val">${l.length}</div><div class="sub">${l.length===1?'bem':'bens'} · ${money(v)}${man?' · '+man+' em manutenção':''}</div></div>`; }).join('')}</div>`;
+  const mostrar=_patLocObra&&grupos[_patLocObra]?[_patLocObra]:ordem;
+  html+=`<div class="muted" style="font-size:12.5px;margin-bottom:12px">${_patLocObra?'Mostrando só '+esc(nomeG(_patLocObra))+' — clique no cartão de novo para ver todas.':'Clique num cartão para ver só aquela obra.'}</div>`;
+  mostrar.forEach(k=>{ const l=grupos[k].slice().sort((a,b)=>String(a.plaqueta).localeCompare(String(b.plaqueta),'pt-BR',{numeric:true}));
+    html+=`<div class="sechead" style="margin-top:8px"><h3>${esc(nomeG(k))} <span class="muted" style="font-weight:500;font-size:13px">· ${l.length} ${l.length===1?'bem':'bens'}</span></h3></div>
+    <div class="tbl-wrap" style="margin-bottom:22px"><table><thead><tr><th>Plaqueta</th><th>Bem</th><th>Categoria</th><th>${k==='__transito'?'Destino / guia':'No local desde'}</th><th>Responsável</th><th>Situação</th><th class="num">Valor contábil</th></tr></thead><tbody>${l.map(b=>{ const g=b.transito?patGuia(b.transito.guiaId):null;
+      const desde=b.transito?esc(obraName(b.transito.para))+(g?' · '+esc(g.numero):''):(b.desde?esc(patDataBR(isoDia(new Date(b.desde))))+` <span class="muted" style="font-size:11px">(${Math.floor((Date.now()-b.desde)/864e5)} d)</span>`:'—');
+      return `<tr style="cursor:pointer" onclick="patVer('${b.id}')"><td class="mono"><b>${esc(b.plaqueta)}</b></td><td>${esc(b.desc)}${b.serie?'<div class="muted" style="font-size:11px">Série '+esc(b.serie)+'</div>':''}</td><td style="font-size:12.5px">${esc(patCatNome(b.categoria))}</td><td style="font-size:12.5px">${desde}</td><td style="font-size:12.5px">${esc(b.responsavel||'—')}</td><td>${patStatusPill(b)}</td><td class="num">${money(patDeprec(b,hoje).contabil)}</td></tr>`; }).join('')}</tbody></table></div>`; });
+  $('#view').innerHTML=html; }
+
+/* ---------- Tela: Depreciação (mapa mensal) ---------- */
+let _patDepComp=null, _patDepVisao='bem';
+function patMapaMes(comp){ const ref=patUltimoDia(comp), refAnt=patUltimoDia(patMesAnterior(comp)), ini=comp+'-01';
+  return state.patrimonio.filter(b=>b.dataAquisicao&&b.dataAquisicao<=ref&&!(b.status==='baixado'&&b.baixa&&b.baixa.data&&b.baixa.data<ini)).map(b=>{
+    const d=patDeprec(b,ref), dAnt=b.dataAquisicao<=refAnt?patDeprec(b,refAnt):{acum:0};
+    return {b,d,mes:Math.max(0,Math.round((d.acum-dAnt.acum)*100)/100)}; }).sort((x,y)=>String(x.b.plaqueta).localeCompare(String(y.b.plaqueta),'pt-BR',{numeric:true})); }
+function renderPatDeprec(){ patNormalizar(); if(!_patDepComp)_patDepComp=patHoje().slice(0,7);
+  $('#topActions').innerHTML=`<button class="btn ghost sm" onclick="patDeprecExcel()">⤓ Excel</button> <button class="btn ghost sm" onclick="patDeprecImprimir()">🖨 Imprimir</button>`;
+  $('#view').innerHTML=`<div class="panel"><h3>Mapa de depreciação</h3><p class="desc">Método linear: (valor de aquisição − residual) ÷ vida útil em meses. A depreciação do mês é rateada entre as obras pelos dias que cada bem passou em cada uma — base para apropriar o custo de equipamento por obra.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end"><div class="field" style="margin:0"><label>Competência</label><input id="pdComp" type="month" value="${_patDepComp}" style="width:auto"></div>
+    <div class="field" style="margin:0"><label>Visão</label><select id="pdVisao" style="width:auto">${[['bem','Por bem'],['obra','Por obra (rateio)'],['categoria','Por categoria']].map(([v,t])=>`<option value="${v}"${_patDepVisao===v?' selected':''}>${t}</option>`).join('')}</select></div></div></div><div id="pdRes"></div>`;
+  $('#pdComp').onchange=e=>{ if(e.target.value){ _patDepComp=e.target.value; drawPatDeprec(); } }; $('#pdVisao').onchange=e=>{ _patDepVisao=e.target.value; drawPatDeprec(); };
+  drawPatDeprec(); }
+function patDeprecDados(){ const comp=_patDepComp, linhas=patMapaMes(comp);
+  const tot={valor:0,mes:0,acum:0,contabil:0}; linhas.forEach(l=>{ tot.valor+=l.d.valor; tot.mes+=l.mes; tot.acum+=l.d.acum; tot.contabil+=l.d.contabil; });
+  const porObra={}, porCat={};
+  linhas.forEach(l=>{ const c=l.b.categoria||'—'; const pc=porCat[c]||(porCat[c]={n:0,valor:0,mes:0,acum:0,contabil:0}); pc.n++; pc.valor+=l.d.valor; pc.mes+=l.mes; pc.acum+=l.d.acum; pc.contabil+=l.d.contabil;
+    if(l.mes>0){ const r=patRateioMes(l.b,comp); Object.keys(r).forEach(k=>{ const po=porObra[k]||(porObra[k]={mes:0,bens:new Set()}); po.mes+=l.mes*r[k]; po.bens.add(l.b.id); }); } });
+  return {comp,linhas,tot,porObra,porCat}; }
+function patCompTxt(comp){ const [y,m]=comp.split('-'); return ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'][Number(m)-1]+'/'+y; }
+function patFimDoDiaTs(iso){ const d=patParseDia(iso); return new Date(d.y,d.m-1,d.d,23,59,59,999).getTime(); }
+function drawPatDeprec(){ const box=$('#pdRes'); if(!box)return; const D=patDeprecDados(); const fimMes=patFimDoDiaTs(patUltimoDia(D.comp));
+  let html=`<div class="cards"><div class="card neutral"><div class="stripe"></div><div class="lbl">Bens no mês</div><div class="val">${D.linhas.length}</div><div class="sub">${esc(patCompTxt(D.comp))}</div></div>
+    <div class="card warn"><div class="stripe"></div><div class="lbl">Depreciação do mês</div><div class="val" style="font-size:20px">${money(D.tot.mes)}</div></div>
+    <div class="card neutral"><div class="stripe"></div><div class="lbl">Depreciação acumulada</div><div class="val" style="font-size:20px">${money(D.tot.acum)}</div></div>
+    <div class="card ok"><div class="stripe"></div><div class="lbl">Valor contábil</div><div class="val" style="font-size:20px">${money(D.tot.contabil)}</div></div></div>`;
+  if(!D.linhas.length){ box.innerHTML=html+`<div class="tbl-wrap"><div class="empty">Nenhum bem adquirido até ${esc(patCompTxt(D.comp))}.</div></div>`; return; }
+  if(_patDepVisao==='obra'){ const ks=Object.keys(D.porObra).sort((a,b)=>D.porObra[b].mes-D.porObra[a].mes);
+    html+=`<div class="tbl-wrap"><table><thead><tr><th>Obra</th><th class="num">Bens que passaram</th><th class="num">Depreciação apropriada</th><th class="num">% do mês</th></tr></thead><tbody>${ks.map(k=>`<tr><td>${k==='__transito'?'<i>Em trânsito</i>':esc(obraName(k))}</td><td class="num">${D.porObra[k].bens.size}</td><td class="num"><b>${money(D.porObra[k].mes)}</b></td><td class="num">${pctf(D.tot.mes?D.porObra[k].mes/D.tot.mes*100:0)}</td></tr>`).join('')}</tbody><tfoot><tr><td colspan="2"><b>Total</b></td><td class="num"><b>${money(D.tot.mes)}</b></td><td class="num">100%</td></tr></tfoot></table></div>`; }
+  else if(_patDepVisao==='categoria'){ const ks=Object.keys(D.porCat).sort((a,b)=>patCatNome(a).localeCompare(patCatNome(b),'pt-BR'));
+    html+=`<div class="tbl-wrap"><table><thead><tr><th>Categoria</th><th class="num">Bens</th><th class="num">Aquisição</th><th class="num">Deprec. do mês</th><th class="num">Deprec. acumulada</th><th class="num">Valor contábil</th></tr></thead><tbody>${ks.map(k=>{ const c=D.porCat[k]; return `<tr><td>${esc(patCatNome(k))}</td><td class="num">${c.n}</td><td class="num">${money(c.valor)}</td><td class="num">${money(c.mes)}</td><td class="num">${money(c.acum)}</td><td class="num"><b>${money(c.contabil)}</b></td></tr>`; }).join('')}</tbody><tfoot><tr><td><b>Total</b></td><td class="num">${D.linhas.length}</td><td class="num"><b>${money(D.tot.valor)}</b></td><td class="num"><b>${money(D.tot.mes)}</b></td><td class="num"><b>${money(D.tot.acum)}</b></td><td class="num"><b>${money(D.tot.contabil)}</b></td></tr></tfoot></table></div>`; }
+  else{ html+=`<div class="tbl-wrap"><table><thead><tr><th>Plaqueta</th><th>Bem</th><th>Local (fim do mês)</th><th class="num">Aquisição</th><th class="num">Taxa a.a.</th><th class="num">Deprec. do mês</th><th class="num">Acumulada</th><th class="num">Valor contábil</th></tr></thead><tbody>${D.linhas.map(l=>{ const loc=patLocalNoDia(patLinhaDoTempo(l.b),fimMes,l.b.obraId);
+      return `<tr style="cursor:pointer" onclick="patVer('${l.b.id}')"><td class="mono">${esc(l.b.plaqueta)}</td><td>${esc(l.b.desc)}<div class="muted" style="font-size:11px">${esc(patCatNome(l.b.categoria))}${l.b.status==='baixado'?' · baixado':''}</div></td><td style="font-size:12.5px">${loc?esc(obraName(loc)):'<i>Em trânsito</i>'}</td><td class="num">${money(l.d.valor)}</td><td class="num">${pctf(patTaxaAnual(l.b))}</td><td class="num">${money(l.mes)}</td><td class="num">${money(l.d.acum)}${l.d.total?'<div style="font-size:10.5px;color:#1c7a52">100% depreciado</div>':''}</td><td class="num"><b>${money(l.d.contabil)}</b></td></tr>`; }).join('')}</tbody>
+      <tfoot><tr><td colspan="3"><b>${D.linhas.length} bens</b></td><td class="num"><b>${money(D.tot.valor)}</b></td><td></td><td class="num"><b>${money(D.tot.mes)}</b></td><td class="num"><b>${money(D.tot.acum)}</b></td><td class="num"><b>${money(D.tot.contabil)}</b></td></tr></tfoot></table></div>`; }
+  box.innerHTML=html; }
+async function patDeprecExcel(){ try{ await ensureXLSX(); }catch(e){ toast('Não foi possível carregar o gerador de planilhas.','err'); return; }
+  const D=patDeprecDados(); const wb=XLSX.utils.book_new();
+  const r2=v=>Math.round((Number(v)||0)*100)/100;
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(D.linhas.map(l=>({'Plaqueta':l.b.plaqueta,'Descrição':l.b.desc,'Categoria':patCatNome(l.b.categoria),'Localização atual':patLocalTxt(l.b),'Data aquisição':patDataBR(l.b.dataAquisicao),'Início depreciação':patDataBR(patInicioDeprec(l.b)),'Valor aquisição':r2(l.d.valor),'Valor residual':r2(l.d.residual),'Vida útil (meses)':l.d.vida,'Taxa a.a. (%)':r2(patTaxaAnual(l.b)),'Meses depreciados':l.d.meses,'Depreciação mensal':r2(l.d.mensal),'Depreciação do mês':r2(l.mes),'Depreciação acumulada':r2(l.d.acum),'Valor contábil':r2(l.d.contabil),'Situação':l.b.status==='baixado'?'Baixado':l.d.total?'Totalmente depreciado':'Em depreciação'}))),'Por bem');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(Object.keys(D.porObra).map(k=>({'Obra':k==='__transito'?'Em trânsito':obraName(k),'Bens':D.porObra[k].bens.size,'Depreciação apropriada':r2(D.porObra[k].mes)}))),'Rateio por obra');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(Object.keys(D.porCat).map(k=>{ const c=D.porCat[k]; return {'Categoria':patCatNome(k),'Bens':c.n,'Valor aquisição':r2(c.valor),'Depreciação do mês':r2(c.mes),'Depreciação acumulada':r2(c.acum),'Valor contábil':r2(c.contabil)}; })),'Por categoria');
+  XLSX.writeFile(wb,'depreciacao_'+D.comp+'.xlsx'); }
+function patDeprecImprimir(){ const D=patDeprecDados(); const w=window.open('','_blank'); if(!w){ toast('Permita pop-ups para imprimir.','err'); return; }
+  const rows=D.linhas.map(l=>`<tr><td class="mono">${esc(l.b.plaqueta)}</td><td>${esc(l.b.desc)}</td><td>${esc(patCatNome(l.b.categoria))}</td><td class="r">${money(l.d.valor)}</td><td class="r">${pctf(patTaxaAnual(l.b))}</td><td class="r">${money(l.mes)}</td><td class="r">${money(l.d.acum)}</td><td class="r">${money(l.d.contabil)}</td></tr>`).join('');
+  const obras=Object.keys(D.porObra).sort((a,b)=>D.porObra[b].mes-D.porObra[a].mes).map(k=>`<tr><td>${k==='__transito'?'Em trânsito':esc(obraName(k))}</td><td class="r">${D.porObra[k].bens.size}</td><td class="r">${money(D.porObra[k].mes)}</td></tr>`).join('');
+  w.document.write(`<html><head><meta charset="utf-8"><title>Mapa de depreciação ${esc(D.comp)}</title><style>@page{size:A4 landscape;margin:10mm}body{font-family:Arial,sans-serif;font-size:11px;color:#1a1a1a}h1{font-size:17px;color:#1f3a5f;margin:0 0 2px}h2{font-size:13px;color:#1f3a5f;margin:18px 0 6px}.sub{color:#555;margin-bottom:10px}table{width:100%;border-collapse:collapse}th{background:#1f3a5f;color:#fff;text-align:left;font-size:9.5px;text-transform:uppercase;padding:5px 6px}td{border-bottom:1px solid #d5dbe2;padding:4px 6px}.r{text-align:right;white-space:nowrap}.mono{font-family:'Courier New',monospace}tfoot td{font-weight:bold;background:#e8edf3}tr{break-inside:avoid}</style></head><body>
+    <h1>Mapa de depreciação — ${esc(patCompTxt(D.comp))}</h1><div class="sub">AMETA Engenharia · método linear · emitido em ${esc(fmtDate(Date.now()))}</div>
+    <table><thead><tr><th>Plaqueta</th><th>Bem</th><th>Categoria</th><th class="r">Aquisição</th><th class="r">Taxa a.a.</th><th class="r">Deprec. mês</th><th class="r">Acumulada</th><th class="r">Valor contábil</th></tr></thead><tbody>${rows}</tbody>
+    <tfoot><tr><td colspan="3">${D.linhas.length} bens</td><td class="r">${money(D.tot.valor)}</td><td></td><td class="r">${money(D.tot.mes)}</td><td class="r">${money(D.tot.acum)}</td><td class="r">${money(D.tot.contabil)}</td></tr></tfoot></table>
+    <h2>Rateio da depreciação do mês por obra</h2><table style="width:60%"><thead><tr><th>Obra</th><th class="r">Bens</th><th class="r">Depreciação</th></tr></thead><tbody>${obras||'<tr><td colspan="3">—</td></tr>'}</tbody><tfoot><tr><td colspan="2">Total</td><td class="r">${money(D.tot.mes)}</td></tr></tfoot></table>
+    <script>setTimeout(()=>window.print(),300);<\/script></body></html>`); w.document.close(); }
+
+/* ---------- Exportação e plaquetas ---------- */
+async function patExportarBens(){ try{ await ensureXLSX(); }catch(e){ toast('Não foi possível carregar o gerador de planilhas.','err'); return; }
+  const hoje=patHoje(), r2=v=>Math.round((Number(v)||0)*100)/100;
+  const linhas=patListaFiltrada().map(b=>{ const d=patDeprec(b,hoje); const emp=(state.empresas||[]).find(e=>e.id===b.empresaId);
+    return {'Plaqueta':b.plaqueta,'Descrição':b.desc,'Categoria':patCatNome(b.categoria),'Marca':b.marca||'','Modelo':b.modelo||'','Nº série':b.serie||'','Empresa':emp?emp.razaoSocial:'','Fornecedor':b.fornecedor||'','NF':b.nf||'',
+      'Localização':patLocalTxt(b),'Responsável':b.responsavel||'','Situação':b.transito?'Em trânsito':(PAT_STATUS[b.status]||PAT_STATUS.ativo)[0],'Data aquisição':patDataBR(b.dataAquisicao),'Valor aquisição':r2(d.valor),'Valor residual':r2(d.residual),
+      'Vida útil (meses)':d.vida,'Depreciação mensal':r2(d.mensal),'Meses depreciados':d.meses,'Depreciação acumulada':r2(d.acum),'Valor contábil':r2(d.contabil)}; });
+  if(!linhas.length){ toast('Nada para exportar.','err'); return; }
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(linhas),'Patrimônio'); XLSX.writeFile(wb,'patrimonio_'+hoje+'.xlsx'); }
+function patPlaquetasModal(){ const lista=patListaFiltrada(); if(!lista.length){ toast('Nenhum bem na lista atual.','err'); return; }
+  modal(`<h3>🏷 Imprimir plaquetas</h3><p class="mp">Gera as etiquetas (código de barras da plaqueta) dos <b>${lista.length}</b> bens da lista filtrada na tela.</p>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="closeModal();patImprimirPlaquetas(patListaFiltrada().map(b=>b.id))">Imprimir</button></div>`); }
+function patImprimirPlaquetas(ids){ const bens=ids.map(patBem).filter(Boolean); if(!bens.length)return; const w=window.open('','_blank'); if(!w){ toast('Permita pop-ups para gerar as plaquetas.','err'); return; }
+  w.document.write(`<html><head><meta charset="utf-8"><title>Plaquetas de patrimônio</title><script src="${JSBARCODE_SRC}"><\/script><style>@page{size:auto;margin:8mm}body{font-family:Arial,sans-serif;margin:0}.lab{display:inline-block;width:230px;margin:4px;padding:6px 8px;border:1.5px solid #1f3a5f;border-radius:6px;text-align:center;vertical-align:top;break-inside:avoid;page-break-inside:avoid}.t{font-size:8.5px;letter-spacing:1px;text-transform:uppercase;color:#1f3a5f;font-weight:bold}.d{font-size:11px;font-weight:bold;margin:2px 0;line-height:1.2}svg{display:block;margin:0 auto;max-width:100%;height:auto}</style></head><body>
+    ${bens.map(b=>`<div class="lab"><div class="t">Patrimônio · AMETA Engenharia</div><div class="d">${esc(b.desc)}</div><svg class="b" data-c="${esc(b.plaqueta)}"></svg></div>`).join('')}
+    <script>document.querySelectorAll('.b').forEach(s=>{JsBarcode(s,s.dataset.c,{format:'CODE128',width:1.4,height:42,fontSize:13,margin:2});const bw=parseFloat(s.getAttribute('width')),bh=parseFloat(s.getAttribute('height'));if(bw>0&&bh>0)s.setAttribute('viewBox','0 0 '+bw+' '+bh);});setTimeout(()=>window.print(),400);<\/script></body></html>`); w.document.close(); }
+
 
 /* ===== Init ===== */
 (async function(){
