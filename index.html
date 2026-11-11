@@ -3869,13 +3869,16 @@ async function drawAprovHist(){ const box=$('#aprovHist'); if(!box)return;
     const {data:sep}=await sb.from('requisicao_itens_status').select('requisicao_id').in('requisicao_id',data.map(r=>r.id)).gt('quantidade_separada',0);
     (sep||[]).forEach(s=>ativos.add(s.requisicao_id));
   }
-  box.innerHTML=`<table><thead><tr><th>Nº</th><th>Obra / OS</th><th>Equipamento / Prefixo</th><th>Solicitante</th><th>Situação</th><th>Decidido por</th><th>Quando</th>${isDanielAdmin()?'<th></th>':''}</tr></thead><tbody>${
+  const colAcoes=isDanielAdmin()||isEncarregado();
+  box.innerHTML=`<table><thead><tr><th>Nº</th><th>Obra / OS</th><th>Equipamento / Prefixo</th><th>Solicitante</th><th>Situação</th><th>Decidido por</th><th>Quando</th>${colAcoes?'<th></th>':''}</tr></thead><tbody>${
     (data||[]).map(r=>{
-      const botoes=!isDanielAdmin()?'':ativos.has(r.id)
-        ?`<td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="excluirEventoSeparacao(${r.id})" title="Estorna o estoque separado; libera o Excluir REQ em seguida">Excluir separação</button></td>`
-        :`<td class="num" style="white-space:nowrap"><button class="btn danger sm" onclick="excluirRequisicaoAdmin(${r.id})">Excluir REQ</button></td>`;
+      const btRet=podeRetornarAprovacao(r)?`<button class="btn ghost sm" title="Desfaz a aprovação: estorna o que já foi separado e a requisição volta para Pendente" onclick="retornarParaAprovacao(${r.id})">↩ Retornar p/ aprovação</button> `:'';
+      const btAdm=!isDanielAdmin()?'':ativos.has(r.id)
+        ?`<button class="btn ghost sm" onclick="excluirEventoSeparacao(${r.id})" title="Estorna o estoque separado; libera o Excluir REQ em seguida">Excluir separação</button>`
+        :`<button class="btn danger sm" onclick="excluirRequisicaoAdmin(${r.id})">Excluir REQ</button>`;
+      const botoes=colAcoes?`<td class="num" style="white-space:nowrap">${btRet}${btAdm}</td>`:'';
       return `<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${reqAplicCelHTML(r)}</td><td>${esc(r.solicitante_nome)}</td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${r.motivo_rejeicao?`<br><span class="muted" style="font-size:11px">${esc(r.motivo_rejeicao)}</span>`:''}</td><td>${esc(r.decidido_por_nome||'—')}</td><td class="muted" style="font-size:12px">${r.decidido_em?fmtDate(new Date(r.decidido_em).getTime()):'—'}</td>${botoes}</tr>`;
-    }).join('')||`<tr><td colspan="${isDanielAdmin()?8:7}" class="empty" style="padding:24px">Nenhuma decisão ainda.</td></tr>`}</tbody></table>`; }
+    }).join('')||`<tr><td colspan="${colAcoes?8:7}" class="empty" style="padding:24px">Nenhuma decisão ainda.</td></tr>`}</tbody></table>`; }
 async function excluirEventoSeparacao(reqId){
   if(!isDanielAdmin()){toast('Apenas o usuário autorizado pode excluir o evento de separação.','err');return;}
   { const {count,error:eD}=await sb.from('devolucoes_requisicao').select('id',{count:'exact',head:true}).eq('requisicao_id',reqId);
@@ -3923,8 +3926,12 @@ async function aprovarRequisicao(id){
   const {error:e2}=await sb.from('requisicao_itens_status').upsert(rowsStatus,{onConflict:'requisicao_id,code'});
   if(e2){toast('Erro ao gravar verificação de estoque: '+e2.message,'err');return;}
   const faltantes=itensAvaliados.filter(i=>i.faltante>0);
-  if(faltantes.length){
-    const rowsCompra=faltantes.map(i=>({requisicao_id:r.id, code:i.code, descricao:i.desc, quantidade:i.faltante, status:'pendente'}));
+  /* compras ainda abertas desta requisição (ex.: solicitadas no Sienge antes de ela voltar para aprovação): entram só pela diferença */
+  let jaEmCompra={};
+  if(faltantes.length){ const {data:abertas}=await sb.from('compras_pendentes').select('code,quantidade').eq('requisicao_id',r.id).in('status',['pendente','solicitada']);
+    (abertas||[]).forEach(c=>{ jaEmCompra[String(c.code)]=(jaEmCompra[String(c.code)]||0)+(Number(c.quantidade)||0); }); }
+  const rowsCompra=faltantes.map(i=>({requisicao_id:r.id, code:i.code, descricao:i.desc, quantidade:i.faltante-(jaEmCompra[String(i.code)]||0), status:'pendente'})).filter(x=>x.quantidade>0.0001);
+  if(rowsCompra.length){
     const {error:e3}=await sb.from('compras_pendentes').insert(rowsCompra);
     if(e3){toast('Verificação salva, mas houve erro ao gerar compra pendente: '+e3.message,'err');return;}
   }
@@ -3941,6 +3948,70 @@ async function rejeitarRequisicao(id){
   $('#rjOk').onclick=async()=>{ const motivo=$('#rjMotivo').value.trim(); if(!motivo){toast('Informe o motivo.','err');return;}
     const {error}=await updReq(id,{status:'rejeitada',motivo_rejeicao:motivo,decidido_por:session.user.id,decidido_por_nome:profile.nome||profile.email,decidido_em:new Date().toISOString()});
     if(error){toast('Erro: '+error.message,'err');return;} closeModal(); toast('Requisição rejeitada.','warn'); drawAprovPend(); drawAprovHist(); refreshAprovBadge(); refreshGlobalAlerts(); }; }
+
+/* ===== RETORNAR PARA APROVAÇÃO (somente encarregado/supervisor e administrador) =====
+   Desfaz a aprovação de uma requisição que ainda não saiu da separação: estorna no estoque o que já foi
+   separado, apaga a verificação de itens e as compras ainda não solicitadas (as já solicitadas no Sienge ficam), e volta a requisição
+   para "Pendente" — ela reaparece em Aprovações e passa por toda a verificação de saldo de novo. */
+const REQ_RETORNA_APROV=['em_separacao','aguardando_compra','separado'];
+function podeRetornarAprovacao(r){ return isEncarregado()&&!!r&&REQ_RETORNA_APROV.includes(r.status)&&!r.tipo_envio; }
+async function retornarParaAprovacao(reqId){
+  if(!isEncarregado()){ toast('Somente supervisor (encarregado) ou administrador pode retornar a requisição para aprovação.','err'); return; }
+  const nreq='REQ-'+String(reqId).padStart(5,'0');
+  const {data:r,error:e1}=await sb.from('requisicoes').select('*').eq('id',reqId).maybeSingle();
+  if(e1||!r){ toast('Erro ao carregar a requisição'+(e1?': '+e1.message:'.'),'err'); return; }
+  if(!REQ_RETORNA_APROV.includes(r.status)){ toast(nreq+' está em "'+reqStatusLabel(r.status)+'" — só volta para aprovação enquanto está na separação.','err'); return; }
+  if(r.tipo_envio){ toast(nreq+' já tem tipo de envio definido. Use "Trocar tipo de envio" antes de retornar para aprovação.','err'); return; }
+  /* bloqueios: devolução registrada, entrega no balcão já feita ou mútuo em período fechado */
+  const [{count:cDev,error:eD},{count:cRet,error:eR},{data:its,error:eI},{data:mut,error:eM}]=await Promise.all([
+    sb.from('devolucoes_requisicao').select('id',{count:'exact',head:true}).eq('requisicao_id',reqId),
+    sb.from('retiradas_internas').select('id',{count:'exact',head:true}).eq('requisicao_id',reqId),
+    sb.from('requisicao_itens_status').select('*').eq('requisicao_id',reqId),
+    r.mutuo_empresa_destino?sb.from('mutuos_intercompany').select('id,status').eq('requisicao_id',reqId):Promise.resolve({data:[]})]);
+  if(eI){ toast('Erro ao carregar os itens: '+eI.message,'err'); return; }
+  if(!eD&&cDev){ toast(nreq+' tem devolução de material registrada — não dá para retornar para aprovação.','err'); return; }
+  if(!eR&&cRet){ toast(nreq+' já teve entrega no balcão — não dá para retornar para aprovação.','err'); return; }
+  if((its||[]).some(i=>Number(i.quantidade_entregue)>0)){ toast(nreq+' já teve itens entregues — não dá para retornar para aprovação.','err'); return; }
+  if(!eM&&(mut||[]).some(m=>m.status!=='aberto')){ toast('O mútuo da '+nreq+' está em período fechado — reabra o período antes de retornar para aprovação.','err'); return; }
+  const separados=(its||[]).filter(i=>Number(i.quantidade_separada)>0);
+  const obraSaldo=obraEstoqueParaRequisicao(r);
+  const resumo=separados.length?' — estorna para o estoque de '+obraName(obraSaldo)+': '+separados.map(i=>i.descricao+' ('+numf(i.quantidade_separada)+' '+(i.unidade||'')+')').join(', '):'';
+  requireSupervisor('Retornar '+nreq+' para aprovação'+resumo+'. As compras ainda não solicitadas serão removidas; as já solicitadas no Sienge são mantidas.',async()=>{
+    /* 1) trava a requisição: só passa se ela ainda estiver na separação (evita corrida com outra pessoa/aba) */
+    const {data:upd,error:eU}=await sb.from('requisicoes').update({status:'pendente',decidido_por:null,decidido_por_nome:null,decidido_em:null,motivo_rejeicao:null})
+      .eq('id',reqId).in('status',REQ_RETORNA_APROV).is('tipo_envio',null).select('id');
+    if(eU){ toast('Erro: '+eU.message,'err'); return; }
+    if(!upd||!upd.length){ toast('A requisição não voltou para aprovação: ela mudou de etapa ou o seu usuário ('+papelLabel(profile.papel||'')+(profile.setor?' · '+profile.setor:'')+') não tem permissão. Avise o administrador.','err'); drawSeparacaoList(); return; }
+    const avisos=[];
+    /* 2) estorna o estoque: remove as baixas da separação e devolve o saldo (mesmo padrão da exclusão de transferência) */
+    if(separados.length){
+      const {data:movs,error:eMv}=await sb.from('movimentos_estoque').select('*').eq('tipo','baixa').eq('doc','Separação '+nreq);
+      if(eMv) avisos.push('baixas não localizadas ('+eMv.message+')');
+      else{
+        for(const row of (movs||[])){ const m=rowToMov(row);
+          const {error:eDel}=await sb.from('movimentos_estoque').delete().eq('id',m.id);
+          if(eDel){ avisos.push('baixa de '+(m.desc||m.code)+' não removida ('+eDel.message+')'); continue; }
+          addSaldo(m.obra,m.code,m.qty,m.lotes);
+          state.movements=state.movements.filter(x=>x.id!==m.id); }
+        if((movs||[]).length) await save('Retorno para aprovação '+nreq+': separação estornada');
+      }
+    }
+    /* 3) limpa o que a aprovação gerou: verificação de itens, compras ainda não recebidas e mútuo em aberto */
+    const {error:eIt}=await sb.from('requisicao_itens_status').delete().eq('requisicao_id',reqId);
+    if(eIt) avisos.push('verificação de itens não apagada ('+eIt.message+')');
+    /* compras já solicitadas no Sienge ficam (a nova aprovação as aproveita); só as ainda não solicitadas são apagadas */
+    const {error:eCp}=await sb.from('compras_pendentes').delete().eq('requisicao_id',reqId).eq('status','pendente');
+    if(eCp) avisos.push('compras pendentes não removidas ('+eCp.message+')');
+    if(r.mutuo_empresa_destino){ const {error:eMu}=await sb.from('mutuos_intercompany').delete().eq('requisicao_id',reqId).eq('status','aberto');
+      if(eMu) avisos.push('mútuo não removido ('+eMu.message+')'); }
+    try{ await sb.rpc('log_event',{p_acao:'requisicao_retornada_aprovacao',p_entidade:'requisicoes',p_entidade_id:String(reqId)}); }catch(e){}
+    _sepPresas.delete(reqId);
+    if(avisos.length) toast(nreq+' voltou para aprovação, mas: '+avisos.join('; ')+'. Avise o administrador.','err');
+    else toast(nreq+' voltou para aprovação'+(separados.length?' — estoque separado estornado.':'.'),'warn');
+    if(typeof drawSeparacaoList==='function')drawSeparacaoList(); drawAprovPend(); drawAprovHist();
+    refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshMinhasBadge(); refreshGlobalAlerts();
+  });
+}
 
 /* ===== SEPARAÇÃO (almoxarife / admin) ===== */
 function itemStatusLabel(s){ return {pendente_verificacao:'—',disponivel:'Disponível',faltante:'Faltante',comprado:'Comprado',separado:'Separado'}[s]||s; }
@@ -4072,7 +4143,7 @@ async function drawSeparacaoList(){ const box=$('#sepList'); if(!box)return;
     const its=(itens||[]).filter(i=>i.requisicao_id===r.id);
     if(r.status==='separado'){
       return `<div class="panel" style="margin-bottom:14px">
-        <div class="sechead" style="margin-bottom:10px"><h3 style="font-size:14px">REQ-${String(r.id).padStart(5,'0')} — ${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</h3><span class="pill ${r.status}">✓ Tudo separado</span></div>
+        <div class="sechead" style="margin-bottom:10px"><h3 style="font-size:14px">REQ-${String(r.id).padStart(5,'0')} — ${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</h3><span style="display:flex;gap:8px;align-items:center">${podeRetornarAprovacao(r)?`<button class="btn ghost sm" title="Desfaz a aprovação: estorna o que já foi separado e a requisição volta para Pendente" onclick="retornarParaAprovacao(${r.id})">↩ Retornar para aprovação</button> `:''}<span class="pill ${r.status}">✓ Tudo separado</span></span></div>
         ${!r.tipo_envio?`<p class="mp" style="font-size:12px">Como este material vai ser entregue?</p>
           <div style="display:flex;gap:16px;margin:6px 0 12px;flex-wrap:wrap">
             <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:500;margin:0"><input type="radio" name="tipoEnvioPre_${r.id}" value="despacho" checked style="width:auto"> Despacho (transportadora)</label>
@@ -4085,7 +4156,7 @@ async function drawSeparacaoList(){ const box=$('#sepList'); if(!box)return;
         </div>`;
     }
     return `<div class="panel" style="margin-bottom:14px">
-      <div class="sechead" style="margin-bottom:10px"><h3 style="font-size:14px">REQ-${String(r.id).padStart(5,'0')} — ${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</h3><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span></div>
+      <div class="sechead" style="margin-bottom:10px"><h3 style="font-size:14px">REQ-${String(r.id).padStart(5,'0')} — ${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</h3><span style="display:flex;gap:8px;align-items:center">${podeRetornarAprovacao(r)?`<button class="btn ghost sm" title="Desfaz a aprovação: estorna o que já foi separado e a requisição volta para Pendente" onclick="retornarParaAprovacao(${r.id})">↩ Retornar para aprovação</button> `:''}<span class="pill ${r.status}">${reqStatusLabel(r.status)}</span></span></div>
       <table><thead><tr><th>Item</th><th class="num">Solicitado</th><th class="num">Disponível agora</th><th>Situação</th><th></th></tr></thead><tbody>${
         its.map(i=>`<tr><td>${esc(i.descricao)}${i.status!=='separado'?loteHintSep(obraEstoqueParaRequisicao(r),i.code,i.quantidade_disponivel):''}${i.quantidade_separada>0?`<div class="muted" style="font-size:10.5px">já separado: ${numf(i.quantidade_separada)}</div>`:''}</td><td class="num">${numf(i.quantidade_solicitada)} ${esc(i.unidade||'')}</td><td class="num">${numf(i.quantidade_disponivel)}</td><td><span class="pill ${i.status}">${itemStatusLabel(i.status)}</span></td><td class="num">${i.quantidade_disponivel>0&&i.status!=='separado'?`<button class="btn primary sm" onclick="separarItem(${i.id})">Separar ${numf(i.quantidade_disponivel)}</button>`:i.status==='separado'?'✓':''}</td></tr>`).join('')
       }</tbody></table>${_sepPresas.has(r.id)?`<div style="margin-top:10px;padding:10px 12px;border-left:4px solid #c0392b;background:#fbeeec;border-radius:6px;font-size:12.5px"><b>⚠ Todos os itens já foram separados, mas a requisição não avançou para a próxima etapa.</b><div class="muted" style="margin:3px 0 8px">Motivo: ${esc(_sepPresas.get(r.id))}</div><button class="btn primary sm" onclick="tentarConcluirSeparacao(${r.id})">Tentar concluir agora</button></div>`:''}</div>`;
