@@ -3926,8 +3926,12 @@ async function aprovarRequisicao(id){
   const {error:e2}=await sb.from('requisicao_itens_status').upsert(rowsStatus,{onConflict:'requisicao_id,code'});
   if(e2){toast('Erro ao gravar verificação de estoque: '+e2.message,'err');return;}
   const faltantes=itensAvaliados.filter(i=>i.faltante>0);
-  if(faltantes.length){
-    const rowsCompra=faltantes.map(i=>({requisicao_id:r.id, code:i.code, descricao:i.desc, quantidade:i.faltante, status:'pendente'}));
+  /* compras ainda abertas desta requisição (ex.: solicitadas no Sienge antes de ela voltar para aprovação): entram só pela diferença */
+  let jaEmCompra={};
+  if(faltantes.length){ const {data:abertas}=await sb.from('compras_pendentes').select('code,quantidade').eq('requisicao_id',r.id).in('status',['pendente','solicitada']);
+    (abertas||[]).forEach(c=>{ jaEmCompra[String(c.code)]=(jaEmCompra[String(c.code)]||0)+(Number(c.quantidade)||0); }); }
+  const rowsCompra=faltantes.map(i=>({requisicao_id:r.id, code:i.code, descricao:i.desc, quantidade:i.faltante-(jaEmCompra[String(i.code)]||0), status:'pendente'})).filter(x=>x.quantidade>0.0001);
+  if(rowsCompra.length){
     const {error:e3}=await sb.from('compras_pendentes').insert(rowsCompra);
     if(e3){toast('Verificação salva, mas houve erro ao gerar compra pendente: '+e3.message,'err');return;}
   }
@@ -3947,7 +3951,7 @@ async function rejeitarRequisicao(id){
 
 /* ===== RETORNAR PARA APROVAÇÃO (somente encarregado/supervisor e administrador) =====
    Desfaz a aprovação de uma requisição que ainda não saiu da separação: estorna no estoque o que já foi
-   separado, apaga a verificação de itens e as compras pendentes geradas na aprovação, e volta a requisição
+   separado, apaga a verificação de itens e as compras ainda não solicitadas (as já solicitadas no Sienge ficam), e volta a requisição
    para "Pendente" — ela reaparece em Aprovações e passa por toda a verificação de saldo de novo. */
 const REQ_RETORNA_APROV=['em_separacao','aguardando_compra','separado'];
 function podeRetornarAprovacao(r){ return isEncarregado()&&!!r&&REQ_RETORNA_APROV.includes(r.status)&&!r.tipo_envio; }
@@ -3972,7 +3976,7 @@ async function retornarParaAprovacao(reqId){
   const separados=(its||[]).filter(i=>Number(i.quantidade_separada)>0);
   const obraSaldo=obraEstoqueParaRequisicao(r);
   const resumo=separados.length?' — estorna para o estoque de '+obraName(obraSaldo)+': '+separados.map(i=>i.descricao+' ('+numf(i.quantidade_separada)+' '+(i.unidade||'')+')').join(', '):'';
-  requireSupervisor('Retornar '+nreq+' para aprovação'+resumo+'. As compras pendentes geradas na aprovação serão removidas.',async()=>{
+  requireSupervisor('Retornar '+nreq+' para aprovação'+resumo+'. As compras ainda não solicitadas serão removidas; as já solicitadas no Sienge são mantidas.',async()=>{
     /* 1) trava a requisição: só passa se ela ainda estiver na separação (evita corrida com outra pessoa/aba) */
     const {data:upd,error:eU}=await sb.from('requisicoes').update({status:'pendente',decidido_por:null,decidido_por_nome:null,decidido_em:null,motivo_rejeicao:null})
       .eq('id',reqId).in('status',REQ_RETORNA_APROV).is('tipo_envio',null).select('id');
@@ -3995,7 +3999,8 @@ async function retornarParaAprovacao(reqId){
     /* 3) limpa o que a aprovação gerou: verificação de itens, compras ainda não recebidas e mútuo em aberto */
     const {error:eIt}=await sb.from('requisicao_itens_status').delete().eq('requisicao_id',reqId);
     if(eIt) avisos.push('verificação de itens não apagada ('+eIt.message+')');
-    const {error:eCp}=await sb.from('compras_pendentes').delete().eq('requisicao_id',reqId).in('status',['pendente','solicitada']);
+    /* compras já solicitadas no Sienge ficam (a nova aprovação as aproveita); só as ainda não solicitadas são apagadas */
+    const {error:eCp}=await sb.from('compras_pendentes').delete().eq('requisicao_id',reqId).eq('status','pendente');
     if(eCp) avisos.push('compras pendentes não removidas ('+eCp.message+')');
     if(r.mutuo_empresa_destino){ const {error:eMu}=await sb.from('mutuos_intercompany').delete().eq('requisicao_id',reqId).eq('status','aberto');
       if(eMu) avisos.push('mútuo não removido ('+eMu.message+')'); }
