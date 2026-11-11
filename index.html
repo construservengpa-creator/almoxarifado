@@ -6295,8 +6295,13 @@ function cancelarDevolucao(id){
 /* ===== CONSULTA ===== */
 function renderConsulta(){ $('#topActions').innerHTML=obraSelectorHTML(true);
   const o=curObra(); const all=o==='__all'||!o;
-  $('#view').innerHTML=`<div class="panel"><h3>Consultar produto</h3><p class="desc">Busque por <b>nome</b> ou <b>código de barras</b>. Para busca composta use <b>%</b> entre as partes — ex.: <span class="mono">pneu%275</span> acha "PNEU 275/80 R22.5". Veja saldo ${all?'total (todas as obras) ou por obra':'no estoque selecionado: <b>'+esc(obraName(o))+'</b>'} e valores de entrada e saída.</p><div class="search" style="max-width:none"><span class="si">⌕</span><input id="consInput" placeholder="Nome ou código... (ex.: pneu%275)" autocomplete="off"></div></div><div id="consResult"></div>`;
-  const inp=$('#consInput'); inp.focus(); inp.addEventListener('keydown',e=>{if(e.key==='Enter'){const p=findProduct(inp.value.trim());if(p){showConsulta(p);return;}}}); inp.oninput=()=>drawConsList(inp.value); drawConsList(''); }
+  $('#view').innerHTML=`<div class="panel"><h3>Consultar produto</h3><p class="desc">Busque por <b>nome</b> ou <b>código de barras</b>. Para busca composta use <b>%</b> entre as partes — ex.: <span class="mono">pneu%275</span> acha "PNEU 275/80 R22.5". Veja saldo ${all?'total (todas as obras) ou por obra':'no estoque selecionado: <b>'+esc(obraName(o))+'</b>'} e valores de entrada e saída.</p><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><div class="search" style="max-width:none;flex:1;min-width:220px;margin:0"><span class="si">⌕</span><input id="consInput" placeholder="Nome ou código... (ex.: pneu%275)" autocomplete="off"></div><button class="btn dark sm" onclick="consultaCamera()">📷 Ler pela câmera</button></div></div><div id="consResult"></div>`;
+  const inp=$('#consInput'); inp.focus(); inp.addEventListener('keydown',e=>{if(e.key==='Enter'){const {p}=codigoDaLeitura(inp.value);if(p){showConsulta(p);return;}}}); inp.oninput=()=>drawConsList(inp.value); drawConsList(''); }
+/* Consulta pela câmera: lê o código de barras (sistema, auxiliar ou fabricante) ou a etiqueta QR do sistema e abre o produto */
+function consultaCamera(){ openCameraScanner(txt=>{ const {p,lido}=codigoDaLeitura(txt); const inp=$('#consInput');
+  if(p){ if(inp)inp.value=p.code; showConsulta(p); return; }
+  if(inp){ inp.value=lido; drawConsList(lido); inp.focus(); }
+  toast('Nenhum produto cadastrado com o código <span class="mono">'+esc(lido)+'</span>.','err'); },()=>{ const inp=$('#consInput'); if(inp)inp.focus(); }); }
 let _consAtual=null, _consOutras=false;
 function drawConsList(q){ _consAtual=null; q=q.toLowerCase().trim(); const box=$('#consResult'); const o=curObra(); const all=o==='__all'||!o; const sal=c=>all?totalSaldo(c):saldoOf(o,c);
   const achados=q?state.products.filter(buscaProduto(q)):state.products.slice();
