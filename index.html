@@ -4157,11 +4157,58 @@ async function drawSeparacaoList(){ const box=$('#sepList'); if(!box)return;
     }
     return `<div class="panel" style="margin-bottom:14px">
       <div class="sechead" style="margin-bottom:10px"><h3 style="font-size:14px">REQ-${String(r.id).padStart(5,'0')} — ${esc(r.obra_nome)}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</h3><span style="display:flex;gap:8px;align-items:center">${podeRetornarAprovacao(r)?`<button class="btn ghost sm" title="Desfaz a aprovação: estorna o que já foi separado e a requisição volta para Pendente" onclick="retornarParaAprovacao(${r.id})">↩ Retornar para aprovação</button> `:''}<span class="pill ${r.status}">${reqStatusLabel(r.status)}</span></span></div>
+      ${its.some(i=>i.quantidade_disponivel>0&&i.status!=='separado')?`<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+        <div class="search" style="max-width:none;flex:1;min-width:220px;margin:0"><span class="si">⌁</span><input id="sepScan_${r.id}" class="sep-scan" data-req="${r.id}" placeholder="Leia o código de barras do item para conferir e separar" autocomplete="off" inputmode="text"></div>
+        <button class="btn dark sm" onclick="sepScanCamera(${r.id})">📷 Câmera</button></div>`:''}
       <table><thead><tr><th>Item</th><th class="num">Solicitado</th><th class="num">Disponível agora</th><th>Situação</th><th></th></tr></thead><tbody>${
-        its.map(i=>`<tr><td>${esc(i.descricao)}${i.status!=='separado'?loteHintSep(obraEstoqueParaRequisicao(r),i.code,i.quantidade_disponivel):''}${i.quantidade_separada>0?`<div class="muted" style="font-size:10.5px">já separado: ${numf(i.quantidade_separada)}</div>`:''}</td><td class="num">${numf(i.quantidade_solicitada)} ${esc(i.unidade||'')}</td><td class="num">${numf(i.quantidade_disponivel)}</td><td><span class="pill ${i.status}">${itemStatusLabel(i.status)}</span></td><td class="num">${i.quantidade_disponivel>0&&i.status!=='separado'?`<button class="btn primary sm" onclick="separarItem(${i.id})">Separar ${numf(i.quantidade_disponivel)}</button>`:i.status==='separado'?'✓':''}</td></tr>`).join('')
+        its.map(i=>`<tr><td>${esc(i.descricao)}${i.status!=='separado'?loteHintSep(obraEstoqueParaRequisicao(r),i.code,i.quantidade_disponivel):''}${i.quantidade_separada>0?`<div class="muted" style="font-size:10.5px">já separado: ${numf(i.quantidade_separada)}</div>`:''}</td><td class="num">${numf(i.quantidade_solicitada)} ${esc(i.unidade||'')}</td><td class="num">${numf(i.quantidade_disponivel)}</td><td><span class="pill ${i.status}">${itemStatusLabel(i.status)}</span></td><td class="num">${i.quantidade_disponivel>0&&i.status!=='separado'?`<span class="pill" style="background:#eef2f7;color:#5a6b80;white-space:nowrap" title="Leia o código de barras deste item no campo acima para separar">⌁ Aguardando leitura</span>${isEncarregado()?`<br><a href="#" style="font-size:10.5px;color:#7a5100" onclick="separarSemLeitura(${i.id});return false" title="Para etiqueta danificada / item sem código — exige confirmação de encarregado e fica registrado">separar sem leitura</a>`:''}`:i.status==='separado'?'✓':''}</td></tr>`).join('')
       }</tbody></table>${_sepPresas.has(r.id)?`<div style="margin-top:10px;padding:10px 12px;border-left:4px solid #c0392b;background:#fbeeec;border-radius:6px;font-size:12.5px"><b>⚠ Todos os itens já foram separados, mas a requisição não avançou para a próxima etapa.</b><div class="muted" style="margin:3px 0 8px">Motivo: ${esc(_sepPresas.get(r.id))}</div><button class="btn primary sm" onclick="tentarConcluirSeparacao(${r.id})">Tentar concluir agora</button></div>`:''}</div>`;
   }).join('');
+  _sepItensCache=itens||[];
+  box.querySelectorAll('input.sep-scan').forEach(inp=>{ const reqId=Number(inp.dataset.req);
+    inp.addEventListener('focus',()=>{ _sepScanFoco=reqId; });
+    inp.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); const v=inp.value; inp.value=''; sepConferirLeitura(reqId,v); } }); });
+  /* a lista é redesenhada a cada separação / atualização em tempo real: devolve o foco ao campo de leitura que estava em uso,
+     para o leitor (que "digita" o código + Enter) continuar funcionando sem precisar clicar de novo */
+  if(_sepScanFoco!=null){ const f=document.getElementById('sepScan_'+_sepScanFoco); if(f&&(!document.activeElement||document.activeElement===document.body||document.activeElement.classList.contains('sep-scan')))f.focus(); }
 }
+/* ===== Conferência por leitura de código de barras na separação =====
+   Em vez de só clicar em "Separar", o almoxarife lê o código do item (leitor USB/Bluetooth, que digita + Enter, ou a câmera).
+   A leitura precisa bater com um item da requisição que tenha quantidade disponível — aí o item é separado (mesma rotina
+   de antes). Leitura de outro produto é recusada com aviso. Valem o código do sistema, o auxiliar, o(s) código(s) do
+   fabricante e a etiqueta QR do sistema (texto "CÓDIGO: ..."). */
+let _sepItensCache=[];
+let _sepScanFoco=null;
+function scanErroBeep(){
+  try{ scanAudioPrep(); const ctx=_scanAudioCtx; if(ctx){ const o=ctx.createOscillator(), g=ctx.createGain(); o.type='sawtooth'; o.frequency.value=220;
+    g.gain.setValueAtTime(0.1,ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.35);
+    o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime+0.35); } }catch(e){}
+  try{ if(navigator.vibrate)navigator.vibrate([120,80,120]); }catch(e){}
+}
+/* texto lido → código do produto no sistema (ou o próprio texto, se não achar cadastro) */
+function codigoDaLeitura(txt){ const t=String(txt||'').trim(); if(!t)return {code:'',p:null};
+  const m=/^\s*C[ÓO]DIGO\s*:\s*(.+)$/im.exec(t); /* etiqueta QR do sistema */
+  const bruto=m?m[1].trim():t;
+  const p=findProduct(bruto)||findByCodeOrAux(bruto);
+  return {code:p?String(p.code):bruto,p,lido:bruto}; }
+async function sepConferirLeitura(reqId,txt){
+  const {code,p,lido}=codigoDaLeitura(txt); if(!code)return;
+  _sepScanFoco=reqId;
+  const its=_sepItensCache.filter(i=>i.requisicao_id===reqId);
+  const doProduto=its.filter(i=>String(i.code)===code||(p&&String(i.code)===String(p.code)));
+  if(!doProduto.length){ scanErroBeep();
+    toast('⚠ '+(p?'<b>'+esc(p.desc)+'</b> ('+esc(p.code)+')':'Código <span class="mono">'+esc(lido)+'</span>')+' não faz parte da REQ-'+String(reqId).padStart(5,'0')+'. Confira o item na prateleira.','err'); return; }
+  const pend=doProduto.find(i=>i.quantidade_disponivel>0&&i.status!=='separado');
+  if(!pend){ scanErroBeep();
+    const jaSep=doProduto.some(i=>i.status==='separado');
+    toast(jaSep?'Este item já foi separado nesta requisição.':'Este item não tem quantidade disponível para separar agora (aguardando compra).','warn'); return; }
+  scanBeep();
+  toast('✓ Conferido: <b>'+esc(pend.descricao)+'</b> — separando '+numf(pend.quantidade_disponivel)+' '+esc(pend.unidade||'')+'...','ok');
+  await separarItem(pend.id,{modo:'leitura',lido});
+}
+function sepScanCamera(reqId){ _sepScanFoco=reqId; openCameraScanner(txt=>sepConferirLeitura(reqId,txt)); }
+function separarSemLeitura(id){ const i=_sepItensCache.find(x=>x.id===id); if(!i)return;
+  requireSupervisor('Separar SEM leitura do código: '+i.descricao+' ('+numf(i.quantidade_disponivel)+' '+(i.unidade||'')+') — fica registrado na auditoria',()=>separarItem(id,{modo:'manual'})); }
 function definirTipoEnvio(reqId,ehMutuo){ const sel=document.querySelector('input[name=tipoEnvioPre_'+reqId+']:checked'); const tipo=sel?sel.value:'despacho';
   const payload=ehBalcao(tipo)?{tipo_envio:tipo,status:'romaneio_emitido'}:{tipo_envio:tipo};
   const win=(ehMutuo&&ehBalcao(tipo))?abrirJanelaImpressao():null; /* na retirada interna o romaneio é emitido aqui mesmo */
@@ -4210,12 +4257,12 @@ async function tentarConcluirSeparacao(reqId){
   drawSeparacaoList(); refreshSeparacaoBadge(); refreshExpedBadge(); refreshRetiradasBadge(); refreshGlobalAlerts();
 }
 const _separandoItens=new Set();
-async function separarItem(id){
-  if(_separandoItens.has(id))return; /* clique duplo / repetido no mesmo item */
+async function separarItem(id,conf){
+  if(_separandoItens.has(id))return; /* clique duplo / leitura repetida no mesmo item */
   _separandoItens.add(id);
-  try{ await _separarItem(id); } finally { _separandoItens.delete(id); }
+  try{ await _separarItem(id,conf||{}); } finally { _separandoItens.delete(id); }
 }
-async function _separarItem(id){
+async function _separarItem(id,conf){
   const {data:item,error:e1}=await sb.from('requisicao_itens_status').select('*').eq('id',id).maybeSingle();
   if(e1||!item){toast('Erro ao carregar item.','err');return;}
   if(!(item.quantidade_disponivel>0)){toast('Nada disponível pra separar neste item.','err');return;}
@@ -4233,6 +4280,7 @@ async function _separarItem(id){
     .eq('id',id).eq('quantidade_disponivel',item.quantidade_disponivel).eq('quantidade_separada',item.quantidade_separada).select('id');
   if(eC){toast('Erro ao separar: '+eC.message,'err');return;}
   if(!claim||!claim.length){toast('Este item já foi separado por outra pessoa/aba — atualizando a lista.','warn'); drawSeparacaoList(); return;}
+  try{ await sb.rpc('log_event',{p_acao:conf.modo==='leitura'?'separacao_item_conferido_leitura':'separacao_item_sem_leitura',p_entidade:'requisicoes',p_entidade_id:String(r.id),p_detalhes:{item:item.code,descricao:item.descricao,quantidade:qtdSeparar,codigo_lido:conf.lido||null}}); }catch(e){}
   const lt=addSaldo(obraSaldo,item.code,-qtdSeparar);
   const {data:numData,error:eNum}=await sb.rpc('proximo_numero_documento',{p_tipo:'baixa'});
   const numero=eNum?0:numData;
