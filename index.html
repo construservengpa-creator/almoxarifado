@@ -3841,7 +3841,12 @@ async function renderAprovacoes(){
     (!isAdminOuEncAlmox()?`<div class="muted" style="font-size:12px;margin-bottom:14px">Mostrando apenas requisições das obras vinculadas a você: ${vinc.map(id=>esc(obraName(id))).join(', ')}.</div>`:'');
   const appUrl=new URL('aprovacoes/',location.href).href;
   $('#view').innerHTML=aviso+`<div class="muted" style="font-size:12.5px;margin-bottom:14px">📱 Aprove pelo celular: abra <a href="${esc(appUrl)}" target="_blank" rel="noopener" style="color:#7a5100;font-weight:600">${esc(appUrl)}</a> e use "Adicionar à tela inicial".</div><div class="sechead"><h3>Pendentes de aprovação</h3></div><div class="tbl-wrap" id="aprovPend" style="margin-bottom:26px"><div class="empty">Carregando...</div></div>
-  <div class="sechead"><h3>Decididas recentemente</h3></div><div class="tbl-wrap" id="aprovHist"><div class="empty">Carregando...</div></div>`;
+  <div class="sechead"><h3>Requisições decididas</h3></div>
+  <div class="panel" style="margin-bottom:12px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+    <div class="field" style="flex:1 1 320px;margin:0"><label>Pesquisar</label><input id="ahBusca" placeholder="Nº da REQ, obra, OS, equipamento/prefixo, solicitante ou quem decidiu" value="${esc(_ahBusca)}" oninput="ahBuscar()"></div>
+    <div class="field" style="flex:0 1 220px;margin:0"><label>Situação</label><select id="ahStatus" onchange="_ahStatus=this.value;_ahLimite=AH_PAGINA;drawAprovHist()"><option value="">Todas</option>${AH_STATUS.map(st=>`<option value="${st}"${_ahStatus===st?' selected':''}>${reqStatusLabel(st)}</option>`).join('')}</select></div>
+    <button class="btn ghost sm" onclick="ahLimpar()">Limpar</button></div>
+  <div class="tbl-wrap" id="aprovHist"><div class="empty">Carregando...</div></div>`;
   await drawAprovPend(); await drawAprovHist();
 }
 async function drawAprovPend(){ const box=$('#aprovPend'); if(!box)return;
@@ -3855,15 +3860,34 @@ async function drawAprovPend(){ const box=$('#aprovPend'); if(!box)return;
   if(error){box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>';return;}
   box.innerHTML=`<table><thead><tr><th>Nº</th><th>Data</th><th>Obra / OS</th><th>Equipamento / Prefixo</th><th>Solicitante</th><th>Itens</th><th>Observação</th><th></th></tr></thead><tbody>${
     (data||[]).map(r=>`<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(r.criado_em).getTime())}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}${r.mutuo_estoque_obra_id?'<br><span class="pill aguardando_compra" style="font-size:10px">💱 Mútuo — sai de '+esc(obraName(r.mutuo_estoque_obra_id))+'</span>':''}</td><td>${reqAplicCelHTML(r)}</td><td>${esc(r.solicitante_nome)}</td><td>${r.itens.map(i=>esc(i.desc)+' ('+numf(i.qty)+' '+esc(i.unit||'')+')').join(', ')}</td><td class="muted" style="font-size:12px">${esc(r.observacao||'—')}</td><td class="num" style="white-space:nowrap"><button class="btn primary sm" onclick="aprovarRequisicao(${r.id})">✔ Aprovar</button> <button class="btn danger sm" onclick="rejeitarRequisicao(${r.id})">✕ Rejeitar</button></td></tr>`).join('')||`<tr><td colspan="8" class="empty" style="padding:24px">Nenhum pedido pendente.</td></tr>`}</tbody></table>`; }
+/* Histórico de aprovações: pesquisa + filtro de situação + paginação (antes mostrava só as 40 últimas) */
+const AH_PAGINA=50;
+const AH_STATUS=['aprovada','rejeitada','cancelada','em_separacao','aguardando_compra','separado','romaneio_emitido','embalado','faturado','embarcado','retirado','recebido'];
+let _ahBusca='', _ahStatus='', _ahLimite=AH_PAGINA, _ahTimer=null;
+function ahBuscar(){ clearTimeout(_ahTimer); _ahTimer=setTimeout(()=>{ const el=$('#ahBusca'); _ahBusca=el?el.value.trim():''; _ahLimite=AH_PAGINA; drawAprovHist(); },350); }
+function ahLimpar(){ _ahBusca=''; _ahStatus=''; _ahLimite=AH_PAGINA; const b=$('#ahBusca'), st=$('#ahStatus'); if(b)b.value=''; if(st)st.value=''; drawAprovHist(); }
+function ahMais(todos){ _ahLimite=todos?100000:_ahLimite+AH_PAGINA; drawAprovHist(); }
 async function drawAprovHist(){ const box=$('#aprovHist'); if(!box)return;
-  let q=sb.from('requisicoes').select('*').neq('status','pendente').order('decidido_em',{ascending:false}).limit(40);
+  let q=sb.from('requisicoes').select('*',{count:'exact'});
+  q=_ahStatus?q.eq('status',_ahStatus):q.neq('status','pendente');
+  if(_ahBusca){
+    const t=_ahBusca.replace(/[,()*%"\\]/g,' ').trim(), ors=[];
+    if(t){ const like='%'+t+'%';
+      ['obra_nome','ordem_servico','solicitante_nome','decidido_por_nome','aplicacao_nome','observacao'].forEach(c=>ors.push(c+'.ilike.'+like));
+      const num=t.replace(/^req[-\s]*/i,''); if(/^\d+$/.test(num))ors.push('id.eq.'+Number(num));
+      const tl=t.toLowerCase(); const apl=(state.aplicacoes||[]).filter(a=>a&&a.id&&((a.tag&&String(a.tag).toLowerCase().includes(tl))||(a.nome&&String(a.nome).toLowerCase().includes(tl)))).map(a=>a.id).slice(0,100);
+      if(apl.length)ors.push('aplicacao_id.in.('+apl.map(id=>'"'+String(id).replace(/"/g,'')+'"').join(',')+')');
+      q=q.or(ors.join(',')); }
+  }
+  q=q.order('decidido_em',{ascending:false,nullsFirst:false}).order('id',{ascending:false}).range(0,_ahLimite-1);
   if(!isAdminOuEncAlmox()){
     const vinc=Array.isArray(profile.obras_vinculadas)?profile.obras_vinculadas:[];
     if(!vinc.length){ box.innerHTML=`<table><tbody><tr><td class="empty" style="padding:24px">Nenhuma obra vinculada.</td></tr></tbody></table>`; return; }
     q=q.in('obra_id',vinc);
   }
-  const {data,error}=await q;
+  const {data,error,count}=await q;
   if(error){box.innerHTML='<div class="empty">Erro: '+esc(error.message)+'</div>';return;}
+  const total=count==null?(data||[]).length:count;
   let ativos=new Set();
   if(isDanielAdmin()&&data&&data.length){
     const {data:sep}=await sb.from('requisicao_itens_status').select('requisicao_id').in('requisicao_id',data.map(r=>r.id)).gt('quantidade_separada',0);
@@ -3878,7 +3902,7 @@ async function drawAprovHist(){ const box=$('#aprovHist'); if(!box)return;
         :`<button class="btn danger sm" onclick="excluirRequisicaoAdmin(${r.id})">Excluir REQ</button>`;
       const botoes=colAcoes?`<td class="num" style="white-space:nowrap">${btRet}${btAdm}</td>`:'';
       return `<tr><td class="mono">REQ-${String(r.id).padStart(5,'0')}</td><td>${esc(r.obra_nome)}${r.ordem_servico?'<br><span class="muted" style="font-size:11px">OS '+esc(r.ordem_servico)+'</span>':''}</td><td>${reqAplicCelHTML(r)}</td><td>${esc(r.solicitante_nome)}</td><td><span class="pill ${r.status}">${reqStatusLabel(r.status)}</span>${r.motivo_rejeicao?`<br><span class="muted" style="font-size:11px">${esc(r.motivo_rejeicao)}</span>`:''}</td><td>${esc(r.decidido_por_nome||'—')}</td><td class="muted" style="font-size:12px">${r.decidido_em?fmtDate(new Date(r.decidido_em).getTime()):'—'}</td>${botoes}</tr>`;
-    }).join('')||`<tr><td colspan="${colAcoes?8:7}" class="empty" style="padding:24px">Nenhuma decisão ainda.</td></tr>`}</tbody></table>`; }
+    }).join('')||`<tr><td colspan="${colAcoes?8:7}" class="empty" style="padding:24px">${_ahBusca||_ahStatus?'Nenhuma requisição encontrada com esse filtro.':'Nenhuma decisão ainda.'}</td></tr>`}${listMoreRow(colAcoes?8:7,(data||[]).length,total,'ahMais')}</tbody></table>`; }
 async function excluirEventoSeparacao(reqId){
   if(!isDanielAdmin()){toast('Apenas o usuário autorizado pode excluir o evento de separação.','err');return;}
   { const {count,error:eD}=await sb.from('devolucoes_requisicao').select('id',{count:'exact',head:true}).eq('requisicao_id',reqId);
