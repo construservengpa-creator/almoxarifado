@@ -1948,7 +1948,10 @@ async function refreshAprovBadge(){ if(!podeAprovar())return; const b=$('#navBad
   else{ const vinc=Array.isArray(profile.obras_vinculadas)?profile.obras_vinculadas:[]; if(vinc.length){ const r=await sb.from('requisicoes').select('id',{count:'exact',head:true}).eq('status','pendente').in('obra_id',vinc); count=r.count||0; } }
   if(count){b.textContent=count;b.style.display='';}else b.style.display='none'; refreshFluxoGroupBadge(); }
 async function refreshSeparacaoBadge(){ if(!isAlmoxarife())return; const b=$('#navBadgeSeparacao'); if(!b)return;
-  const r1=await sb.from('requisicao_itens_status').select('id',{count:'exact',head:true}).eq('status','disponivel');
+  /* Só conta itens de requisições que realmente aparecem na tela de Separação (em separação / aguardando compra).
+     Antes contava QUALQUER item "disponível" do banco — inclusive de requisições que voltaram para pendente,
+     foram canceladas ou cuja aprovação não chegou a gravar o status — e o número ficava maior que a lista. */
+  const r1=await sb.from('requisicao_itens_status').select('id,requisicoes!inner(status)',{count:'exact',head:true}).eq('status','disponivel').gt('quantidade_disponivel',0).in('requisicoes.status',SEP_ABERTA);
   const r2=await sb.from('requisicoes').select('id',{count:'exact',head:true}).eq('status','separado');
   const count=(r1.count||0)+(r2.count||0);
   if(count){b.textContent=count;b.style.display='';}else b.style.display='none'; refreshFluxoGroupBadge(); }
