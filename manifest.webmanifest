@@ -4,7 +4,7 @@
   "description": "Controle de estoque por obra — AMETA Engenharia",
   "start_url": "./index.html",
   "scope": "./index.html",
-  "id": "./",
+  "id": "/almoxarifado/",
   "display": "standalone",
   "display_override": [
     "standalone",

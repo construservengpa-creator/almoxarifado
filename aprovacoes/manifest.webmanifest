@@ -4,7 +4,7 @@
   "description": "Aprovação de requisições de material — AMETA Engenharia",
   "start_url": "./",
   "scope": "./",
-  "id": "./",
+  "id": "/almoxarifado/aprovacoes/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#1E2024",
