@@ -9,7 +9,7 @@
 //   regras de acesso dependem do HTML mais recente. A cópia guardada só é usada sem internet, para o
 //   aplicativo abrir mesmo assim.
 // - Supabase e CDNs (outras origens) nunca passam por aqui.
-const CACHE_NAME = 'capivara-estoque-v2'; // v2: manifesto com id próprio (/almoxarifado/)
+const CACHE_NAME = 'capivara-estoque-v3'; // v3: ícone próprio do Estoque (selo roxo de caixa)
 const BASE = new URL('./', self.location.href).pathname;            // ex.: "/almoxarifado/"
 const PAGINA = new Set([BASE, BASE + 'index.html']);
 const ARQUIVOS = ['manifest.webmanifest', 'estoque-icon-192.png', 'estoque-icon-512.png', 'estoque-favicon-32.png'];

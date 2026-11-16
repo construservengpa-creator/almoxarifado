@@ -20,58 +20,58 @@
   ],
   "icons": [
     {
-      "src": "estoque-icon-72.png",
+      "src": "estoque-icon-72.png?v=2",
       "sizes": "72x72",
       "type": "image/png"
     },
     {
-      "src": "estoque-icon-96.png",
+      "src": "estoque-icon-96.png?v=2",
       "sizes": "96x96",
       "type": "image/png"
     },
     {
-      "src": "estoque-icon-128.png",
+      "src": "estoque-icon-128.png?v=2",
       "sizes": "128x128",
       "type": "image/png"
     },
     {
-      "src": "estoque-icon-144.png",
+      "src": "estoque-icon-144.png?v=2",
       "sizes": "144x144",
       "type": "image/png"
     },
     {
-      "src": "estoque-icon-152.png",
+      "src": "estoque-icon-152.png?v=2",
       "sizes": "152x152",
       "type": "image/png"
     },
     {
-      "src": "estoque-icon-192.png",
+      "src": "estoque-icon-192.png?v=2",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "estoque-icon-256.png",
+      "src": "estoque-icon-256.png?v=2",
       "sizes": "256x256",
       "type": "image/png"
     },
     {
-      "src": "estoque-icon-384.png",
+      "src": "estoque-icon-384.png?v=2",
       "sizes": "384x384",
       "type": "image/png"
     },
     {
-      "src": "estoque-icon-512.png",
+      "src": "estoque-icon-512.png?v=2",
       "sizes": "512x512",
       "type": "image/png"
     },
     {
-      "src": "estoque-icon-192-maskable.png",
+      "src": "estoque-icon-192-maskable.png?v=2",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "maskable"
     },
     {
-      "src": "estoque-icon-512-maskable.png",
+      "src": "estoque-icon-512-maskable.png?v=2",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
