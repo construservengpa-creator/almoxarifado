@@ -7,6 +7,13 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%23F5C433'/><g fill='%231A1E24' transform='translate(0.00 0.00) scale(1.0)'><rect x='12' y='40' width='6' height='12' rx='2.5'/><rect x='22' y='41' width='5.5' height='11' rx='2.5'/><rect x='35.5' y='40' width='6' height='12' rx='2.5'/><circle cx='41.5' cy='18.8' r='2.7'/><path fill-rule='evenodd' d='M10 44C5.5 40 5.5 30 9.5 25.5C13.5 20 21 17 28.5 17.8C33 18.3 35.5 20 38 20L44 19.6C50.5 19.8 55.5 21 58.5 23.5C60.8 25.5 61 31 59.5 33.5C58.3 35.2 55.5 35.8 52.5 35.8L46 35.8C44.5 40.5 41 44.5 36 45.5L16 46.5C13.5 46.5 11.3 45.5 10 44ZM48.6 24.3a1.6 1.6 0 1 0-3.2 0a1.6 1.6 0 1 0 3.2 0ZM59.2 26.6a.8 1.1 0 1 0-1.6 0a.8 1.1 0 1 0 1.6 0Z'/></g></svg>">
 <link rel="apple-touch-icon" href="capivara-apple-touch-icon.png">
 <!-- Aplicativo instalável (PC e celular): manifesto + service worker app-sw.js -->
+<script>
+/* O app instalado "Capivara Estoque" tem escopo só neste arquivo (index.html), para não englobar os outros apps
+   instalados que ficam em subpastas (aprovacoes/, contagem/, notificacoes/) — com o escopo na pasta inteira o
+   navegador tratava Aprovações / Painel / Contagem como parte do Estoque. Endereço sem "index.html" vira
+   "index.html" sem recarregar, para a página ficar dentro do escopo do aplicativo. */
+(function(){ try{ if(/\/$/.test(location.pathname)) history.replaceState(history.state,'',location.pathname+'index.html'+location.search+location.hash); }catch(e){} })();
+</script>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" sizes="32x32" href="estoque-favicon-32.png">
 <meta name="theme-color" content="#1a2129">
@@ -6685,7 +6692,7 @@ function drawAuthView(){ const el=$('#authView'); if(!el)return;
 }
 async function doForgotPassword(){ const email=$('#fpEmail').value.trim();
   if(!email){toast('Informe seu e-mail.','err');return;}
-  const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:window.location.origin+window.location.pathname});
+  const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:new URL('./',location.href).href});
   if(error){ $('#authMsg').textContent='Erro: '+error.message; return; }
   $('#authMsg').textContent='Se esse e-mail estiver cadastrado, você vai receber um link de redefinição em instantes.'; }
 function showResetPasswordForm(){ showGate(); const el=$('#authView'); if(!el)return;
@@ -6717,7 +6724,7 @@ async function doLogin(){ const email=$('#loEmail').value.trim(); const senha=$(
   if(error){ $('#authMsg').textContent='Erro: '+error.message; return; } }
 async function doSignup(){ const nome=$('#suNome').value.trim(); const email=$('#suEmail').value.trim(); const senha=$('#suSenha').value;
   if(!nome||!email||!senha){toast('Preencha todos os campos.','err');return;} if(senha.length<6){toast('A senha precisa ter ao menos 6 caracteres.','err');return;}
-  const {error}=await sb.auth.signUp({email,password:senha,options:{data:{nome},emailRedirectTo:window.location.origin+window.location.pathname}});
+  const {error}=await sb.auth.signUp({email,password:senha,options:{data:{nome},emailRedirectTo:new URL('./',location.href).href}});
   if(error){ $('#authMsg').textContent='Erro: '+error.message; return; }
   $('#authMsg').textContent='Conta criada! Aguarde um administrador ativar seu acesso, depois faça login.'; setAuthMode('login'); }
 /* scope 'local': encerra só a sessão deste navegador. O padrão (global) derrubava o usuário em todos os aparelhos —

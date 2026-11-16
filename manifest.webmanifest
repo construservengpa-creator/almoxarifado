@@ -2,8 +2,8 @@
   "name": "Capivara Estoque — AMETA",
   "short_name": "Capivara Estoque",
   "description": "Controle de estoque por obra — AMETA Engenharia",
-  "start_url": "./",
-  "scope": "./",
+  "start_url": "./index.html",
+  "scope": "./index.html",
   "id": "./",
   "display": "standalone",
   "display_override": [
