@@ -4,7 +4,7 @@
   "description": "Painel de notificações do almoxarifado (separação e retirada) — AMETA Engenharia",
   "start_url": "./",
   "scope": "./",
-  "id": "./",
+  "id": "/almoxarifado/notificacoes/",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#1E2024",
