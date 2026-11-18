@@ -1936,6 +1936,9 @@ function movToRow(m){ return {id:m.id,ts:m.ts,tipo:m.tipo,obra:m.obra||null,obra
 function rowToMov(r){ return {id:r.id,ts:Number(r.ts),tipo:r.tipo,obra:r.obra||undefined,obraDest:r.obra_dest||undefined,code:r.code||undefined,desc:r.descricao||undefined,qty:Number(r.qty)||0,valorUnit:Number(r.valor_unit)||0,valorTotal:Number(r.valor_total)||0,doc:r.doc||undefined,obs:r.obs||undefined,aplic:r.aplic||undefined,os:r.os||undefined,seq:r.seq||undefined,notaId:r.nota_id||undefined,invId:r.inv_id||undefined,invModo:r.inv_modo||undefined,baixaId:r.baixa_id||undefined,romaneioId:r.romaneio_id||undefined,saldo:r.saldo!=null?Number(r.saldo):undefined,saldoDest:r.saldo_dest!=null?Number(r.saldo_dest):undefined,lotes:Array.isArray(r.lotes)&&r.lotes.length?r.lotes:undefined}; }
 const _movPend=new Set();
 function pushMov(m){ if(!m.id)m.id=uid(); if(!m.ts)m.ts=Date.now(); state.movements.unshift(m);
+  const pr=gravarConfiavel({tipo:'mov',row:movToRow(m)}); /* fila confiável: reenvia se a rede falhar (o id evita duplicar) */
+  _movPend.add(pr); pr.finally(()=>_movPend.delete(pr));
+  return m; }
 /* Insumo sem valor (custo R$ 0,00) não movimenta estoque: sem custo, baixa, transferência e entrada saem com valor zero
    e o custo das obras fica errado. Corrija o custo no cadastro do produto (🔍 → Editar) ou dê entrada pela nota com valor. */
 function custoOk(code){ const p=findProduct(code); return !!(p&&Number(p.custo)>0); }
@@ -1943,9 +1946,6 @@ function barrarSemCusto(itens,acao){ const sem=itens.filter(i=>!custoOk(i.code))
   const nomes=[...new Set(sem.map(i=>{ const p=findProduct(i.code); return (p&&p.desc)||i.desc||i.code; }))];
   toast(acao+' bloqueada: '+nomes.length+' item(ns) sem valor (custo R$ 0,00) — '+nomes.slice(0,5).map(esc).join(', ')+(nomes.length>5?'…':'')+'. Cadastre o custo do produto (🔍 → Editar) ou dê entrada pela nota com valor.','err');
   return true; }
-  const pr=gravarConfiavel({tipo:'mov',row:movToRow(m)}); /* fila confiável: reenvia se a rede falhar (o id evita duplicar) */
-  _movPend.add(pr); pr.finally(()=>_movPend.delete(pr));
-  return m; }
 /* Espera as movimentações recém-lançadas chegarem ao banco (usado antes de baixar a reposição pela nota) */
 async function aguardarMovs(){ if(_movPend.size) await Promise.allSettled([..._movPend]); }
 /* Primeira página sozinha; se vier cheia, as seguintes vão de 4 em 4 ao mesmo tempo (antes era uma por vez —
