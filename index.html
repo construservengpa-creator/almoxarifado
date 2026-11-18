@@ -3767,7 +3767,7 @@ function saveEditProduct(code){ const p=findProduct(code); if(!p)return; const d
   if($('#epNcm'))p.ncm=onlyDigits($('#epNcm').value); if($('#epCst'))p.cst=onlyDigits($('#epCst').value);
   if($('#epLote')){ if($('#epLote').checked)p.controlaLote=true; else delete p.controlaLote; }
   if($('#epDiasVenc')){ const d=parseInt($('#epDiasVenc').value,10); if(d>0)p.diasAlertaVenc=d; else delete p.diasAlertaVenc; }
-  save(); closeModal(); renderProdutos(); toast('Produto atualizado.','ok'); }
+  save(); closeModal(); if($('#sepList'))drawSeparacaoList(); else renderProdutos(); toast('Produto atualizado.','ok'); } /* aberto pela Separação ("cadastrar custo"): continua na Separação */
 function newProductModal(){ const grupos=[...new Set(state.products.map(p=>p.grupo).filter(Boolean))]; const locais=[...new Set(state.products.map(p=>p.localizacao).filter(Boolean))];
   modal(`<h3>Novo produto</h3><p class="mp">O código de barras é gerado se ficar em branco. Saldo entra na obra <b>${esc(obraName(curObra()==='__all'?state.obras[0].id:curObra()))}</b>.</p>
     <div class="field"><label>Código (opcional)</label><input id="npCode" class="mono" placeholder="auto"></div>
@@ -4782,7 +4782,7 @@ async function drawSeparacaoList(){ const box=$('#sepList'); if(!box)return;
         <div class="search" style="max-width:none;flex:1;min-width:220px;margin:0"><span class="si">⌁</span><input id="sepScan_${r.id}" class="sep-scan" data-req="${r.id}" placeholder="Leia o código de barras do item para conferir e separar" autocomplete="off" inputmode="text"></div>
         <button class="btn dark sm" onclick="sepScanCamera(${r.id})">📷 Câmera</button></div>`:''}
       <table><thead><tr><th>Item</th><th class="num">Solicitado</th><th class="num">Disponível agora</th><th>Situação</th><th></th></tr></thead><tbody>${
-        its.map(i=>`<tr><td>${esc(i.descricao)}${enderecoProdutoHint(i.code)}${i.status!=='separado'?loteHintSep(obraEstoqueParaRequisicao(r),i.code,i.quantidade_disponivel):''}${i.quantidade_separada>0?`<div class="muted" style="font-size:10.5px">já separado: ${numf(i.quantidade_separada)}</div>`:''}</td><td class="num">${numf(i.quantidade_solicitada)} ${esc(i.unidade||'')}</td><td class="num">${numf(i.quantidade_disponivel)}</td><td><span class="pill ${i.status}">${itemStatusLabel(i.status)}</span></td><td class="num">${i.quantidade_disponivel>0&&i.status!=='separado'?`<span class="pill" style="background:#eef2f7;color:#5a6b80;white-space:nowrap" title="Leia o código de barras deste item no campo acima para separar">⌁ Aguardando leitura</span>${isEncarregado()?`<br><a href="#" style="font-size:10.5px;color:#7a5100" onclick="separarSemLeitura(${i.id});return false" title="Para etiqueta danificada / item sem código — exige confirmação de encarregado e fica registrado">separar sem leitura</a>`:''}`:i.status==='separado'?'✓':''}</td></tr>`).join('')
+        its.map(i=>`<tr><td>${esc(i.descricao)}${enderecoProdutoHint(i.code)}${i.status!=='separado'?loteHintSep(obraEstoqueParaRequisicao(r),i.code,i.quantidade_disponivel):''}${i.quantidade_separada>0?`<div class="muted" style="font-size:10.5px">já separado: ${numf(i.quantidade_separada)}</div>`:''}</td><td class="num">${numf(i.quantidade_solicitada)} ${esc(i.unidade||'')}</td><td class="num">${numf(i.quantidade_disponivel)}</td><td><span class="pill ${i.status}">${itemStatusLabel(i.status)}</span></td><td class="num">${i.quantidade_disponivel>0&&i.status!=='separado'&&!custoOk(i.code)?`<span class="pill" style="background:#fbeeec;color:#a3271b;white-space:nowrap" title="Insumo sem valor não movimenta estoque: cadastre o custo do produto para poder separar">⚠ Sem custo — não separa</span><br><a href="#" style="font-size:10.5px;color:#7a5100" onclick="editProductModal('${esc(i.code)}');return false" title="Abre o cadastro do produto para informar o custo médio">cadastrar custo</a>`:i.quantidade_disponivel>0&&i.status!=='separado'?`<span class="pill" style="background:#eef2f7;color:#5a6b80;white-space:nowrap" title="Leia o código de barras deste item no campo acima para separar">⌁ Aguardando leitura</span>${isEncarregado()?`<br><a href="#" style="font-size:10.5px;color:#7a5100" onclick="separarSemLeitura(${i.id});return false" title="Para etiqueta danificada / item sem código — exige confirmação de encarregado e fica registrado">separar sem leitura</a>`:''}`:i.status==='separado'?'✓':''}</td></tr>`).join('')
       }</tbody></table>${_sepPresas.has(r.id)?`<div style="margin-top:10px;padding:10px 12px;border-left:4px solid #c0392b;background:#fbeeec;border-radius:6px;font-size:12.5px"><b>⚠ Todos os itens já foram separados, mas a requisição não avançou para a próxima etapa.</b><div class="muted" style="margin:3px 0 8px">Motivo: ${esc(_sepPresas.get(r.id))}</div><button class="btn primary sm" onclick="tentarConcluirSeparacao(${r.id})">Tentar concluir agora</button></div>`:''}</div>`;
   }).join('');
   _sepItensCache=itens||[];
@@ -4823,12 +4823,14 @@ async function sepConferirLeitura(reqId,txt){
   if(!pend){ scanErroBeep();
     const jaSep=doProduto.some(i=>i.status==='separado');
     toast(jaSep?'Este item já foi separado nesta requisição.':'Este item não tem quantidade disponível para separar agora (aguardando compra).','warn'); return; }
+  if(!custoOk(pend.code)){ scanErroBeep(); barrarSemCusto([{code:pend.code,desc:pend.descricao}],'Separação'); return; }
   scanBeep();
   toast('✓ Conferido: <b>'+esc(pend.descricao)+'</b> — separando '+numf(pend.quantidade_disponivel)+' '+esc(pend.unidade||'')+'...','ok');
   await separarItem(pend.id,{modo:'leitura',lido});
 }
 function sepScanCamera(reqId){ _sepScanFoco=reqId; openCameraScanner(txt=>sepConferirLeitura(reqId,txt)); }
 function separarSemLeitura(id){ const i=_sepItensCache.find(x=>x.id===id); if(!i)return;
+  if(barrarSemCusto([{code:i.code,desc:i.descricao}],'Separação'))return;
   requireSupervisor('Separar SEM leitura do código: '+i.descricao+' ('+numf(i.quantidade_disponivel)+' '+(i.unidade||'')+') — fica registrado na auditoria',()=>separarItem(id,{modo:'manual'})); }
 function definirTipoEnvio(reqId,ehMutuo){ const sel=document.querySelector('input[name=tipoEnvioPre_'+reqId+']:checked'); const tipo=sel?sel.value:'despacho';
   const payload=ehBalcao(tipo)?{tipo_envio:tipo,status:'romaneio_emitido'}:{tipo_envio:tipo};
