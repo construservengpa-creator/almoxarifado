@@ -1936,6 +1936,13 @@ function movToRow(m){ return {id:m.id,ts:m.ts,tipo:m.tipo,obra:m.obra||null,obra
 function rowToMov(r){ return {id:r.id,ts:Number(r.ts),tipo:r.tipo,obra:r.obra||undefined,obraDest:r.obra_dest||undefined,code:r.code||undefined,desc:r.descricao||undefined,qty:Number(r.qty)||0,valorUnit:Number(r.valor_unit)||0,valorTotal:Number(r.valor_total)||0,doc:r.doc||undefined,obs:r.obs||undefined,aplic:r.aplic||undefined,os:r.os||undefined,seq:r.seq||undefined,notaId:r.nota_id||undefined,invId:r.inv_id||undefined,invModo:r.inv_modo||undefined,baixaId:r.baixa_id||undefined,romaneioId:r.romaneio_id||undefined,saldo:r.saldo!=null?Number(r.saldo):undefined,saldoDest:r.saldo_dest!=null?Number(r.saldo_dest):undefined,lotes:Array.isArray(r.lotes)&&r.lotes.length?r.lotes:undefined}; }
 const _movPend=new Set();
 function pushMov(m){ if(!m.id)m.id=uid(); if(!m.ts)m.ts=Date.now(); state.movements.unshift(m);
+/* Insumo sem valor (custo R$ 0,00) não movimenta estoque: sem custo, baixa, transferência e entrada saem com valor zero
+   e o custo das obras fica errado. Corrija o custo no cadastro do produto (🔍 → Editar) ou dê entrada pela nota com valor. */
+function custoOk(code){ const p=findProduct(code); return !!(p&&Number(p.custo)>0); }
+function barrarSemCusto(itens,acao){ const sem=itens.filter(i=>!custoOk(i.code)); if(!sem.length)return false;
+  const nomes=[...new Set(sem.map(i=>{ const p=findProduct(i.code); return (p&&p.desc)||i.desc||i.code; }))];
+  toast(acao+' bloqueada: '+nomes.length+' item(ns) sem valor (custo R$ 0,00) — '+nomes.slice(0,5).map(esc).join(', ')+(nomes.length>5?'…':'')+'. Cadastre o custo do produto (🔍 → Editar) ou dê entrada pela nota com valor.','err');
+  return true; }
   const pr=gravarConfiavel({tipo:'mov',row:movToRow(m)}); /* fila confiável: reenvia se a rede falhar (o id evita duplicar) */
   _movPend.add(pr); pr.finally(()=>_movPend.delete(pr));
   return m; }
@@ -3359,6 +3366,7 @@ function processNf(force){
   if(!nfObrigatoriosOk())return;
   const apd=nfApdDados(); if(apd===false)return;
   if(!nfLotesValidar())return;
+  { const sem=nfItems.filter(it=>!(Number(it.custo)>0)); if(sem.length){ toast('Entrada bloqueada: '+sem.length+' item(ns) sem valor (custo R$ 0,00) — '+sem.slice(0,5).map(it=>esc(it.desc||it.code||'')).join(', ')+(sem.length>5?'…':'')+'. Informe o custo unitário de cada item.','err'); return; } }
   const obra=$('#nfObra').value; const numero=$('#nfNum').value.trim(); const forn=$('#nfForn').value.trim(); const dataEmissao=$('#nfData').value||'';
   const cnpjTom=$('#nfCnpjTom')?$('#nfCnpjTom').value.trim():''; const cnpjEmit=$('#nfCnpjEmit')?$('#nfCnpjEmit').value.trim():'';
   const totalCheck=nfItems.reduce((s,it)=>s+it.qty*it.custo,0);
@@ -3546,6 +3554,7 @@ async function requisicaoAplicacaoDireta({obra,itens,numero,forn,aplic,os}){
   const quem=profile.nome||profile.email;
   const porCode=new Map(); itens.forEach(i=>{ const x=porCode.get(i.code); if(x){ x.qty+=Number(i.qty)||0; if(i.lotes)x.lotes=(x.lotes||[]).concat(i.lotes); } else porCode.set(i.code,{code:i.code,desc:i.desc,unit:i.unit||'',qty:Number(i.qty)||0,lotes:i.lotes?i.lotes.slice():null}); });
   const lista=[...porCode.values()].filter(i=>i.qty>0);
+  if(lista.some(i=>!custoOk(i.code))){ barrarSemCusto(lista,'Entrada feita, mas a aplicação direta foi'); go('produtos'); return; }
   const falta=lista.filter(i=>saldoOf(obra,i.code)<i.qty-1e-9);
   if(falta.length){ toast('Entrada feita, mas a requisição de aplicação direta NÃO foi gerada: saldo disponível insuficiente em '+falta.map(i=>i.desc).join(', ')+' (há devolução bloqueando saldo?).','err'); go('produtos'); return; }
   const etapa=(msg,reqN)=>{ toast('Entrada feita'+(reqN?' e '+reqN+' criada':'')+', mas a automação parou: '+msg+(reqN?' — continue pelo fluxo normal.':''),'err'); refreshAprovBadge(); refreshSeparacaoBadge(); refreshRetiradasBadge(); refreshGlobalAlerts(); go('produtos'); };
@@ -3781,7 +3790,9 @@ function saveNewProduct(){ const desc=$('#npDesc').value.trim(); if(!desc){toast
   let code=$('#npCode').value.trim(); if(code&&findProduct(code)){toast('Código já existe.','err');return;}
   const fabL=$('#npFab')?fabNormalizar($('#npFab').value):[]; { const cf=fabConflito(fabL,code||null); if(cf){ toast(esc(cf.msg),'err'); return; } if(fabL.some(c=>c.length<4||c.length>60)){ toast('Código de barras do fabricante inválido (de 4 a 60 caracteres).','err'); return; } }
   if(!code)code=genCode();
-  const qty=parseFloat($('#npQty').value)||0; const obra=curObra()==='__all'?state.obras[0].id:curObra();
+  const qty=parseFloat($('#npQty').value)||0;
+  if(qty>0&&!((parseFloat($('#npCusto').value)||0)>0)){ toast('Para cadastrar com saldo inicial, informe o custo (valor de compra). Sem custo, cadastre com saldo 0 e dê entrada pela nota.','err'); return; }
+  const obra=curObra()==='__all'?state.obras[0].id:curObra();
   const p={code,desc,unit:$('#npUnit').value.trim()||'UN',aux:($('#npAux')?$('#npAux').value.trim():''),fab:fabL.join(', '),min:parseFloat($('#npMin').value)||0,max:parseFloat($('#npMax').value)||0,custo:parseFloat($('#npCusto').value)||0,preco:parseFloat($('#npPreco').value)||0,ref:$('#npRef').value.trim(),
     grupo:($('#npGrupo')?$('#npGrupo').value.trim():''),localizacao:($('#npLocal')?$('#npLocal').value.trim():''),endereco:($('#npEndereco')?$('#npEndereco').value.trim():'')};
   state.products.push(p);
@@ -4205,6 +4216,7 @@ function aplicarAjuste(code){ if(ajTravaBarrar())return; const p=findProduct(cod
     if(delta>0){ custoFinal = custoMedioEntrada(p,delta,custoInformado).custoMedio; } /* mesma regra da entrada de nota: base = saldo de todas as obras */
     else { custoFinal = custoInformado; }
   }
+  if(!(custoFinal>0)){ toast('Ajuste bloqueado: o produto está sem valor (custo R$ 0,00). Informe o valor de compra (custo unitário).','err'); return; }
   requireSupervisor(`Ajustar saldo de "${p.desc}" em ${obraName(obra)} de ${numf(atual)} para ${numf(novo)}`,async()=>{
     if(ajTravaBarrar())return; /* pode ter sido bloqueado enquanto a confirmação estava aberta */
     const lt=addSaldo(obra,code,delta); p.custo=custoFinal;
@@ -4253,7 +4265,9 @@ function invCalcUma(r,run){
   }
   if(o.jaLancado){ o.novo=o.atual; o.delta=0; return o; }
   if(!(o.novo>=0))o.erro='O saldo ficaria negativo';
-  o.delta=o.novo-o.atual; return o;
+  o.delta=o.novo-o.atual;
+  if(!o.erro&&o.delta!==0&&!(p&&Number(p.custo)>0)&&!(o.delta>0&&Number(r.custo)>0))o.erro='Sem valor (custo R$ 0,00): cadastre o custo do produto antes de lançar';
+  return o;
 }
 function invCalcLote(rows){
   const run={};
@@ -4875,6 +4889,7 @@ async function _separarItem(id,conf){
   if(!(item.quantidade_disponivel>0)){toast('Nada disponível pra separar neste item.','err');return;}
   const {data:r,error:e2}=await sb.from('requisicoes').select('*').eq('id',item.requisicao_id).maybeSingle();
   if(e2||!r){toast('Erro ao carregar requisição.','err');return;}
+  if(barrarSemCusto([{code:item.code,desc:item.descricao}],'Separação'))return;
   const p=findProduct(item.code); const vu=p?(p.custo||0):0;
   const qtdSeparar=item.quantidade_disponivel;
   const obraSaldo=obraEstoqueParaRequisicao(r);
@@ -6067,6 +6082,7 @@ async function confirmTransfer(){ const orig=$('#trOrig').value, dest=$('#trDest
     toast('Empresas diferentes — transferência direta não é permitida. Faça baixa por consumo e registre o mútuo.','err'); return; }
   if(!trCart.length){toast('Adicione itens.','err');return;}
   const itens=trCart.filter(i=>i.qty>0); if(!itens.length){toast('Informe as quantidades.','err');return;}
+  if(barrarSemCusto(itens,'Transferência'))return;
   for(const i of itens){ const s=saldoOf(orig,i.code); if(i.qty>s){const p=findProduct(i.code); toast(`Saldo insuficiente: ${p.desc} (${numf(s)}).`,'err'); return;} }
   const wantReport=$('#trReport')&&$('#trReport').checked; const obs=($('#trObs')?$('#trObs').value.trim():'');
   const {data:numData,error:eNum}=await sb.rpc('proximo_numero_documento',{p_tipo:'transferencia'});
@@ -6984,6 +7000,7 @@ function previewImport(){ if(!importRows.length){toast('Nenhuma linha válida.',
   box.innerHTML=`<div class="sechead"><h3>Pré-visualização · ${importRows.length} linha(s) → ${esc(obraName($('#impObra').value))}</h3><button class="btn primary sm" onclick="commitImport()">✓ Confirmar</button></div>
   <div class="tbl-wrap"><table><thead><tr><th>Código</th><th>Descrição</th><th>Un.</th><th class="num">Qtd</th><th class="num">Mín</th><th class="num">Máx</th><th class="num">Custo</th><th>Ação</th></tr></thead><tbody>`+importRows.map(r=>{const ex=r.code&&findProduct(r.code);return `<tr><td class="mono">${r.code?esc(r.code):'<span class="muted">auto</span>'}</td><td>${esc(r.desc)}</td><td>${esc(r.unit)}</td><td class="num">${numf(r.qty)}</td><td class="num">${numf(r.min)}</td><td class="num">${r.max>0?numf(r.max):'—'}</td><td class="num">${money(r.custo)}</td><td>${ex?'<span class="pill high">Atualiza</span>':'<span class="pill good">Novo</span>'}</td></tr>`;}).join('')+`</tbody></table></div>`; }
 function commitImport(){ const obra=$('#impObra').value; let novos=0,atual=0;
+  { const sem=importRows.filter(r=>r.qty>0&&!(r.custo>0)&&!(r.code&&custoOk(r.code))); if(sem.length){ toast('Carga bloqueada: '+sem.length+' linha(s) com quantidade e sem custo — '+sem.slice(0,5).map(r=>esc(r.desc)).join(', ')+(sem.length>5?'…':'')+'. Preencha a coluna de custo.','err'); return; } }
   importRows.forEach(r=>{ let p=r.code?findProduct(r.code):null;
     if(p){ p.desc=r.desc||p.desc;p.unit=r.unit||p.unit; if((r.min||r.max)&&podeEditarLimites()){ if(!state.limitesObra)state.limitesObra={}; if(!state.limitesObra[obra])state.limitesObra[obra]={}; state.limitesObra[obra][p.code]={min:r.min,max:r.max}; }if(r.custo>0)p.custo=r.custo;if(r.preco>0)p.preco=r.preco;if(r.ref)p.ref=r.ref;if(r.aux)p.aux=r.aux; atual++; }
     else{ const code=r.code||genCode(); p={code,desc:r.desc,unit:r.unit,aux:r.aux,min:r.min,max:r.max,custo:r.custo,preco:r.preco,ref:r.ref}; state.products.push(p); novos++; }
