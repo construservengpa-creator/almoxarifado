@@ -793,8 +793,8 @@ label.f{display:block;font-size:13px;color:var(--mu);margin:0 0 5px}
 @media (prefers-reduced-motion:reduce){#capAbertura,#capAbertura *{animation:none!important;transition:none!important}}
 @media (max-width:480px){#capAbertura .cap-selo{width:88px;height:88px}#capAbertura .cap-nome{font-size:38px}#capAbertura .cap-modulo{font-size:16px}}
 
-/* ===== Marcas AMETA e RAF (comum a todas as aplicações) =====
-   As logos ficam em Painel-suprimentos/marca/ (ameta.png e raf.png) e todas as
+/* ===== Marca RAF (comum a todas as aplicações; a logo da AMETA foi retirada) =====
+   As logos ficam em Painel-suprimentos/marca/ (raf.png) e todas as
    aplicações usam esses mesmos arquivos: para trocar a logo basta substituí-los.
    O fundo branco garante a leitura das logos em qualquer tema. A capivara passa
    a ser só um detalhe discreto ao lado do nome do módulo. */
@@ -830,7 +830,7 @@ label.f{display:block;font-size:13px;color:var(--mu);margin:0 0 5px}
 
 <!-- ===== Tela de abertura Capivara ===== -->
 <div id="capAbertura" role="status" aria-label="Carregando Capivara Contagem" title="Clique para pular">
-  <span class="emp-logos"><img src="https://construservengpa-creator.github.io/Painel-suprimentos/marca/ameta.png" alt="AMETA"><span class="emp-sep" aria-hidden="true"></span><img src="https://construservengpa-creator.github.io/Painel-suprimentos/marca/raf.png" alt="RAF"></span>
+  <span class="emp-logos"><img src="https://construservengpa-creator.github.io/Painel-suprimentos/marca/raf.png" alt="RAF"></span>
   <div class="cap-nome">Capivara</div>
   <div class="cap-modulo">Contagem</div>
   <div class="cap-tag">Contagem cíclica de estoque · AMETA</div>
@@ -1110,7 +1110,7 @@ function renderTopo(){
   if (S.tela === 'revisao') titulo = 'Revisão';
   const on = navigator.onLine;
   const chip = !on ? ['b', 'Sem conexão'] : err ? ['b', `${err} com erro`] : pend ? ['w', `${pend} na fila`] : ['', 'Sincronizado'];
-  t.innerHTML = `${S.tela === 'ciclo' ? `<button class="ib" data-act="voltar" aria-label="Voltar">${ico('back')}</button>` : '<span class="emp-logos"><img src="https://construservengpa-creator.github.io/Painel-suprimentos/marca/ameta.png" alt="AMETA"><span class="emp-sep" aria-hidden="true"></span><img src="https://construservengpa-creator.github.io/Painel-suprimentos/marca/raf.png" alt="RAF"></span><span class="cap-selo"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#capivaraSilhueta"/></svg></span>'}
+  t.innerHTML = `${S.tela === 'ciclo' ? `<button class="ib" data-act="voltar" aria-label="Voltar">${ico('back')}</button>` : '<span class="emp-logos"><img src="https://construservengpa-creator.github.io/Painel-suprimentos/marca/raf.png" alt="RAF"></span><span class="cap-selo"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#capivaraSilhueta"/></svg></span>'}
     <div class="tt"><h1>${esc(titulo)}</h1><div class="sub">${esc(sub)}</div></div>
     <button class="sync" data-act="pop-sync" aria-label="Estado da sincronização"><span class="dot ${chip[0]}"></span>${chip[1]}</button>
     <a class="ib inicio-ib" href="https://construservengpa-creator.github.io/Painel-suprimentos/inicio.html" aria-label="Página inicial" title="Voltar à página inicial do Capivara (Suprimentos, Notas e Estoque)">⌂</a>
@@ -1129,7 +1129,7 @@ function renderNav(){
 /* ---------- login / home ---------- */
 function htmlLogin(){
   return `<div class="pad" style="padding-top:12vh">
-    <span class="emp-logos emp-grande emp-login"><img src="https://construservengpa-creator.github.io/Painel-suprimentos/marca/ameta.png" alt="AMETA"><span class="emp-sep" aria-hidden="true"></span><img src="https://construservengpa-creator.github.io/Painel-suprimentos/marca/raf.png" alt="RAF"></span>
+    <span class="emp-logos emp-grande emp-login"><img src="https://construservengpa-creator.github.io/Painel-suprimentos/marca/raf.png" alt="RAF"></span>
     <h2 style="font-size:30px" class="cap-marca">Capivara <span class="cap-mod">Contagem</span></h2>
     <p class="mu" style="margin-top:0">Entre com o mesmo usuário do sistema de estoque.</p>
     <form id="formLogin" class="stack" autocomplete="on">
