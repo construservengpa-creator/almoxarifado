@@ -8278,17 +8278,11 @@ function patRateioMes(b,comp){ const [y,m]=comp.split('-').map(Number); const di
   Object.keys(r).forEach(k=>r[k]=r[k]/dias); return r; }
 
 /* ---------- Tela: Bens patrimoniais ---------- */
-let _patFiltro={q:'',obra:'',cat:'',status:'ativos',emp:''};
-/* empresa proprietária do bem (cadastro de Empresas); null se não tiver ou se a empresa foi excluída */
-function patEmpresaDoBem(b){ return (b&&b.empresaId&&(state.empresas||[]).find(e=>e.id===b.empresaId))||null; }
-function patEmpresaNome(b){ const e=patEmpresaDoBem(b); return e?e.razaoSocial:''; }
-/* filtro por empresa: '' = todas, '__sem' = bens sem empresa, senão o id da empresa */
-function patEmpOk(b,emp){ if(!emp)return true; const e=patEmpresaDoBem(b); return emp==='__sem'?!e:!!e&&e.id===emp; }
-function patEmpOptions(sel){ return `<option value="">Todas as empresas</option>${(state.empresas||[]).map(e=>`<option value="${e.id}"${sel===e.id?' selected':''}>${esc(e.razaoSocial)}</option>`).join('')}<option value="__sem"${sel==='__sem'?' selected':''}>Sem empresa</option>`; }
+let _patFiltro={q:'',obra:'',cat:'',status:'ativos'};
 function renderPatrimonio(){ patNormalizar();
   $('#topActions').innerHTML=(podeOperarPat()?`<button class="btn primary sm" onclick="patBemModal()">+ Novo bem</button> `:'')+`<button class="btn ghost sm" onclick="patCategoriasModal()">Categorias</button> <button class="btn ghost sm" onclick="patExportarBens()">⤓ Excel</button> <button class="btn ghost sm" onclick="patPlaquetasModal()">🏷 Plaquetas</button>`;
   const f=_patFiltro, hoje=patHoje();
-  const ativos=state.patrimonio.filter(b=>b.status!=='baixado'&&patEmpOk(b,f.emp));
+  const ativos=state.patrimonio.filter(b=>b.status!=='baixado');
   let vAq=0,vAc=0,vCo=0; ativos.forEach(b=>{ const d=patDeprec(b,hoje); vAq+=d.valor; vAc+=d.acum; vCo+=d.contabil; });
   const nTr=ativos.filter(b=>b.transito).length, nMan=ativos.filter(b=>b.status==='manutencao').length;
   let html=`<div class="cards">
@@ -8298,22 +8292,20 @@ function renderPatrimonio(){ patNormalizar();
     <div class="card ok"><div class="stripe"></div><div class="lbl">Valor contábil</div><div class="val" style="font-size:20px">${money(vCo)}</div><div class="sub">aquisição − depreciação</div></div></div>`;
   html+=`<div class="sechead"><h3>Bens patrimoniais</h3><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <div class="search" style="min-width:180px"><span class="si">⌕</span><input id="patQ" placeholder="Plaqueta, descrição, marca, série, NF..." value="${esc(f.q)}" autocomplete="off"></div>
-    <select id="patFEmp" style="width:auto">${patEmpOptions(f.emp)}</select>
     <select id="patFObra" style="width:auto"><option value="">Todos os locais</option><option value="__transito"${f.obra==='__transito'?' selected':''}>Em trânsito</option>${state.obras.map(o=>`<option value="${o.id}"${f.obra===o.id?' selected':''}>${esc(o.nome)}</option>`).join('')}</select>
     <select id="patFCat" style="width:auto"><option value="">Todas as categorias</option>${state.patCategorias.map(c=>`<option value="${c.id}"${f.cat===c.id?' selected':''}>${esc(c.nome)}</option>`).join('')}</select>
     <select id="patFStatus" style="width:auto">${[['ativos','Ativos'],['ativo','Em uso'],['manutencao','Em manutenção'],['baixado','Baixados'],['todos','Todos']].map(([v,t])=>`<option value="${v}"${f.status===v?' selected':''}>${t}</option>`).join('')}</select>
   </div></div><div id="patLista"></div>`;
   $('#view').innerHTML=html;
-  const upd=()=>{ f.q=$('#patQ').value; f.obra=$('#patFObra').value; f.cat=$('#patFCat').value; f.status=$('#patFStatus').value; const emp=$('#patFEmp').value; if(emp!==f.emp){ f.emp=emp; renderPatrimonio(); return; } drawPatLista(); };
+  const upd=()=>{ f.q=$('#patQ').value; f.obra=$('#patFObra').value; f.cat=$('#patFCat').value; f.status=$('#patFStatus').value; drawPatLista(); };
   $('#patQ').oninput=upd; $('#patQ').onkeydown=e=>{ if(e.key==='Enter'){ const b=patBuscaBem(e.target.value); if(b)patVer(b.id); } };
-  ['#patFEmp','#patFObra','#patFCat','#patFStatus'].forEach(s=>$(s).onchange=upd);
+  ['#patFObra','#patFCat','#patFStatus'].forEach(s=>$(s).onchange=upd);
   drawPatLista(); }
 function patListaFiltrada(){ const f=_patFiltro;
   return state.patrimonio.filter(b=>{
     if(f.status==='ativos'&&b.status==='baixado')return false;
     if(f.status!=='ativos'&&f.status!=='todos'&&b.status!==f.status)return false;
     if(f.cat&&b.categoria!==f.cat)return false;
-    if(!patEmpOk(b,f.emp))return false;
     if(f.obra==='__transito'&&!b.transito)return false;
     if(f.obra&&f.obra!=='__transito'&&(b.transito||b.obraId!==f.obra))return false;
     if(f.q&&!patFiltroTexto(b,f.q))return false;
@@ -8325,11 +8317,11 @@ function drawPatLista(){ const box=$('#patLista'); if(!box)return; const lista=p
   const rows=lista.slice(0,500).map(b=>{ const d=patDeprec(b,hoje); tAq+=d.valor; tAc+=d.acum; tCo+=d.contabil;
     const mm=[b.marca,b.modelo].filter(Boolean).join(' ');
     return `<tr style="cursor:pointer" onclick="patVer('${b.id}')"><td class="mono"><b>${esc(b.plaqueta)}</b></td><td>${esc(b.desc)}${mm||b.serie?`<div class="muted" style="font-size:11.5px">${esc(mm)}${b.serie?(mm?' · ':'')+'Série '+esc(b.serie):''}</div>`:''}</td>
-      <td style="font-size:12.5px">${esc(patEmpresaNome(b))||'<span class="muted">—</span>'}</td><td style="font-size:12.5px">${esc(patCatNome(b.categoria))}</td><td style="font-size:12.5px">${esc(patLocalTxt(b))}${patSetorAtual(b)?`<div class="muted" style="font-size:11.5px">📍 ${esc(patSetorAtual(b))}</div>`:''}</td><td>${patStatusPill(b)}</td>
+      <td style="font-size:12.5px">${esc(patCatNome(b.categoria))}</td><td style="font-size:12.5px">${esc(patLocalTxt(b))}${patSetorAtual(b)?`<div class="muted" style="font-size:11.5px">📍 ${esc(patSetorAtual(b))}</div>`:''}</td><td>${patStatusPill(b)}</td>
       <td class="num">${money(d.valor)}</td><td class="num">${money(d.acum)}<div class="muted" style="font-size:11px">${pctf(d.pct*100)}</div></td><td class="num"><b>${money(d.contabil)}</b></td></tr>`; }).join('');
   const sobra=lista.length>500?`<div class="muted" style="font-size:12px;margin-top:8px">Mostrando 500 de ${lista.length} bens — refine a busca. O Excel traz todos.</div>`:'';
-  box.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>Plaqueta</th><th>Descrição</th><th>Empresa</th><th>Categoria</th><th>Localização</th><th>Situação</th><th class="num">Aquisição</th><th class="num">Deprec. acum.</th><th class="num">Valor contábil</th></tr></thead><tbody>${rows}</tbody>
-    <tfoot><tr><td colspan="6" style="font-weight:700">${lista.length} ${lista.length===1?'bem':'bens'}</td><td class="num"><b>${money(tAq)}</b></td><td class="num"><b>${money(tAc)}</b></td><td class="num"><b>${money(tCo)}</b></td></tr></tfoot></table></div>${sobra}`; }
+  box.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>Plaqueta</th><th>Descrição</th><th>Categoria</th><th>Localização</th><th>Situação</th><th class="num">Aquisição</th><th class="num">Deprec. acum.</th><th class="num">Valor contábil</th></tr></thead><tbody>${rows}</tbody>
+    <tfoot><tr><td colspan="5" style="font-weight:700">${lista.length} ${lista.length===1?'bem':'bens'}</td><td class="num"><b>${money(tAq)}</b></td><td class="num"><b>${money(tAc)}</b></td><td class="num"><b>${money(tCo)}</b></td></tr></tfoot></table></div>${sobra}`; }
 
 /* ---------- Cadastro / edição ---------- */
 function patBemModal(id){ patNormalizar(); if(!podeOperarPat()){ toast('Sem permissão para cadastrar bens.','err'); return; }
@@ -8663,7 +8655,7 @@ function renderPatLocal(){ patNormalizar(); const hoje=patHoje();
   $('#view').innerHTML=html; }
 
 /* ---------- Tela: Depreciação (mapa mensal) ---------- */
-let _patDepComp=null, _patDepVisao='bem', _patDepEmp='';
+let _patDepComp=null, _patDepVisao='bem';
 function patMapaMes(comp){ const ref=patUltimoDia(comp), refAnt=patUltimoDia(patMesAnterior(comp)), ini=comp+'-01';
   return state.patrimonio.filter(b=>b.dataAquisicao&&b.dataAquisicao<=ref&&!(b.status==='baixado'&&b.baixa&&b.baixa.data&&b.baixa.data<ini)).map(b=>{
     const d=patDeprec(b,ref), dAnt=b.dataAquisicao<=refAnt?patDeprec(b,refAnt):{acum:0};
@@ -8672,17 +8664,15 @@ function renderPatDeprec(){ patNormalizar(); if(!_patDepComp)_patDepComp=patHoje
   $('#topActions').innerHTML=`<button class="btn ghost sm" onclick="patDeprecExcel()">⤓ Excel</button> <button class="btn ghost sm" onclick="patDeprecImprimir()">🖨 Imprimir</button>`;
   $('#view').innerHTML=`<div class="panel"><h3>Mapa de depreciação</h3><p class="desc">Método linear: (valor de aquisição − residual) ÷ vida útil em meses. A depreciação do mês é rateada entre as obras pelos dias que cada bem passou em cada uma — base para apropriar o custo de equipamento por obra.</p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end"><div class="field" style="margin:0"><label>Competência</label><input id="pdComp" type="month" value="${_patDepComp}" style="width:auto"></div>
-    <div class="field" style="margin:0"><label>Visão</label><select id="pdVisao" style="width:auto">${[['bem','Por bem'],['empresa','Por empresa'],['obra','Por obra (rateio)'],['categoria','Por categoria']].map(([v,t])=>`<option value="${v}"${_patDepVisao===v?' selected':''}>${t}</option>`).join('')}</select></div>
-    <div class="field" style="margin:0"><label>Empresa</label><select id="pdEmp" style="width:auto">${patEmpOptions(_patDepEmp)}</select></div></div></div><div id="pdRes"></div>`;
-  $('#pdComp').onchange=e=>{ if(e.target.value){ _patDepComp=e.target.value; drawPatDeprec(); } }; $('#pdVisao').onchange=e=>{ _patDepVisao=e.target.value; drawPatDeprec(); }; $('#pdEmp').onchange=e=>{ _patDepEmp=e.target.value; drawPatDeprec(); };
+    <div class="field" style="margin:0"><label>Visão</label><select id="pdVisao" style="width:auto">${[['bem','Por bem'],['obra','Por obra (rateio)'],['categoria','Por categoria']].map(([v,t])=>`<option value="${v}"${_patDepVisao===v?' selected':''}>${t}</option>`).join('')}</select></div></div></div><div id="pdRes"></div>`;
+  $('#pdComp').onchange=e=>{ if(e.target.value){ _patDepComp=e.target.value; drawPatDeprec(); } }; $('#pdVisao').onchange=e=>{ _patDepVisao=e.target.value; drawPatDeprec(); };
   drawPatDeprec(); }
-function patDeprecDados(){ const comp=_patDepComp, linhas=patMapaMes(comp).filter(l=>patEmpOk(l.b,_patDepEmp));
+function patDeprecDados(){ const comp=_patDepComp, linhas=patMapaMes(comp);
   const tot={valor:0,mes:0,acum:0,contabil:0}; linhas.forEach(l=>{ tot.valor+=l.d.valor; tot.mes+=l.mes; tot.acum+=l.d.acum; tot.contabil+=l.d.contabil; });
-  const porObra={}, porCat={}, porEmp={};
-  linhas.forEach(l=>{ const ek=patEmpresaNome(l.b)||'—'; const pe=porEmp[ek]||(porEmp[ek]={n:0,valor:0,mes:0,acum:0,contabil:0}); pe.n++; pe.valor+=l.d.valor; pe.mes+=l.mes; pe.acum+=l.d.acum; pe.contabil+=l.d.contabil;
-    const c=l.b.categoria||'—'; const pc=porCat[c]||(porCat[c]={n:0,valor:0,mes:0,acum:0,contabil:0}); pc.n++; pc.valor+=l.d.valor; pc.mes+=l.mes; pc.acum+=l.d.acum; pc.contabil+=l.d.contabil;
+  const porObra={}, porCat={};
+  linhas.forEach(l=>{ const c=l.b.categoria||'—'; const pc=porCat[c]||(porCat[c]={n:0,valor:0,mes:0,acum:0,contabil:0}); pc.n++; pc.valor+=l.d.valor; pc.mes+=l.mes; pc.acum+=l.d.acum; pc.contabil+=l.d.contabil;
     if(l.mes>0){ const r=patRateioMes(l.b,comp); Object.keys(r).forEach(k=>{ const po=porObra[k]||(porObra[k]={mes:0,bens:new Set()}); po.mes+=l.mes*r[k]; po.bens.add(l.b.id); }); } });
-  return {comp,linhas,tot,porObra,porCat,porEmp}; }
+  return {comp,linhas,tot,porObra,porCat}; }
 function patCompTxt(comp){ const [y,m]=comp.split('-'); return ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'][Number(m)-1]+'/'+y; }
 function patFimDoDiaTs(iso){ const d=patParseDia(iso); return new Date(d.y,d.m-1,d.d,23,59,59,999).getTime(); }
 function drawPatDeprec(){ const box=$('#pdRes'); if(!box)return; const D=patDeprecDados(); const fimMes=patFimDoDiaTs(patUltimoDia(D.comp));
@@ -8693,8 +8683,6 @@ function drawPatDeprec(){ const box=$('#pdRes'); if(!box)return; const D=patDepr
   if(!D.linhas.length){ box.innerHTML=html+`<div class="tbl-wrap"><div class="empty">Nenhum bem adquirido até ${esc(patCompTxt(D.comp))}.</div></div>`; return; }
   if(_patDepVisao==='obra'){ const ks=Object.keys(D.porObra).sort((a,b)=>D.porObra[b].mes-D.porObra[a].mes);
     html+=`<div class="tbl-wrap"><table><thead><tr><th>Obra</th><th class="num">Bens que passaram</th><th class="num">Depreciação apropriada</th><th class="num">% do mês</th></tr></thead><tbody>${ks.map(k=>`<tr><td>${k==='__transito'?'<i>Em trânsito</i>':esc(obraName(k))}</td><td class="num">${D.porObra[k].bens.size}</td><td class="num"><b>${money(D.porObra[k].mes)}</b></td><td class="num">${pctf(D.tot.mes?D.porObra[k].mes/D.tot.mes*100:0)}</td></tr>`).join('')}</tbody><tfoot><tr><td colspan="2"><b>Total</b></td><td class="num"><b>${money(D.tot.mes)}</b></td><td class="num">100%</td></tr></tfoot></table></div>`; }
-  else if(_patDepVisao==='empresa'){ const ks=Object.keys(D.porEmp).sort((a,b)=>a==='—'?1:b==='—'?-1:a.localeCompare(b,'pt-BR'));
-    html+=`<div class="tbl-wrap"><table><thead><tr><th>Empresa</th><th class="num">Bens</th><th class="num">Aquisição</th><th class="num">Deprec. do mês</th><th class="num">Deprec. acumulada</th><th class="num">Valor contábil</th></tr></thead><tbody>${ks.map(k=>{ const c=D.porEmp[k]; return `<tr><td>${k==='—'?'<i>Sem empresa</i>':esc(k)}</td><td class="num">${c.n}</td><td class="num">${money(c.valor)}</td><td class="num">${money(c.mes)}</td><td class="num">${money(c.acum)}</td><td class="num"><b>${money(c.contabil)}</b></td></tr>`; }).join('')}</tbody><tfoot><tr><td><b>Total</b></td><td class="num">${D.linhas.length}</td><td class="num"><b>${money(D.tot.valor)}</b></td><td class="num"><b>${money(D.tot.mes)}</b></td><td class="num"><b>${money(D.tot.acum)}</b></td><td class="num"><b>${money(D.tot.contabil)}</b></td></tr></tfoot></table></div>`; }
   else if(_patDepVisao==='categoria'){ const ks=Object.keys(D.porCat).sort((a,b)=>patCatNome(a).localeCompare(patCatNome(b),'pt-BR'));
     html+=`<div class="tbl-wrap"><table><thead><tr><th>Categoria</th><th class="num">Bens</th><th class="num">Aquisição</th><th class="num">Deprec. do mês</th><th class="num">Deprec. acumulada</th><th class="num">Valor contábil</th></tr></thead><tbody>${ks.map(k=>{ const c=D.porCat[k]; return `<tr><td>${esc(patCatNome(k))}</td><td class="num">${c.n}</td><td class="num">${money(c.valor)}</td><td class="num">${money(c.mes)}</td><td class="num">${money(c.acum)}</td><td class="num"><b>${money(c.contabil)}</b></td></tr>`; }).join('')}</tbody><tfoot><tr><td><b>Total</b></td><td class="num">${D.linhas.length}</td><td class="num"><b>${money(D.tot.valor)}</b></td><td class="num"><b>${money(D.tot.mes)}</b></td><td class="num"><b>${money(D.tot.acum)}</b></td><td class="num"><b>${money(D.tot.contabil)}</b></td></tr></tfoot></table></div>`; }
   else{ html+=`<div class="tbl-wrap"><table><thead><tr><th>Plaqueta</th><th>Bem</th><th>Local (fim do mês)</th><th class="num">Aquisição</th><th class="num">Taxa a.a.</th><th class="num">Deprec. do mês</th><th class="num">Acumulada</th><th class="num">Valor contábil</th></tr></thead><tbody>${D.linhas.map(l=>{ const loc=patLocalNoDia(patLinhaDoTempo(l.b),fimMes,l.b.obraId);
@@ -8704,19 +8692,17 @@ function drawPatDeprec(){ const box=$('#pdRes'); if(!box)return; const D=patDepr
 async function patDeprecExcel(){ try{ await ensureXLSX(); }catch(e){ toast('Não foi possível carregar o gerador de planilhas.','err'); return; }
   const D=patDeprecDados(); const wb=XLSX.utils.book_new();
   const r2=v=>Math.round((Number(v)||0)*100)/100;
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(D.linhas.map(l=>({'Plaqueta':l.b.plaqueta,'Descrição':l.b.desc,'Empresa':patEmpresaNome(l.b),'Categoria':patCatNome(l.b.categoria),'Localização atual':patLocalTxt(l.b),'Data aquisição':patDataBR(l.b.dataAquisicao),'Início depreciação':patDataBR(patInicioDeprec(l.b)),'Valor aquisição':r2(l.d.valor),'Valor residual':r2(l.d.residual),'Vida útil (meses)':l.d.vida,'Taxa a.a. (%)':r2(patTaxaAnual(l.b)),'Meses depreciados':l.d.meses,'Depreciação mensal':r2(l.d.mensal),'Depreciação do mês':r2(l.mes),'Depreciação acumulada':r2(l.d.acum),'Valor contábil':r2(l.d.contabil),'Situação':l.b.status==='baixado'?'Baixado':l.d.total?'Totalmente depreciado':'Em depreciação'}))),'Por bem');
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(Object.keys(D.porEmp).map(k=>{ const c=D.porEmp[k]; return {'Empresa':k==='—'?'Sem empresa':k,'Bens':c.n,'Valor aquisição':r2(c.valor),'Depreciação do mês':r2(c.mes),'Depreciação acumulada':r2(c.acum),'Valor contábil':r2(c.contabil)}; })),'Por empresa');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(D.linhas.map(l=>({'Plaqueta':l.b.plaqueta,'Descrição':l.b.desc,'Categoria':patCatNome(l.b.categoria),'Localização atual':patLocalTxt(l.b),'Data aquisição':patDataBR(l.b.dataAquisicao),'Início depreciação':patDataBR(patInicioDeprec(l.b)),'Valor aquisição':r2(l.d.valor),'Valor residual':r2(l.d.residual),'Vida útil (meses)':l.d.vida,'Taxa a.a. (%)':r2(patTaxaAnual(l.b)),'Meses depreciados':l.d.meses,'Depreciação mensal':r2(l.d.mensal),'Depreciação do mês':r2(l.mes),'Depreciação acumulada':r2(l.d.acum),'Valor contábil':r2(l.d.contabil),'Situação':l.b.status==='baixado'?'Baixado':l.d.total?'Totalmente depreciado':'Em depreciação'}))),'Por bem');
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(Object.keys(D.porObra).map(k=>({'Obra':k==='__transito'?'Em trânsito':obraName(k),'Bens':D.porObra[k].bens.size,'Depreciação apropriada':r2(D.porObra[k].mes)}))),'Rateio por obra');
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(Object.keys(D.porCat).map(k=>{ const c=D.porCat[k]; return {'Categoria':patCatNome(k),'Bens':c.n,'Valor aquisição':r2(c.valor),'Depreciação do mês':r2(c.mes),'Depreciação acumulada':r2(c.acum),'Valor contábil':r2(c.contabil)}; })),'Por categoria');
   XLSX.writeFile(wb,'depreciacao_'+D.comp+'.xlsx'); }
 function patDeprecImprimir(){ const D=patDeprecDados(); const w=window.open('','_blank'); if(!w){ toast('Permita pop-ups para imprimir.','err'); return; }
-  const rows=D.linhas.map(l=>`<tr><td class="mono">${esc(l.b.plaqueta)}</td><td>${esc(l.b.desc)}</td><td>${esc(patEmpresaNome(l.b)||'—')}</td><td>${esc(patCatNome(l.b.categoria))}</td><td class="r">${money(l.d.valor)}</td><td class="r">${pctf(patTaxaAnual(l.b))}</td><td class="r">${money(l.mes)}</td><td class="r">${money(l.d.acum)}</td><td class="r">${money(l.d.contabil)}</td></tr>`).join('');
+  const rows=D.linhas.map(l=>`<tr><td class="mono">${esc(l.b.plaqueta)}</td><td>${esc(l.b.desc)}</td><td>${esc(patCatNome(l.b.categoria))}</td><td class="r">${money(l.d.valor)}</td><td class="r">${pctf(patTaxaAnual(l.b))}</td><td class="r">${money(l.mes)}</td><td class="r">${money(l.d.acum)}</td><td class="r">${money(l.d.contabil)}</td></tr>`).join('');
   const obras=Object.keys(D.porObra).sort((a,b)=>D.porObra[b].mes-D.porObra[a].mes).map(k=>`<tr><td>${k==='__transito'?'Em trânsito':esc(obraName(k))}</td><td class="r">${D.porObra[k].bens.size}</td><td class="r">${money(D.porObra[k].mes)}</td></tr>`).join('');
   w.document.write(`<html><head><meta charset="utf-8"><title>Mapa de depreciação ${esc(D.comp)}</title><style>@page{size:A4 landscape;margin:10mm}body{font-family:Arial,sans-serif;font-size:11px;color:#1a1a1a}h1{font-size:17px;color:#1f3a5f;margin:0 0 2px}h2{font-size:13px;color:#1f3a5f;margin:18px 0 6px}.sub{color:#555;margin-bottom:10px}table{width:100%;border-collapse:collapse}th{background:#1f3a5f;color:#fff;text-align:left;font-size:9.5px;text-transform:uppercase;padding:5px 6px}td{border-bottom:1px solid #d5dbe2;padding:4px 6px}.r{text-align:right;white-space:nowrap}.mono{font-family:'Courier New',monospace}tfoot td{font-weight:bold;background:#e8edf3}tr{break-inside:avoid}</style></head><body>
     <h1>Mapa de depreciação — ${esc(patCompTxt(D.comp))}</h1><div class="sub">${(t=>t?esc(t)+' · ':'')(patEmpresasTxt(D.linhas.map(l=>l.b)))}método linear · emitido em ${esc(fmtDate(Date.now()))}</div>
-    <table><thead><tr><th>Plaqueta</th><th>Bem</th><th>Empresa</th><th>Categoria</th><th class="r">Aquisição</th><th class="r">Taxa a.a.</th><th class="r">Deprec. mês</th><th class="r">Acumulada</th><th class="r">Valor contábil</th></tr></thead><tbody>${rows}</tbody>
-    <tfoot><tr><td colspan="4">${D.linhas.length} bens</td><td class="r">${money(D.tot.valor)}</td><td></td><td class="r">${money(D.tot.mes)}</td><td class="r">${money(D.tot.acum)}</td><td class="r">${money(D.tot.contabil)}</td></tr></tfoot></table>
-    ${Object.keys(D.porEmp).length>1?`<h2>Resumo por empresa</h2><table style="width:80%"><thead><tr><th>Empresa</th><th class="r">Bens</th><th class="r">Aquisição</th><th class="r">Deprec. mês</th><th class="r">Acumulada</th><th class="r">Valor contábil</th></tr></thead><tbody>${Object.keys(D.porEmp).sort((a,b)=>a==='—'?1:b==='—'?-1:a.localeCompare(b,'pt-BR')).map(k=>{ const c=D.porEmp[k]; return `<tr><td>${k==='—'?'Sem empresa':esc(k)}</td><td class="r">${c.n}</td><td class="r">${money(c.valor)}</td><td class="r">${money(c.mes)}</td><td class="r">${money(c.acum)}</td><td class="r">${money(c.contabil)}</td></tr>`; }).join('')}</tbody></table>`:''}
+    <table><thead><tr><th>Plaqueta</th><th>Bem</th><th>Categoria</th><th class="r">Aquisição</th><th class="r">Taxa a.a.</th><th class="r">Deprec. mês</th><th class="r">Acumulada</th><th class="r">Valor contábil</th></tr></thead><tbody>${rows}</tbody>
+    <tfoot><tr><td colspan="3">${D.linhas.length} bens</td><td class="r">${money(D.tot.valor)}</td><td></td><td class="r">${money(D.tot.mes)}</td><td class="r">${money(D.tot.acum)}</td><td class="r">${money(D.tot.contabil)}</td></tr></tfoot></table>
     <h2>Rateio da depreciação do mês por obra</h2><table style="width:60%"><thead><tr><th>Obra</th><th class="r">Bens</th><th class="r">Depreciação</th></tr></thead><tbody>${obras||'<tr><td colspan="3">—</td></tr>'}</tbody><tfoot><tr><td colspan="2">Total</td><td class="r">${money(D.tot.mes)}</td></tr></tfoot></table>
     <script>setTimeout(()=>window.print(),300);<\/script></body></html>`); w.document.close(); }
 
