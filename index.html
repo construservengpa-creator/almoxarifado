@@ -5036,6 +5036,7 @@ function comprovInstallHTML(){
 /* --- O que está esperando por mim (entregas para confirmar com o meu login · despachos para receber na obra) --- */
 async function refreshComprovPend(){
   if(!session||!profile||!isOnline)return;
+  refreshPatTermoPend(); /* termos de entrega de patrimônio aguardando o meu login */
   try{ const {data,error}=await sb.rpc('comprov_minhas_pendencias');
     if(error){ if(_comprovOk===null&&(error.code==='PGRST202'||error.code==='42883'||/schema cache|does not exist/i.test(error.message||'')))_comprovOk=false; return; }
     _comprovOk=true; _comprovPend={confirmar:(data&&data.confirmar)||[],receber:(data&&data.receber)||[]};
@@ -5045,7 +5046,7 @@ function comprovAlertsHTML(){ if(!_comprovOk)return ''; const c=_comprovPend.con
   if(c)h+=`<div class="galert err" onclick="abrirMinhasPendencias()"><span>${c===1?'Você tem 1 entrega':'Você tem '+c+' entregas'} do almoxarifado para confirmar o recebimento.</span><span class="ga-cta">Confirmar →</span></div>`;
   if(r)h+=`<div class="galert warn" onclick="abrirMinhasPendencias()"><span>${r===1?'1 despacho a caminho':r+' despachos a caminho'} para você — confirme o recebimento quando chegar.</span><span class="ga-cta">Receber →</span></div>`;
   return h; }
-function renderGlobalAlerts(){ const box=$('#globalAlerts'); if(box)box.innerHTML=comprovAlertsHTML()+_gaBaseHTML; }
+function renderGlobalAlerts(){ const box=$('#globalAlerts'); if(box)box.innerHTML=comprovAlertsHTML()+(typeof patTermoAlertsHTML==='function'?patTermoAlertsHTML():'')+_gaBaseHTML; }
 setInterval(()=>{ if(_comprovOk&&session&&profile&&document.visibilityState==='visible')refreshComprovPend(); },300000); /* as mudanças de requisição já atualizam pelo tempo real */
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'&&_comprovOk&&session&&profile)refreshComprovPend(); });
 async function loadComprovUsuarios(force){ if(_comprovUsers&&!force)return _comprovUsers;
@@ -7363,7 +7364,7 @@ function onAuthReady(){
   const p=(async()=>{
     profile=await loadProfile();
     if(!profile||!profile.ativo){ showPending(); return; }
-    hideGate(); applyRoleNav(); initNavGrps(); const pDev=refreshDevolucoesBloqueio().catch(()=>{}); const pLot=loadLotes().catch(e=>console.warn('loadLotes',e)); await load(); applyRoleNav(); /* a marcação "Aprova requisições" vem do documento carregado agora */ await pDev; await pLot; loadPhotos().then(()=>{ refreshTelaAtual(); migrarFotosAntigas(); }); loadFotosExt().then(mudou=>{ if(mudou&&!usuarioInteragindo())refreshTelaAtual(); }); loadReposAbertas().then(()=>refreshTelaAtual()); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); checkEntregaParcial().then(()=>refreshRetiradasBadge()); _comprovOk=null; _comprovPend={confirmar:[],receber:[]}; _comprovUsers=null; refreshComprovPend().then(()=>{ refreshComprovBadge(); processarLinkRecebimento(); }); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge();
+    hideGate(); applyRoleNav(); initNavGrps(); const pDev=refreshDevolucoesBloqueio().catch(()=>{}); const pLot=loadLotes().catch(e=>console.warn('loadLotes',e)); await load(); applyRoleNav(); /* a marcação "Aprova requisições" vem do documento carregado agora */ await pDev; await pLot; loadPhotos().then(()=>{ refreshTelaAtual(); migrarFotosAntigas(); }); loadFotosExt().then(mudou=>{ if(mudou&&!usuarioInteragindo())refreshTelaAtual(); }); loadReposAbertas().then(()=>refreshTelaAtual()); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); checkEntregaParcial().then(()=>refreshRetiradasBadge()); _comprovOk=null; _comprovPend={confirmar:[],receber:[]}; _comprovUsers=null; _patTermoOk=null; _patTermoPend=[]; _patTermoUsers=null; _patTermos=null; refreshComprovPend().then(()=>{ refreshComprovBadge(); processarLinkRecebimento(); }); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge();
     _bootedUid=uid; go(abaInicial());
     if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); drenarGravacoes(); recuperarDocPendente(); startVersionWatch(); iniciarBackupAuto(); }
   })();
@@ -8278,11 +8279,15 @@ function patRateioMes(b,comp){ const [y,m]=comp.split('-').map(Number); const di
   Object.keys(r).forEach(k=>r[k]=r[k]/dias); return r; }
 
 /* ---------- Tela: Bens patrimoniais ---------- */
-let _patFiltro={q:'',obra:'',cat:'',status:'ativos'};
+let _patFiltro={q:'',obra:'',cat:'',status:'ativos',emp:''};
+/* empresa proprietária do bem (cadastro de Empresas); '' se não tiver */
+function patEmpresaNome(b){ const e=b&&b.empresaId&&(state.empresas||[]).find(x=>x.id===b.empresaId); return e?e.razaoSocial:''; }
+/* filtro por empresa da tela: '' = todas, '__sem' = bens sem empresa, senão o id da empresa */
+function patEmpOk(b,emp){ if(!emp)return true; const e=b&&b.empresaId&&(state.empresas||[]).find(x=>x.id===b.empresaId); return emp==='__sem'?!e:!!e&&e.id===emp; }
 function renderPatrimonio(){ patNormalizar();
-  $('#topActions').innerHTML=(podeOperarPat()?`<button class="btn primary sm" onclick="patBemModal()">+ Novo bem</button> `:'')+`<button class="btn ghost sm" onclick="patCategoriasModal()">Categorias</button> <button class="btn ghost sm" onclick="patExportarBens()">⤓ Excel</button> <button class="btn ghost sm" onclick="patPlaquetasModal()">🏷 Plaquetas</button>`;
+  $('#topActions').innerHTML=(podeOperarPat()?`<button class="btn primary sm" onclick="patBemModal()">+ Novo bem</button> `:'')+`<button class="btn ghost sm" onclick="patCategoriasModal()">Categorias</button> <button class="btn ghost sm" onclick="patExportarBens()">⤓ Excel</button> <button class="btn ghost sm" onclick="patPlaquetasModal()">🏷 Plaquetas</button> <button class="btn ghost sm" onclick="patTermosModal('')">📝 Termos de entrega</button>`;
   const f=_patFiltro, hoje=patHoje();
-  const ativos=state.patrimonio.filter(b=>b.status!=='baixado');
+  const ativos=state.patrimonio.filter(b=>b.status!=='baixado'&&patEmpOk(b,f.emp));
   let vAq=0,vAc=0,vCo=0; ativos.forEach(b=>{ const d=patDeprec(b,hoje); vAq+=d.valor; vAc+=d.acum; vCo+=d.contabil; });
   const nTr=ativos.filter(b=>b.transito).length, nMan=ativos.filter(b=>b.status==='manutencao').length;
   let html=`<div class="cards">
@@ -8292,20 +8297,22 @@ function renderPatrimonio(){ patNormalizar();
     <div class="card ok"><div class="stripe"></div><div class="lbl">Valor contábil</div><div class="val" style="font-size:20px">${money(vCo)}</div><div class="sub">aquisição − depreciação</div></div></div>`;
   html+=`<div class="sechead"><h3>Bens patrimoniais</h3><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <div class="search" style="min-width:180px"><span class="si">⌕</span><input id="patQ" placeholder="Plaqueta, descrição, marca, série, NF..." value="${esc(f.q)}" autocomplete="off"></div>
+    <select id="patFEmp" style="width:auto"><option value="">Todas as empresas</option>${(state.empresas||[]).map(e=>`<option value="${e.id}"${f.emp===e.id?' selected':''}>${esc(e.razaoSocial)}</option>`).join('')}<option value="__sem"${f.emp==='__sem'?' selected':''}>Sem empresa</option></select>
     <select id="patFObra" style="width:auto"><option value="">Todos os locais</option><option value="__transito"${f.obra==='__transito'?' selected':''}>Em trânsito</option>${state.obras.map(o=>`<option value="${o.id}"${f.obra===o.id?' selected':''}>${esc(o.nome)}</option>`).join('')}</select>
     <select id="patFCat" style="width:auto"><option value="">Todas as categorias</option>${state.patCategorias.map(c=>`<option value="${c.id}"${f.cat===c.id?' selected':''}>${esc(c.nome)}</option>`).join('')}</select>
     <select id="patFStatus" style="width:auto">${[['ativos','Ativos'],['ativo','Em uso'],['manutencao','Em manutenção'],['baixado','Baixados'],['todos','Todos']].map(([v,t])=>`<option value="${v}"${f.status===v?' selected':''}>${t}</option>`).join('')}</select>
   </div></div><div id="patLista"></div>`;
   $('#view').innerHTML=html;
-  const upd=()=>{ f.q=$('#patQ').value; f.obra=$('#patFObra').value; f.cat=$('#patFCat').value; f.status=$('#patFStatus').value; drawPatLista(); };
+  const upd=()=>{ f.q=$('#patQ').value; f.obra=$('#patFObra').value; f.cat=$('#patFCat').value; f.status=$('#patFStatus').value; const emp=$('#patFEmp').value; if(emp!==f.emp){ f.emp=emp; renderPatrimonio(); return; } drawPatLista(); };
   $('#patQ').oninput=upd; $('#patQ').onkeydown=e=>{ if(e.key==='Enter'){ const b=patBuscaBem(e.target.value); if(b)patVer(b.id); } };
-  ['#patFObra','#patFCat','#patFStatus'].forEach(s=>$(s).onchange=upd);
+  ['#patFEmp','#patFObra','#patFCat','#patFStatus'].forEach(s=>$(s).onchange=upd);
   drawPatLista(); }
 function patListaFiltrada(){ const f=_patFiltro;
   return state.patrimonio.filter(b=>{
     if(f.status==='ativos'&&b.status==='baixado')return false;
     if(f.status!=='ativos'&&f.status!=='todos'&&b.status!==f.status)return false;
     if(f.cat&&b.categoria!==f.cat)return false;
+    if(!patEmpOk(b,f.emp))return false;
     if(f.obra==='__transito'&&!b.transito)return false;
     if(f.obra&&f.obra!=='__transito'&&(b.transito||b.obraId!==f.obra))return false;
     if(f.q&&!patFiltroTexto(b,f.q))return false;
@@ -8390,7 +8397,7 @@ function patRefreshBadge(){ const b=document.getElementById('navBadgePat'); if(!
 function refreshPatTela(){ patRefreshBadge(); if(PAT_TABS.includes(activeTab))renderAba(activeTab); }
 
 /* ---------- Ficha do bem ---------- */
-const PAT_EV={cadastro:'📥 Cadastro',envio:'🚚 Envio',recebimento:'✅ Recebimento',cancelamento:'↩ Envio cancelado',manutencao:'🔧 Enviado p/ manutenção',fim_manutencao:'🔧 Voltou da manutenção',baixa:'⛔ Baixa',reativacao:'♻ Reativado',edicao:'✎ Edição',responsavel:'👤 Responsável',setor:'📍 Departamento / sala'};
+const PAT_EV={cadastro:'📥 Cadastro',envio:'🚚 Envio',recebimento:'✅ Recebimento',cancelamento:'↩ Envio cancelado',manutencao:'🔧 Enviado p/ manutenção',fim_manutencao:'🔧 Voltou da manutenção',baixa:'⛔ Baixa',reativacao:'♻ Reativado',edicao:'✎ Edição',responsavel:'👤 Responsável',setor:'📍 Departamento / sala',entrega:'📝 Entrega (termo)',entrega_cancelada:'✕ Termo de entrega cancelado'};
 function patVer(id){ const b=patBem(id); if(!b){ closeModal(); return; } const d=patDeprec(b,patHoje()); const op=podeOperarPat();
   const hist=(b.historico||[]).slice().sort((x,y)=>y.ts-x.ts).map(h=>{ const g=h.guiaId?patGuia(h.guiaId):null;
     const rota=h.de&&h.para&&h.de!==h.para?esc(obraName(h.de))+' → '+esc(obraName(h.para)):h.para?esc(obraName(h.para)):'';
@@ -8404,9 +8411,11 @@ function patVer(id){ const b=patBem(id); if(!b){ closeModal(); return; } const d
     if(!b.transito&&b.status!=='manutencao')acoes+=`<button class="btn ghost sm" onclick="patGuiaModal(['${b.id}'])">🚚 Enviar / transferir</button> `;
     if(!b.transito)acoes+=b.status==='manutencao'?`<button class="btn ghost sm" onclick="patManutModal('${b.id}')">🔧 Voltou da manutenção</button> `:`<button class="btn ghost sm" onclick="patManutModal('${b.id}')">🔧 Manutenção</button> `;
     if(!b.transito)acoes+=`<button class="btn ghost sm" onclick="patRespModal('${b.id}')">👤 Responsável</button> `;
+    if(!b.transito)acoes+=`<button class="btn primary sm" onclick="patTermoModal(['${b.id}'])">📝 Entregar (termo)</button> `;
   }
   if(podeBaixarPat()&&!b.transito)acoes+=b.status==='baixado'?`<button class="btn ghost sm" onclick="patReativar('${b.id}')">♻ Reativar</button> `:`<button class="btn danger sm" onclick="patBaixaModal('${b.id}')">⛔ Baixar</button> `;
   acoes+=`<button class="btn ghost sm" onclick="patImprimirPlaquetas(['${b.id}'])">🏷 Plaqueta</button> `;
+  if((b.historico||[]).some(h=>h.tipo==='entrega'))acoes+=`<button class="btn ghost sm" onclick="patTermosModal('${b.id}')">📝 Termos</button> `;
   if(isEncarregado()&&(b.historico||[]).every(h=>h.tipo==='cadastro'||h.tipo==='edicao'))acoes+=`<button class="btn danger sm" onclick="patExcluir('${b.id}')">✕ Excluir</button>`;
   patModalLargo(`<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap"><div><div class="mono muted" style="font-size:12px">${esc(b.plaqueta)}</div><h3 style="margin:2px 0 4px">${esc(b.desc)}</h3><div>${patStatusPill(b)} <span class="muted" style="font-size:12.5px">${esc(patCatNome(b.categoria))}</span></div></div><button class="btn ghost sm" onclick="closeModal()">Fechar</button></div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px 16px;margin:16px 0">
@@ -8723,6 +8732,233 @@ function patImprimirPlaquetas(ids){ const bens=ids.map(patBem).filter(Boolean); 
     ${bens.map(b=>{ const emp=(state.empresas||[]).find(e=>e.id===b.empresaId); return `<div class="lab"><div class="t">Patrimônio${emp&&emp.razaoSocial?' · '+esc(emp.razaoSocial):''}</div><div class="d">${esc(b.desc)}</div><svg class="b" data-c="${esc(b.plaqueta)}"></svg></div>`; }).join('')}
     <script>document.querySelectorAll('.b').forEach(s=>{JsBarcode(s,s.dataset.c,{format:'CODE128',width:1.4,height:42,fontSize:13,margin:2});const bw=parseFloat(s.getAttribute('width')),bh=parseFloat(s.getAttribute('height'));if(bw>0&&bh>0)s.setAttribute('viewBox','0 0 '+bw+' '+bh);});setTimeout(()=>window.print(),400);<\/script></body></html>`); w.document.close(); }
 
+
+const PAT_TERMO_SQL="-- Termo de entrega de bem patrimonial (entrega física com comprovação eletrônica)\n--   Assinatura na tela, confirmação pelo login de quem recebe, ou termo em papel assinado e digitalizado.\n--   O documento assinado (PDF ou foto) fica guardado no armazenamento \"comprovantes\", pasta patrimonio/.\n-- Rodar uma vez no Supabase (SQL Editor) do projeto Estoque. Pode rodar de novo sem problema.\n-- Depois de assinado, o termo não pode ser alterado nem apagado; o arquivo guardado também não.\n\n-- 1) Tabela dos termos (leitura só para quem opera o patrimônio e para o próprio recebedor; gravação só pelas funções abaixo)\ncreate table if not exists public.pat_termos (\n  id bigserial primary key,\n  numero text generated always as ('TE-' || lpad(id::text, 6, '0')) stored,\n  criado_em timestamptz not null default now(),\n  criado_por uuid not null default auth.uid(),\n  criado_por_nome text,\n  empresa_nome text,\n  empresa_cnpj text,\n  obra_id text,\n  obra_nome text,\n  setor text,\n  recebedor_nome text not null,\n  recebedor_doc text,\n  recebedor_cargo text,\n  recebedor_id uuid,\n  itens jsonb not null default '[]'::jsonb,\n  obs text,\n  tipo text not null check (tipo in ('assinatura','login','papel')),\n  assinatura text,\n  assinado_em timestamptz,\n  assinado_por uuid,\n  assinado_por_nome text,\n  arquivo_path text,\n  arquivo_hash text,\n  arquivo_em timestamptz,\n  cancelado_em timestamptz,\n  cancelado_por_nome text,\n  cancelado_motivo text\n);\ncreate index if not exists pat_termos_recebedor_idx on public.pat_termos (recebedor_id) where assinado_em is null and cancelado_em is null;\nalter table public.pat_termos enable row level security;\nrevoke insert, update, delete on public.pat_termos from anon, authenticated;\ngrant select on public.pat_termos to authenticated;\n\ncreate or replace function public.pat_opera()\nreturns boolean language sql stable security definer set search_path = public as $$\n  select exists (select 1 from profiles p where p.id = auth.uid() and p.ativo\n                 and (p.papel in ('admin','encarregado') or p.setor = 'almoxarifado'));\n$$;\n\ndrop policy if exists \"pat_termos: leitura\" on public.pat_termos;\ncreate policy \"pat_termos: leitura\" on public.pat_termos for select to authenticated\n  using (public.pat_opera() or recebedor_id = auth.uid());\n\n-- 2) Arquivo dos documentos assinados: mesma pasta privada dos comprovantes de entrega (JPEG e PDF).\n--    Pasta patrimonio/: qualquer usuário ativo pode enviar (o recebedor que confirma pelo login gera o PDF),\n--    mas só a função pat_termo_anexar liga o arquivo ao termo, e só uma vez. Não há regra de troca nem de exclusão.\ninsert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)\nvalues ('comprovantes', 'comprovantes', false, 10485760, array['image/jpeg','application/pdf'])\non conflict (id) do nothing;\n\ndrop policy if exists \"comprovantes: patrimonio leitura\" on storage.objects;\ncreate policy \"comprovantes: patrimonio leitura\" on storage.objects for select to authenticated\n  using (bucket_id = 'comprovantes' and name like 'patrimonio/%'\n         and exists (select 1 from public.profiles p where p.id = auth.uid() and p.ativo));\n\ndrop policy if exists \"comprovantes: patrimonio envio\" on storage.objects;\ncreate policy \"comprovantes: patrimonio envio\" on storage.objects for insert to authenticated\n  with check (bucket_id = 'comprovantes' and name like 'patrimonio/%'\n              and exists (select 1 from public.profiles p where p.id = auth.uid() and p.ativo));\n\n-- 3) Usuários ativos (para escolher quem vai confirmar pelo login)\ncreate or replace function public.pat_termo_usuarios()\nreturns jsonb language sql stable security definer set search_path = public as $$\n  select coalesce(jsonb_agg(jsonb_build_object('id', p.id, 'nome', coalesce(nullif(btrim(p.nome), ''), p.email))\n                            order by coalesce(nullif(btrim(p.nome), ''), p.email)), '[]'::jsonb)\n  from profiles p\n  where p.ativo and exists (select 1 from profiles me where me.id = auth.uid() and me.ativo);\n$$;\n\n-- 4) Registrar a entrega (cria o termo). Assinatura na tela já sai assinada; login e papel ficam aguardando.\ncreate or replace function public.pat_termo_criar(p jsonb)\nreturns jsonb language plpgsql security definer set search_path = public as $$\ndeclare v_eu text; v_tipo text := p->>'tipo'; v_rec uuid; v_nome text; v_id bigint; v_num text;\nbegin\n  select coalesce(nullif(btrim(nome), ''), email) into v_eu from profiles\n    where id = auth.uid() and ativo and (papel in ('admin','encarregado') or setor = 'almoxarifado');\n  if not found then raise exception 'Seu usuário não tem permissão para registrar entrega de patrimônio.'; end if;\n  if coalesce(btrim(p->>'recebedor_nome'), '') = '' and v_tipo <> 'login' then raise exception 'Informe quem está recebendo.'; end if;\n  if jsonb_typeof(p->'itens') is distinct from 'array' or jsonb_array_length(p->'itens') = 0 then raise exception 'Nenhum bem no termo.'; end if;\n  if v_tipo = 'assinatura' then\n    if coalesce(length(p->>'assinatura'), 0) < 30 then raise exception 'Assinatura em branco.'; end if;\n    if length(p->>'assinatura') > 60000 then raise exception 'Assinatura grande demais — limpe e assine de novo.'; end if;\n  elsif v_tipo = 'login' then\n    v_rec := nullif(p->>'recebedor_id', '')::uuid;\n    if v_rec is null then raise exception 'Escolha o usuário que vai confirmar o recebimento.'; end if;\n    if v_rec = auth.uid() then raise exception 'Quem registra a entrega não pode ser quem confirma o recebimento. Use a assinatura na tela.'; end if;\n    select coalesce(nullif(btrim(nome), ''), email) into v_nome from profiles where id = v_rec and ativo;\n    if not found then raise exception 'Usuário do recebedor não encontrado ou inativo.'; end if;\n  elsif v_tipo <> 'papel' then raise exception 'Tipo de comprovação inválido.';\n  end if;\n  insert into pat_termos (criado_por, criado_por_nome, empresa_nome, empresa_cnpj, obra_id, obra_nome, setor,\n      recebedor_nome, recebedor_doc, recebedor_cargo, recebedor_id, itens, obs, tipo, assinatura, assinado_em, assinado_por, assinado_por_nome)\n    values (auth.uid(), v_eu, p->>'empresa_nome', p->>'empresa_cnpj', p->>'obra_id', p->>'obra_nome', p->>'setor',\n      coalesce(nullif(btrim(p->>'recebedor_nome'), ''), v_nome), p->>'recebedor_doc', p->>'recebedor_cargo', v_rec, p->'itens', p->>'obs', v_tipo,\n      case when v_tipo = 'assinatura' then p->>'assinatura' end,\n      case when v_tipo = 'assinatura' then now() end,\n      case when v_tipo = 'assinatura' then auth.uid() end,\n      case when v_tipo = 'assinatura' then v_eu end)\n    returning id, numero into v_id, v_num;\n  return jsonb_build_object('ok', true, 'id', v_id, 'numero', v_num);\nend $$;\n\n-- 5) O recebedor confirma com o próprio login\ncreate or replace function public.pat_termo_confirmar(p_id bigint)\nreturns jsonb language plpgsql security definer set search_path = public as $$\ndeclare v_t record; v_eu text;\nbegin\n  select coalesce(nullif(btrim(nome), ''), email) into v_eu from profiles where id = auth.uid() and ativo;\n  if not found then raise exception 'Usuário inativo.'; end if;\n  select * into v_t from pat_termos where id = p_id for update;\n  if not found or v_t.cancelado_em is not null then raise exception 'Termo não encontrado ou cancelado pelo almoxarifado.'; end if;\n  if v_t.tipo <> 'login' or v_t.recebedor_id is distinct from auth.uid() then raise exception 'Este termo não está aguardando a sua confirmação.'; end if;\n  if v_t.assinado_em is not null then return jsonb_build_object('ok', true, 'ja', true); end if;\n  update pat_termos set assinado_em = now(), assinado_por = auth.uid(), assinado_por_nome = v_eu where id = p_id;\n  return jsonb_build_object('ok', true);\nend $$;\n\n-- 6) Liga o documento guardado ao termo (uma vez só). Termo em papel: o arquivo é a própria comprovação.\ncreate or replace function public.pat_termo_anexar(p_id bigint, p_path text, p_hash text default null)\nreturns jsonb language plpgsql security definer set search_path = public as $$\ndeclare v_t record; v_eu text; v_op boolean := public.pat_opera();\nbegin\n  select coalesce(nullif(btrim(nome), ''), email) into v_eu from profiles where id = auth.uid() and ativo;\n  if not found then raise exception 'Usuário inativo.'; end if;\n  select * into v_t from pat_termos where id = p_id for update;\n  if not found or v_t.cancelado_em is not null then raise exception 'Termo não encontrado ou cancelado.'; end if;\n  if v_t.arquivo_path is not null then raise exception 'Este termo já tem o documento assinado guardado.'; end if;\n  if p_path is null or p_path not like 'patrimonio/%' then raise exception 'Arquivo inválido.'; end if;\n  if v_t.tipo = 'papel' then\n    if not v_op then raise exception 'Só o almoxarifado anexa o termo em papel.'; end if;\n    update pat_termos set arquivo_path = p_path, arquivo_hash = p_hash, arquivo_em = now(),\n        assinado_em = now(), assinado_por = auth.uid(), assinado_por_nome = v_eu where id = p_id;\n  else\n    if v_t.assinado_em is null then raise exception 'O termo ainda não foi assinado.'; end if;\n    if not (v_op or v_t.recebedor_id = auth.uid()) then raise exception 'Sem permissão para guardar este documento.'; end if;\n    update pat_termos set arquivo_path = p_path, arquivo_hash = p_hash, arquivo_em = now() where id = p_id;\n  end if;\n  return jsonb_build_object('ok', true);\nend $$;\n\n-- 7) Cancelar um termo que ainda não foi assinado (entrega registrada por engano)\ncreate or replace function public.pat_termo_cancelar(p_id bigint, p_motivo text)\nreturns jsonb language plpgsql security definer set search_path = public as $$\ndeclare v_t record; v_eu text;\nbegin\n  select coalesce(nullif(btrim(nome), ''), email) into v_eu from profiles\n    where id = auth.uid() and ativo and (papel in ('admin','encarregado') or setor = 'almoxarifado');\n  if not found then raise exception 'Sem permissão.'; end if;\n  select * into v_t from pat_termos where id = p_id for update;\n  if not found then raise exception 'Termo não encontrado.'; end if;\n  if v_t.assinado_em is not null then raise exception 'Termo já assinado não pode ser cancelado.'; end if;\n  update pat_termos set cancelado_em = now(), cancelado_por_nome = v_eu, cancelado_motivo = p_motivo where id = p_id and cancelado_em is null;\n  return jsonb_build_object('ok', true);\nend $$;\n\n-- 8) Termos aguardando a minha confirmação\ncreate or replace function public.pat_termo_pendencias()\nreturns jsonb language sql stable security definer set search_path = public as $$\n  select coalesce(jsonb_agg(to_jsonb(t) - 'assinatura' order by t.criado_em), '[]'::jsonb)\n  from pat_termos t\n  where t.tipo = 'login' and t.recebedor_id = auth.uid() and t.assinado_em is null and t.cancelado_em is null;\n$$;\n\ngrant execute on function public.pat_opera() to authenticated;\ngrant execute on function public.pat_termo_usuarios() to authenticated;\ngrant execute on function public.pat_termo_criar(jsonb) to authenticated;\ngrant execute on function public.pat_termo_confirmar(bigint) to authenticated;\ngrant execute on function public.pat_termo_anexar(bigint, text, text) to authenticated;\ngrant execute on function public.pat_termo_cancelar(bigint, text) to authenticated;\ngrant execute on function public.pat_termo_pendencias() to authenticated;\nnotify pgrst, 'reload schema';\n";
+/* ===== TERMO DE ENTREGA DE PATRIMÔNIO =====
+   Na entrega física de um ou mais bens a uma pessoa, registra o termo de entrega e responsabilidade com a
+   comprovação do recebimento: assinatura na tela, confirmação com o login de quem recebe, ou termo em papel
+   assinado e digitalizado (foto ou PDF). O termo assinado vira um PDF guardado no armazenamento "comprovantes"
+   (pasta patrimonio/), com o código de verificação impresso. Os termos ficam na tabela pat_termos, gravada só por
+   funções do banco (script PAT_TERMO_SQL / scripts/patrimonio_termos.sql — rodar uma vez no Supabase), que conferem
+   quem pode fazer o quê e não deixam alterar um termo depois de assinado. */
+const JSPDF_SRC='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+async function ensureJsPDF(){ if(window.jspdf&&window.jspdf.jsPDF)return; await loadScriptOnce(JSPDF_SRC); }
+let _patTermoOk=null, _patTermoPend=[], _patTermoUsers=null, _patTermoItens=[], _patTermos=null;
+function patTermoTabelaFalta(e){ return !!e&&(e.code==='PGRST202'||e.code==='42883'||e.code==='42P01'||e.code==='PGRST205'||/schema cache|does not exist|Could not find/i.test(e.message||'')); }
+function copiarPatTermoSQL(){ navigator.clipboard.writeText(PAT_TERMO_SQL).then(()=>toast('Script copiado.','ok'),()=>toast('Não foi possível copiar — use o arquivo scripts/patrimonio_termos.sql.','err')); }
+function patTermoInstallHTML(){
+  return isAdmin()?`<h3>📝 Termo de entrega — falta atualizar o banco</h3>
+      <p class="mp">Copie o script e rode uma vez no <b>SQL Editor</b> do Supabase (projeto Estoque). Depois recarregue esta página.</p>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px"><button class="btn ghost" onclick="closeModal()">Fechar</button><button class="btn primary" onclick="copiarPatTermoSQL()">Copiar script SQL</button></div>`
+    :`<h3>📝 Termo de entrega</h3><p class="mp">O termo de entrega eletrônico ainda não foi ativado pelo administrador.</p><div style="text-align:right;margin-top:12px"><button class="btn ghost" onclick="closeModal()">Fechar</button></div>`; }
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'&&_patTermoOk&&!_comprovOk&&session&&profile)refreshPatTermoPend(); });
+setInterval(()=>{ if(_patTermoOk&&!_comprovOk&&session&&profile&&document.visibilityState==='visible')refreshPatTermoPend(); },300000);
+async function patTermoChecar(){ if(_patTermoOk!==null)return _patTermoOk; await refreshPatTermoPend(); return _patTermoOk; }
+
+/* --- pendências: termos aguardando a minha confirmação pelo login --- */
+async function refreshPatTermoPend(){
+  if(!session||!profile||!isOnline)return;
+  try{ const {data,error}=await sb.rpc('pat_termo_pendencias');
+    if(error){ if(patTermoTabelaFalta(error))_patTermoOk=false; return; }
+    _patTermoOk=true; _patTermoPend=Array.isArray(data)?data:[];
+  }catch(e){ return; }
+  renderGlobalAlerts(); }
+function patTermoAlertsHTML(){ const n=(_patTermoPend||[]).length; if(!_patTermoOk||!n)return '';
+  return `<div class="galert err" onclick="patTermoMinhas()"><span>${n===1?'Você tem 1 termo':'Você tem '+n+' termos'} de entrega de patrimônio para confirmar o recebimento.</span><span class="ga-cta">Confirmar →</span></div>`; }
+function patTermoItensHTML(itens){ return `<ul style="margin:6px 0 0;padding-left:18px;font-size:12.5px">${(itens||[]).map(i=>`<li><b class="mono">${esc(i.plaqueta||'')}</b> — ${esc(i.desc||'')}${i.serie?' · série '+esc(i.serie):''}</li>`).join('')}</ul>`; }
+function patTermoMinhas(){ const l=_patTermoPend||[];
+  let h=`<h3>Termos de entrega para confirmar</h3><p class="mp" style="font-size:12px">Confira os bens e confirme. A confirmação fica registrada com o seu usuário, data e hora, e o termo assinado é guardado no sistema. <b>Não recebeu?</b> Não confirme e procure o almoxarifado.</p>`;
+  h+=l.length?l.map(t=>`<div class="panel" style="margin-bottom:8px;padding:10px 14px"><b style="font-size:13px">${esc(t.numero)} — ${esc(t.empresa_nome||'Patrimônio')}</b>
+      <div class="muted" style="font-size:11.5px">${esc(fmtTs(t.criado_em))}${t.criado_por_nome?' · entregue por '+esc(t.criado_por_nome):''}${t.obra_nome?' · '+esc(t.obra_nome):''}${t.setor?' · '+esc(t.setor):''}</div>
+      ${patTermoItensHTML(t.itens)}${t.obs?`<div class="muted" style="font-size:11.5px;margin-top:4px">Obs.: ${esc(t.obs)}</div>`:''}
+      <div style="margin-top:8px"><button class="btn primary sm" onclick="patTermoConfirmar(${Number(t.id)},this)">✔ Confirmo que recebi estes bens</button></div></div>`).join(''):`<p class="mp">Nada pendente para você.</p>`;
+  h+=`<div style="text-align:right;margin-top:12px"><button class="btn ghost" onclick="closeModal()">Fechar</button></div>`; modal(h); }
+async function patTermoConfirmar(id,btn){ if(btn){ btn.disabled=true; btn.textContent='Confirmando...'; }
+  const {error}=await sb.rpc('pat_termo_confirmar',{p_id:id});
+  if(error){ toast('Não foi possível confirmar: '+esc(error.message),'err'); if(btn){ btn.disabled=false; btn.textContent='✔ Confirmo que recebi estes bens'; } return; }
+  try{ await sb.rpc('log_event',{p_acao:'pat_termo_confirmado_login',p_entidade:'pat_termos',p_entidade_id:String(id)}); }catch(e){}
+  const err=await patTermoGuardarPdf(id);
+  toast(err?'Recebimento confirmado. O documento será guardado pelo almoxarifado ('+err+').':'Recebimento confirmado e termo guardado.',err?'warn':'ok');
+  await refreshPatTermoPend(); if(_patTermoPend.length)patTermoMinhas(); else closeModal(); }
+
+/* --- registrar a entrega --- */
+async function patTermoUsuarios(){ if(_patTermoUsers)return _patTermoUsers; const {data,error}=await sb.rpc('pat_termo_usuarios'); if(!error&&Array.isArray(data))_patTermoUsers=data; return _patTermoUsers||[]; }
+function patTermoDisponivel(b){ return !!b&&b.status!=='baixado'&&!b.transito; }
+async function patTermoModal(ids){ patNormalizar(); if(!podeOperarPat()){ toast('Sem permissão para registrar entrega de bens.','err'); return; }
+  if(!isOnline){ toast('Sem conexão — o termo precisa ser gravado no servidor.','err'); return; }
+  if(!(await patTermoChecar())){ modal(patTermoInstallHTML()); return; }
+  _patTermoItens=(ids||[]).filter(id=>patTermoDisponivel(patBem(id)));
+  const us=(await patTermoUsuarios()).filter(u=>u.id!==session.user.id);
+  const b0=patBem(_patTermoItens[0]);
+  const rad='display:flex;align-items:center;gap:6px;text-transform:none;font-weight:500;margin:0';
+  patModalLargo(`<h3>📝 Termo de entrega de patrimônio</h3><p class="mp">Registre a entrega física dos bens a quem vai ficar responsável por eles. O termo assinado fica guardado no sistema.</p>
+    <div class="field"><label>Bens entregues</label><div class="search"><span class="si">⌕</span><input id="ptBusca" placeholder="Plaqueta ou descrição — Enter adiciona" autocomplete="off" oninput="patTermoBuscar(this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();patTermoAddTermo(this.value)}"></div><div id="ptRes"></div><div id="ptItens" style="margin-top:8px"></div></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0 14px">
+      <div class="field"><label>Recebido por (nome completo)</label><input id="ptNome" value="${esc(b0&&b0.responsavel||'')}" oninput="patTermoNomeMudou()"></div>
+      <div class="field"><label>CPF / documento</label><input id="ptDoc"></div>
+      <div class="field"><label>Cargo / função</label><input id="ptCargo"></div>
+      <div class="field"><label>Departamento / sala</label><input id="ptSetor" list="patSetorList" value="${esc(b0?patSetorAtual(b0):'')}">${patSetorDatalist()}</div></div>
+    <div class="field"><label>Observação</label><input id="ptObs" placeholder="Estado de conservação, acessórios entregues (carregador, mouse...)"></div>
+    <div class="field" style="margin-bottom:8px"><label>Comprovação do recebimento</label>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:2px">
+        <label style="${rad}"><input type="radio" name="ptModo" value="assinatura" checked onchange="patTermoModo()" style="width:auto"> ✍ Assinatura na tela</label>
+        <label style="${rad}"><input type="radio" name="ptModo" value="login" onchange="patTermoModo()" style="width:auto"> 🔑 Login de quem recebe</label>
+        <label style="${rad}"><input type="radio" name="ptModo" value="papel" onchange="patTermoModo()" style="width:auto"> 📄 Termo em papel</label></div></div>
+    <div id="ptSigWrap" style="margin-bottom:12px">${sigPadHTML('ptSig').replace('Quem está retirando assina','Quem está recebendo assina')}</div>
+    <div id="ptLoginWrap" style="display:none"><div class="field"><label>Usuário que vai confirmar</label><select id="ptUser"><option value="">— escolha —</option>${us.map(u=>`<option value="${esc(u.id)}">${esc(u.nome)}</option>`).join('')}</select></div>
+      <p class="mp" style="font-size:12px;margin-bottom:12px">Ele recebe um aviso no sistema e confirma com o próprio login. Até lá o termo fica <b>aguardando confirmação</b>.</p></div>
+    <div id="ptPapelWrap" style="display:none"><p class="mp" style="font-size:12px;margin-bottom:12px">O termo é impresso para assinatura. Depois anexe a foto ou o PDF do termo assinado em <b>Termos de entrega</b>; até lá ele fica <b>aguardando o documento assinado</b>.</p></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" id="ptOk" onclick="patTermoSalvar()">Registrar entrega</button></div>`,760);
+  sigPadInit('ptSig'); patTermoDesenhar(); if(!_patTermoItens.length)$('#ptBusca').focus(); }
+function patTermoModo(){ const m=document.querySelector('input[name=ptModo]:checked'), v=m?m.value:'assinatura';
+  $('#ptSigWrap').style.display=v==='assinatura'?'':'none'; $('#ptLoginWrap').style.display=v==='login'?'':'none'; $('#ptPapelWrap').style.display=v==='papel'?'':'none';
+  if(v==='assinatura')sigPadFit('ptSig'); if(v==='login')patTermoNomeMudou(); }
+/* nome digitado bate com um usuário do sistema → já deixa escolhido para a confirmação pelo login */
+function patTermoNomeMudou(){ const sel=$('#ptUser'); if(!sel||sel.value)return; const n=String(($('#ptNome')||{}).value||'').trim().toLowerCase(); if(!n)return;
+  const u=(_patTermoUsers||[]).find(x=>x.id!==session.user.id&&String(x.nome||'').trim().toLowerCase()===n); if(u)sel.value=u.id; }
+function patTermoBuscar(q){ const box=$('#ptRes'); if(!box)return; q=String(q||'').trim(); if(!q){ box.innerHTML=''; return; }
+  const l=(state.patrimonio||[]).filter(b=>patTermoDisponivel(b)&&!_patTermoItens.includes(b.id)&&patFiltroTexto(b,q)).slice(0,8);
+  box.innerHTML=l.length?`<div class="panel" style="padding:4px 0;margin-top:4px">${l.map(b=>`<div style="padding:6px 12px;cursor:pointer;font-size:12.5px" onclick="patTermoAdd('${b.id}')"><b class="mono">${esc(b.plaqueta)}</b> — ${esc(b.desc)} <span class="muted">· ${esc(patLocalTxt(b))}</span></div>`).join('')}</div>`:`<div class="muted" style="font-size:12px;margin-top:4px">Nenhum bem disponível com esse termo.</div>`; }
+function patTermoAddTermo(t){ const b=patBuscaBem(t); if(b&&patTermoDisponivel(b)){ patTermoAdd(b.id); return; }
+  const l=(state.patrimonio||[]).filter(x=>patTermoDisponivel(x)&&!_patTermoItens.includes(x.id)&&patFiltroTexto(x,String(t||'').trim())); if(l.length===1)patTermoAdd(l[0].id); else toast(b?'Bem em trânsito ou baixado — não pode ser entregue.':'Escolha o bem na lista.','err'); }
+function patTermoAdd(id){ if(!_patTermoItens.includes(id))_patTermoItens.push(id); const i=$('#ptBusca'); if(i){ i.value=''; i.focus(); } $('#ptRes').innerHTML=''; patTermoDesenhar(); }
+function patTermoRemover(id){ _patTermoItens=_patTermoItens.filter(x=>x!==id); patTermoDesenhar(); }
+function patTermoDesenhar(){ const box=$('#ptItens'); if(!box)return; const l=_patTermoItens.map(patBem).filter(Boolean);
+  box.innerHTML=l.length?`<div class="tbl-wrap"><table><thead><tr><th>Plaqueta</th><th>Bem</th><th>Empresa</th><th>Local</th><th></th></tr></thead><tbody>${l.map(b=>`<tr><td class="mono" style="white-space:nowrap"><b>${esc(b.plaqueta)}</b></td><td style="font-size:12.5px">${esc(b.desc)}</td><td style="font-size:12px">${esc(patEmpresaNome(b)||'—')}</td><td style="font-size:12px">${esc(patLocalTxt(b))}</td><td><button class="btn ghost sm" onclick="patTermoRemover('${b.id}')">✕</button></td></tr>`).join('')}</tbody></table></div>`:`<div class="muted" style="font-size:12px">Nenhum bem adicionado.</div>`; }
+function patTermoItemSnap(b){ const d=patDeprec(b,patHoje()); return {id:b.id,plaqueta:b.plaqueta,desc:b.desc,marca:b.marca||'',modelo:b.modelo||'',serie:b.serie||'',categoria:patCatNome(b.categoria),valor:Math.round((Number(d.contabil)||0)*100)/100,empresa:patEmpresaNome(b)}; }
+async function patTermoSalvar(){ const bens=_patTermoItens.map(patBem).filter(patTermoDisponivel); if(!bens.length){ toast('Adicione ao menos um bem.','err'); return; }
+  const m=document.querySelector('input[name=ptModo]:checked'), tipo=m?m.value:'assinatura';
+  let nome=$('#ptNome').value.trim(); const doc=$('#ptDoc').value.trim(), cargo=$('#ptCargo').value.trim(), setor=$('#ptSetor').value.trim(), obs=$('#ptObs').value.trim();
+  let assinatura=null, recId=null;
+  if(tipo==='assinatura'){ assinatura=sigPadData('ptSig'); if(!assinatura){ toast('Falta a assinatura de quem está recebendo (assine dentro do quadro).','err'); return; } }
+  if(tipo==='login'){ recId=$('#ptUser').value; if(!recId){ toast('Escolha o usuário que vai confirmar o recebimento.','err'); return; } if(!nome){ const u=(_patTermoUsers||[]).find(x=>x.id===recId); nome=u?u.nome:''; } }
+  if(!nome){ toast('Informe quem está recebendo.','err'); return; }
+  const emps=[...new Set(bens.map(patEmpresaNome).filter(Boolean))]; const emp=emps.length===1?(state.empresas||[]).find(e=>e.razaoSocial===emps[0]):null;
+  const obras=[...new Set(bens.map(b=>b.obraId).filter(Boolean))];
+  const p={tipo,recebedor_nome:nome,recebedor_doc:doc,recebedor_cargo:cargo,recebedor_id:recId,setor,obs,assinatura,
+    empresa_nome:emps.join(' / '),empresa_cnpj:emp&&emp.cnpj?emp.cnpj:'',obra_id:obras.length===1?obras[0]:'',obra_nome:obras.map(obraName).join(' / '),itens:bens.map(patTermoItemSnap)};
+  const btn=$('#ptOk'); if(btn){ btn.disabled=true; btn.textContent='Gravando...'; }
+  const {data,error}=await sb.rpc('pat_termo_criar',{p});
+  if(error){ toast('Não foi possível registrar a entrega: '+esc(error.message),'err'); if(btn){ btn.disabled=false; btn.textContent='Registrar entrega'; } return; }
+  const id=Number(data&&data.id), numero=(data&&data.numero)||'';
+  try{ await sb.rpc('log_event',{p_acao:'pat_termo_'+tipo,p_entidade:'pat_termos',p_entidade_id:String(id)}); }catch(e){}
+  /* a entrega física já aconteceu: o recebedor passa a ser o responsável pelo bem */
+  bens.forEach(b=>{ b.responsavel=nome; if(setor)b.setor=setor; patHist(b,{tipo:'entrega',termoId:id,termo:numero,resp:nome,para:b.obraId,obs:[numero,tipo==='assinatura'?'assinado na tela':tipo==='login'?'aguardando confirmação pelo login':'aguardando termo em papel assinado',setor?'Depto / sala: '+setor:''].filter(Boolean).join(' · ')}); });
+  save('Patrimônio: termo de entrega '+numero+' para '+nome+' ('+bens.length+' bem(ns))'); refreshPatTela(); _patTermos=null;
+  if(tipo==='assinatura'){ if(btn)btn.textContent='Guardando o termo...'; const err=await patTermoGuardarPdf(id); toast(err?'Entrega registrada ('+numero+'), mas o documento não foi guardado: '+err+'. Guarde depois em Termos de entrega.':'Entrega registrada e termo assinado guardado ('+numero+').',err?'warn':'ok'); closeModal(); return; }
+  if(tipo==='papel'){ closeModal(); toast('Entrega registrada ('+numero+'). Imprima, colha a assinatura e anexe o termo assinado.','ok'); patTermoImprimir(id); return; }
+  toast('Entrega registrada ('+numero+'). Aguardando a confirmação de '+nome+' no sistema.','ok'); closeModal(); }
+
+/* --- documento (PDF) --- */
+async function patTermoBuscar1(id){ const {data,error}=await sb.from('pat_termos').select('*').eq('id',id).maybeSingle(); if(error)throw error; if(!data)throw new Error('termo não encontrado'); return data; }
+async function patTermoCodigo(t){ const base=JSON.stringify([t.id,t.numero,t.criado_em,t.recebedor_nome,t.recebedor_doc,t.itens,t.tipo,t.assinatura||'',t.assinado_em||'',t.assinado_por_nome||'']);
+  try{ const d=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(base))); return [...d].slice(0,8).map(x=>x.toString(16).padStart(2,'0')).join('').toUpperCase().replace(/(.{4})(?=.)/g,'$1-'); }catch(e){ return ''; } }
+const patTsBR=v=>v?new Date(v).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'';
+/* monta o PDF do termo; sem assinatura (papel) sai com as linhas em branco para assinar */
+async function patTermoPdf(t){ await ensureJsPDF(); const {jsPDF}=window.jspdf; const pdf=new jsPDF({unit:'mm',format:'a4'});
+  const W=210, M=15, CW=W-2*M, AZ=[31,58,95]; let y=M; const cod=await patTermoCodigo(t);
+  const txt=(s,x,yy,o)=>pdf.text(Array.isArray(s)?s.map(String):String(s==null?'':s),x,yy,o||{});
+  const novaPag=()=>{ pdf.addPage(); y=M; };
+  const precisa=h=>{ if(y+h>297-M-10)novaPag(); };
+  pdf.setFont('helvetica','bold'); pdf.setFontSize(9); pdf.setTextColor(...AZ); txt((t.empresa_nome||'Patrimônio').toUpperCase(),M,y+3);
+  if(t.empresa_cnpj){ pdf.setFont('helvetica','normal'); pdf.setTextColor(90); txt('CNPJ '+t.empresa_cnpj,M,y+7.5); }
+  pdf.setDrawColor(...AZ); pdf.setLineWidth(0.5); pdf.roundedRect(W-M-42,y-1,42,15,1.5,1.5);
+  pdf.setFontSize(7); pdf.setTextColor(...AZ); pdf.setFont('helvetica','bold'); txt('TERMO Nº',W-M-21,y+3.5,{align:'center'}); pdf.setFontSize(13); pdf.setTextColor(20); txt(t.numero,W-M-21,y+10.5,{align:'center'});
+  y+=19; pdf.setFontSize(14); pdf.setTextColor(...AZ); txt('Termo de Entrega e Responsabilidade de Bem Patrimonial',M,y); y+=3; pdf.setLineWidth(0.6); pdf.line(M,y,W-M,y); y+=6;
+  const campos=[['Recebido por',t.recebedor_nome],['CPF / documento',t.recebedor_doc],['Cargo / função',t.recebedor_cargo],['Local',t.obra_nome],['Departamento / sala',t.setor],['Data da entrega',patTsBR(t.criado_em)]];
+  const cw=CW/3; campos.forEach((c,i)=>{ const x=M+(i%3)*cw, yy=y+Math.floor(i/3)*13; pdf.setFont('helvetica','bold'); pdf.setFontSize(6.8); pdf.setTextColor(110); txt(c[0].toUpperCase(),x,yy);
+    pdf.setFont('helvetica','normal'); pdf.setFontSize(9.5); pdf.setTextColor(20); txt(pdf.splitTextToSize(c[1]||'—',cw-3).slice(0,2),x,yy+4.5); });
+  y+=29;
+  const cols=[['Plaqueta',26],['Descrição',70],['Marca / modelo',38],['Nº série',28],['Valor (R$)',18]];
+  const head=()=>{ pdf.setFillColor(...AZ); pdf.rect(M,y,CW,7,'F'); pdf.setFont('helvetica','bold'); pdf.setFontSize(7.5); pdf.setTextColor(255); let x=M; cols.forEach((c,i)=>{ txt(c[0].toUpperCase(),i===4?x+c[1]-2:x+2,y+4.7,i===4?{align:'right'}:{}); x+=c[1]; }); y+=7; };
+  head(); pdf.setFont('helvetica','normal'); pdf.setFontSize(8.5);
+  (t.itens||[]).forEach((it,k)=>{ const cel=[it.plaqueta,it.desc,[it.marca,it.modelo].filter(Boolean).join(' '),it.serie,(Number(it.valor)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})].map((v,i)=>pdf.splitTextToSize(String(v||(i===4?'':'—')),cols[i][1]-4));
+    const h=Math.max(...cel.map(c=>c.length))*3.8+3; if(y+h>297-M-10){ novaPag(); head(); pdf.setFont('helvetica','normal'); pdf.setFontSize(8.5); }
+    if(k%2){ pdf.setFillColor(244,247,250); pdf.rect(M,y,CW,h,'F'); } pdf.setTextColor(20); let x=M; cel.forEach((c,i)=>{ txt(c,i===4?x+cols[i][1]-2:x+2,y+4.3,i===4?{align:'right'}:{}); x+=cols[i][1]; });
+    pdf.setDrawColor(215); pdf.setLineWidth(0.2); pdf.line(M,y+h,W-M,y+h); y+=h; });
+  y+=7; const emp=t.empresa_nome||'a empresa';
+  const decl=`Declaro que recebi de ${emp}, nesta data, o(s) bem(ns) patrimonial(is) relacionado(s) acima, em perfeito estado de conservação e funcionamento, salvo o que estiver anotado em observação. Comprometo-me a zelar pela sua guarda e conservação, a utilizá-lo(s) exclusivamente em atividades da empresa, a não transferi-lo(s) a terceiros sem autorização, a comunicar imediatamente qualquer dano, perda, furto ou extravio e a devolvê-lo(s) quando solicitado ou no encerramento das minhas atividades, nas mesmas condições em que o(s) recebi, ressalvado o desgaste natural do uso.`;
+  pdf.setFontSize(9.5); pdf.setTextColor(30); const dl=pdf.splitTextToSize(decl,CW); precisa(dl.length*4.6+4); txt(dl,M,y,{lineHeightFactor:1.35}); y+=dl.length*4.6+3;
+  if(t.obs){ const ol=pdf.splitTextToSize('Observação: '+t.obs,CW); precisa(ol.length*4.6+3); pdf.setFont('helvetica','italic'); txt(ol,M,y); pdf.setFont('helvetica','normal'); y+=ol.length*4.6+3; }
+  precisa(52); y+=6; const bw=(CW-12)/2, bx2=M+bw+12, sy=y+28;
+  pdf.setFontSize(8); pdf.setTextColor(60);
+  /* entregue por */
+  pdf.setDrawColor(150); pdf.setLineWidth(0.3); pdf.roundedRect(M,y+8,bw,16,1.2,1.2); pdf.setFont('helvetica','bold'); txt('Entrega registrada no sistema',M+3,y+13); pdf.setFont('helvetica','normal'); txt(t.criado_por_nome||'',M+3,y+17.5); txt(patTsBR(t.criado_em),M+3,y+21.5);
+  pdf.setDrawColor(60); pdf.line(M,sy,M+bw,sy); pdf.setFontSize(8.5); pdf.setTextColor(30); txt('Entregue por — '+(t.criado_por_nome||'Almoxarifado'),M+bw/2,sy+4,{align:'center'});
+  /* recebido por */
+  const assinado=!!t.assinado_em&&t.tipo!=='papel';
+  if(assinado&&t.tipo==='assinatura'){ const m=/^v1\|(\d+)\|(\d+)\|([\s\S]*)$/.exec(t.assinatura||'');
+    if(m){ const sw=+m[1], sh=+m[2], bh=24, k=Math.min(bw/sw,bh/sh), ox=bx2+(bw-sw*k)/2, oy=sy-1-sh*k; pdf.setDrawColor(15); pdf.setLineWidth(0.45); pdf.setLineCap('round'); pdf.setLineJoin('round');
+      let px=null, py=null; m[3].replace(/[^ML0-9 ]/g,'').replace(/([ML])\s*(\d+)\s+(\d+)/g,(_,c,a,b)=>{ const X=ox+(+a)*k, Y=oy+(+b)*k; if(c==='L'&&px!==null)pdf.line(px,py,X,Y); px=X; py=Y; return ''; }); } }
+  else if(assinado&&t.tipo==='login'){ pdf.setDrawColor(150); pdf.setLineWidth(0.3); pdf.roundedRect(bx2,y+8,bw,16,1.2,1.2); pdf.setFontSize(8); pdf.setTextColor(60); pdf.setFont('helvetica','bold'); txt('Recebimento confirmado com login próprio',bx2+3,y+13); pdf.setFont('helvetica','normal'); txt(t.assinado_por_nome||'',bx2+3,y+17.5); txt(patTsBR(t.assinado_em),bx2+3,y+21.5); }
+  pdf.setDrawColor(60); pdf.line(bx2,sy,bx2+bw,sy); pdf.setFontSize(8.5); pdf.setTextColor(30); txt('Recebido por — '+(t.recebedor_nome||''),bx2+bw/2,sy+4,{align:'center'});
+  if(t.recebedor_doc){ pdf.setFontSize(7.5); pdf.setTextColor(90); txt(t.recebedor_doc,bx2+bw/2,sy+8,{align:'center'}); }
+  y=sy+14;
+  const rod=assinado?`Documento assinado eletronicamente (${t.tipo==='assinatura'?'assinatura colhida na tela em '+patTsBR(t.assinado_em):'confirmação com login individual em '+patTsBR(t.assinado_em)}). Registro do termo ${t.numero} guardado no sistema de patrimônio, com data, hora e usuário; dispensa via assinada em papel. Código de verificação: ${cod}.`
+    :`Termo ${t.numero} registrado no sistema de patrimônio em ${patTsBR(t.criado_em)}. Após assinado, anexar a via digitalizada ao termo no sistema. Código de verificação: ${cod}.`;
+  const n=pdf.getNumberOfPages(); for(let i=1;i<=n;i++){ pdf.setPage(i); pdf.setFontSize(7); pdf.setTextColor(120); const rl=pdf.splitTextToSize(i===n?rod:t.numero+' — continua na próxima página',CW-18); txt(rl,M,297-M-rl.length*3+2); txt(i+'/'+n,W-M,297-M+2,{align:'right'}); }
+  return pdf; }
+/* gera o PDF do termo assinado e guarda no armazenamento (uma vez só). Devolve '' se deu certo, ou o motivo. */
+async function patTermoGuardarPdf(id){ try{ const t=await patTermoBuscar1(id); if(t.arquivo_path)return ''; if(!t.assinado_em)return 'o termo ainda não foi assinado';
+    const blob=(await patTermoPdf(t)).output('blob'); const hash=await arquivoHash(blob);
+    const path='patrimonio/'+t.numero+'/'+Date.now()+'-assinado.pdf';
+    const up=await sb.storage.from('comprovantes').upload(path,blob,{contentType:'application/pdf',upsert:false}); if(up.error)return 'envio do arquivo: '+up.error.message;
+    const {error}=await sb.rpc('pat_termo_anexar',{p_id:Number(id),p_path:path,p_hash:hash}); if(error)return error.message; _patTermos=null; return '';
+  }catch(e){ return (e&&e.message)||String(e); } }
+async function patTermoImprimir(id){ const w=window.open('','_blank'); try{ const t=await patTermoBuscar1(id); const url=(await patTermoPdf(t)).output('bloburl'); if(w)w.location.href=url; else toast('Permita pop-ups para abrir o termo.','err'); }
+  catch(e){ if(w)w.close(); toast('Não foi possível gerar o termo: '+esc((e&&e.message)||e),'err'); } }
+async function patTermoVerArquivo(path){ const w=window.open('','_blank'); const {data,error}=await sb.storage.from('comprovantes').createSignedUrl(path,900);
+  if(error||!data||!data.signedUrl){ if(w)w.close(); toast('Não foi possível abrir o documento: '+esc(error?error.message:'sem endereço'),'err'); return; }
+  if(w)w.location.href=data.signedUrl; else toast('Permita pop-ups para ver o documento.','err'); }
+async function patTermoAnexarPapel(id){ const inp=$('#ptaFile'+id), f=inp&&inp.files&&inp.files[0]; if(!f){ toast('Escolha a foto ou o PDF do termo assinado.','err'); return; }
+  const pdf=ehPdf(f); let blob;
+  if(pdf){ if(f.size>CANHOTO_PDF_MAX){ toast('O PDF passa do limite de '+(CANHOTO_PDF_MAX/1048576)+' MB.','err'); return; } blob=f; }
+  else { try{ blob=await comprimirFoto(f,1800,0.7); }catch(e){ toast(esc(e.message),'err'); return; } }
+  const t=(_patTermos||[]).find(x=>Number(x.id)===Number(id)); const path='patrimonio/'+(t?t.numero:id)+'/'+Date.now()+'-papel'+(pdf?'.pdf':'.jpg');
+  const up=await sb.storage.from('comprovantes').upload(path,blob,{contentType:pdf?'application/pdf':'image/jpeg',upsert:false});
+  if(up.error){ toast('Arquivo não enviado: '+esc(up.error.message),'err'); return; }
+  const {error}=await sb.rpc('pat_termo_anexar',{p_id:Number(id),p_path:path,p_hash:await arquivoHash(blob)});
+  if(error){ toast('Não foi possível guardar: '+esc(error.message),'err'); return; }
+  try{ await sb.rpc('log_event',{p_acao:'pat_termo_papel_anexado',p_entidade:'pat_termos',p_entidade_id:String(id)}); }catch(e){}
+  toast('Termo assinado guardado.','ok'); _patTermos=null; patTermosModal(); }
+async function patTermoGuardarAgora(id,btn){ if(btn){ btn.disabled=true; btn.textContent='Guardando...'; } const err=await patTermoGuardarPdf(id);
+  if(err){ toast('Não foi possível guardar: '+esc(err),'err'); if(btn){ btn.disabled=false; btn.textContent='💾 Guardar documento'; } return; } toast('Termo guardado.','ok'); patTermosModal(); }
+function patTermoCancelar(id){ const t=(_patTermos||[]).find(x=>Number(x.id)===Number(id)); if(!t)return;
+  modal(`<h3>Cancelar termo ${esc(t.numero)}</h3><p class="mp">Use só para entrega registrada por engano. O termo fica no histórico como cancelado.</p><div class="field"><label>Motivo</label><input id="ptcMot"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="patTermosModal()">Voltar</button><button class="btn danger" onclick="patTermoCancelarOk(${Number(id)})">Cancelar termo</button></div>`); }
+async function patTermoCancelarOk(id){ const mot=$('#ptcMot').value.trim(); if(!mot){ toast('Informe o motivo.','err'); return; }
+  const {error}=await sb.rpc('pat_termo_cancelar',{p_id:id,p_motivo:mot}); if(error){ toast('Não foi possível cancelar: '+esc(error.message),'err'); return; }
+  const t=(_patTermos||[]).find(x=>Number(x.id)===Number(id));
+  if(t)(t.itens||[]).forEach(it=>{ const b=patBem(it.id); if(b)patHist(b,{tipo:'entrega_cancelada',termoId:id,termo:t.numero,obs:t.numero+' · '+mot}); }); if(t)save('Patrimônio: termo de entrega '+t.numero+' cancelado');
+  toast('Termo cancelado.','ok'); _patTermos=null; patTermosModal(); }
+function patTermoStatus(t){ if(t.cancelado_em)return '<span class="pill low">Cancelado</span>';
+  if(t.assinado_em&&t.arquivo_path)return `<span class="pill good">${t.tipo==='papel'?'📄 Papel assinado':t.tipo==='login'?'🔑 Confirmado por login':'✍ Assinado na tela'}</span>`;
+  if(t.assinado_em)return '<span class="pill high">Assinado · falta guardar o documento</span>';
+  return `<span class="pill high">⏳ ${t.tipo==='login'?'Aguardando '+esc(t.recebedor_nome||'')+' confirmar':'Aguardando termo assinado'}</span>`; }
+
+/* --- arquivo dos termos --- */
+let _patTermoQ='';
+async function patTermosModal(bemId){ if(!(await patTermoChecar())){ modal(patTermoInstallHTML()); return; }
+  if(bemId!==undefined)_patTermoQ=bemId?(patBem(bemId)||{}).plaqueta||'':'';
+  if(!_patTermos){ modal('<h3>Termos de entrega</h3><p class="mp">Carregando...</p>');
+    const {data,error}=await sb.from('pat_termos').select('id,numero,criado_em,criado_por_nome,empresa_nome,obra_nome,setor,recebedor_nome,recebedor_doc,itens,obs,tipo,assinado_em,assinado_por_nome,arquivo_path,cancelado_em,cancelado_motivo').order('id',{ascending:false}).limit(1000);
+    if(error){ modal(`<h3>Termos de entrega</h3><p class="mp">Não foi possível carregar: ${esc(error.message)}</p><div style="text-align:right"><button class="btn ghost" onclick="closeModal()">Fechar</button></div>`); return; }
+    _patTermos=data||[]; }
+  patModalLargo(`<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap"><h3 style="margin:0">📝 Termos de entrega</h3><div style="display:flex;gap:8px">${podeOperarPat()?'<button class="btn primary sm" onclick="patTermoModal([])">+ Nova entrega</button>':''}<button class="btn ghost sm" onclick="closeModal()">Fechar</button></div></div>
+    <div class="search" style="margin:12px 0"><span class="si">⌕</span><input id="ptqBusca" placeholder="Termo, plaqueta, bem ou recebedor..." value="${esc(_patTermoQ)}" oninput="_patTermoQ=this.value;patTermosDesenhar()" autocomplete="off"></div><div id="ptqLista"></div>`,900);
+  patTermosDesenhar(); }
+function patTermosDesenhar(){ const box=$('#ptqLista'); if(!box)return; const q=String(_patTermoQ||'').trim(); const op=podeOperarPat();
+  const l=(_patTermos||[]).filter(t=>!q||buscaTem(t.numero,q)||buscaTem(t.recebedor_nome,q)||buscaTem(t.empresa_nome,q)||(t.itens||[]).some(i=>buscaTem(i.plaqueta,q)||buscaTem(i.desc,q)));
+  box.innerHTML=l.length?l.slice(0,200).map(t=>{ const pend=!t.assinado_em&&!t.cancelado_em;
+    let ac=''; if(t.arquivo_path)ac+=`<button class="btn ghost sm" onclick="patTermoVerArquivo('${esc(t.arquivo_path)}')">👁 Documento assinado</button> `;
+    if(!t.cancelado_em&&!(t.tipo==='papel'&&t.arquivo_path))ac+=`<button class="btn ghost sm" onclick="patTermoImprimir(${t.id})">🖨 ${pend?'Imprimir para assinar':'Termo'}</button> `;
+    if(op&&t.assinado_em&&!t.arquivo_path&&!t.cancelado_em)ac+=`<button class="btn primary sm" onclick="patTermoGuardarAgora(${t.id},this)">💾 Guardar documento</button> `;
+    if(op&&pend)ac+=`<button class="btn ghost sm" onclick="patTermoCancelar(${t.id})">✕ Cancelar</button>`;
+    const anexo=op&&pend&&t.tipo==='papel'?`<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;align-items:center"><input id="ptaFile${t.id}" type="file" accept="${CANHOTO_ACCEPT}" style="flex:1;min-width:160px" title="Foto ou PDF do termo assinado"><button class="btn primary sm" onclick="patTermoAnexarPapel(${t.id})">📎 Anexar termo assinado</button></div>`:'';
+    return `<div class="panel" style="margin-bottom:8px;padding:10px 14px"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><div><b class="mono">${esc(t.numero)}</b> · <b>${esc(t.recebedor_nome||'')}</b>${t.recebedor_doc?' <span class="muted">('+esc(t.recebedor_doc)+')</span>':''}
+      <div class="muted" style="font-size:11.5px">${esc(fmtTs(t.criado_em))}${t.criado_por_nome?' · por '+esc(t.criado_por_nome):''}${t.empresa_nome?' · '+esc(t.empresa_nome):''}${t.obra_nome?' · '+esc(t.obra_nome):''}${t.setor?' · '+esc(t.setor):''}</div></div><div>${patTermoStatus(t)}</div></div>
+      ${patTermoItensHTML(t.itens)}${t.cancelado_em?`<div class="muted" style="font-size:11.5px;margin-top:4px">Cancelado: ${esc(t.cancelado_motivo||'')}</div>`:''}
+      ${ac?`<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">${ac}</div>`:''}${anexo}</div>`; }).join(''):`<div class="tbl-wrap"><div class="empty">Nenhum termo${q?' com essa busca':''}.</div></div>`; }
 
 /* ===== Init ===== */
 (async function(){
