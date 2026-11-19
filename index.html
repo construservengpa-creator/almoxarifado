@@ -1053,7 +1053,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   <span class="emp-logos"><img src="https://construservengpa-creator.github.io/Painel-suprimentos/marca/raf.png" alt="RAF"></span>
   <div class="cap-nome">Capivara</div>
   <div class="cap-modulo">Estoque</div>
-  <div class="cap-tag">Controle de Estoque por Obra · AMETA</div>
+  <div class="cap-tag">Controle de Estoque por Obra</div>
   <div class="cap-estrada" aria-hidden="true">
     <svg class="cap-andando" viewBox="0 0 64 64"><g fill="currentColor"><rect class="pata-a" x="12" y="40" width="6" height="12" rx="2.5"/><rect class="pata-b" x="22" y="41" width="5.5" height="11" rx="2.5"/><rect class="pata-b" x="35.5" y="40" width="6" height="12" rx="2.5"/><circle cx="41.5" cy="18.8" r="2.7"/><path fill-rule="evenodd" d="M10 44C5.5 40 5.5 30 9.5 25.5C13.5 20 21 17 28.5 17.8C33 18.3 35.5 20 38 20L44 19.6C50.5 19.8 55.5 21 58.5 23.5C60.8 25.5 61 31 59.5 33.5C58.3 35.2 55.5 35.8 52.5 35.8L46 35.8C44.5 40.5 41 44.5 36 45.5L16 46.5C13.5 46.5 11.3 45.5 10 44ZM48.6 24.3a1.6 1.6 0 1 0-3.2 0a1.6 1.6 0 1 0 3.2 0ZM59.2 26.6a.8 1.1 0 1 0-1.6 0a.8 1.1 0 1 0 1.6 0Z"/></g></svg>
     <div class="cap-faixa"></div>
@@ -1089,7 +1089,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   <div class="gate-card authwrap">
     <span class="emp-logos emp-grande emp-login"><img src="https://construservengpa-creator.github.io/Painel-suprimentos/marca/raf.png" alt="RAF"></span>
     <h1><span class="cap-marca">Capivara <span class="cap-mod">Estoque</span></span></h1>
-    <p style="color:var(--muted);font-size:13px;margin-bottom:20px">Acesso restrito aos usuários cadastrados da AMETA Engenharia.</p>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:20px">Acesso restrito aos usuários cadastrados.</p>
     <div id="authView"></div>
     <p style="margin-top:18px;font-size:12.5px;text-align:center"><a href="https://construservengpa-creator.github.io/Painel-suprimentos/inicio.html" style="color:var(--muted)">← Voltar à página inicial do Capivara</a></p>
   </div>
@@ -2842,7 +2842,7 @@ function renderEmpresas(){
 }
 function empresaModal(id){ const e=id?state.empresas.find(x=>x.id===id):null;
   modal(`<h3>${e?'Editar empresa':'Nova empresa'}</h3>
-    <div class="field"><label>Razão social</label><input id="emRazao" value="${e?esc(e.razaoSocial):''}" placeholder="Ex.: AMETA Engenharia Ltda"></div>
+    <div class="field"><label>Razão social</label><input id="emRazao" value="${e?esc(e.razaoSocial):''}" placeholder="Ex.: Construtora Exemplo Ltda"></div>
     <div class="field"><label>CNPJ</label><input id="emCnpj" value="${e?esc(e.cnpj||''):''}" placeholder="00.000.000/0000-00"></div>
     <div class="field"><label>Endereço completo</label><textarea id="emEndereco" rows="2" placeholder="Rua, número, bairro, cidade/UF, CEP">${e?esc(e.endereco||''):''}</textarea></div>
     <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="saveEmpresa('${id||''}')">Salvar</button></div>`);

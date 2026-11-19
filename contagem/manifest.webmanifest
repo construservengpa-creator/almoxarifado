@@ -1,7 +1,7 @@
 {
-  "name": "Capivara Contagem — AMETA",
+  "name": "Capivara Contagem",
   "short_name": "Contagem",
-  "description": "Contagem cíclica de estoque — AMETA Engenharia",
+  "description": "Contagem cíclica de estoque",
   "start_url": "./",
   "scope": "./",
   "id": "/almoxarifado/contagem/",

@@ -1,7 +1,7 @@
 {
-  "name": "Capivara Estoque — AMETA",
+  "name": "Capivara Estoque",
   "short_name": "Capivara Estoque",
-  "description": "Controle de estoque por obra — AMETA Engenharia",
+  "description": "Controle de estoque por obra",
   "start_url": "./index.html",
   "scope": "./index.html",
   "id": "/almoxarifado/",
