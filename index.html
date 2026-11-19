@@ -7400,25 +7400,7 @@ function relLocalOpts(){ const locais=[...new Set(state.products.map(p=>p.locali
   return '<option value="">Todas as localizações</option>'+locais.map(l=>`<option value="${esc(l)}">${esc(l)}</option>`).join(''); }
 function relTipoOpts(){ return '<option value="">Todos os tipos</option>'+(state.aplicTipos||[]).map(x=>`<option value="${x.id}">${esc(x.label)}</option>`).join(''); }
 /* Atualização ao vivo: renova só as opções dos seletores (obra/grupo/localização/tipo) mantendo o que está escolhido */
-/* ---- Filtro de empresa dos relatórios: restringe as obras às da empresa escolhida ('' = todas, '__sem' = obras sem empresa) ---- */
-function obraEmpresaId(o){ if(!o)return ''; if(o.empresaId&&(state.empresas||[]).some(e=>e.id===o.empresaId))return o.empresaId;
-  const n=(o.empresa||'').trim().toLowerCase(); const e=n&&(state.empresas||[]).find(x=>(x.razaoSocial||'').trim().toLowerCase()===n); return e?e.id:''; }
-function relEmpSel(){ return $('#relEmpresa')?$('#relEmpresa').value:''; }
-function relTodasLbl(emp){ return emp==='__sem'?'todas as obras sem empresa':'todas as obras de '+relEmpNome(emp); }
-function relEmpNome(emp){ if(emp==='__sem')return 'sem empresa'; const e=(state.empresas||[]).find(x=>x.id===emp); return e?e.razaoSocial:''; }
-function relObraDaEmp(o,emp){ if(!emp)return true; const id=obraEmpresaId(o); return emp==='__sem'?!id:id===emp; }
-function relEmpOptions(){ return '<option value="">Todas as empresas</option>'+(state.empresas||[]).map(e=>`<option value="${e.id}">${esc(e.razaoSocial)}</option>`).join('')+'<option value="__sem">Sem empresa</option>'; }
-function relObraOptions(){ const emp=relEmpSel(); if(!emp)return obraOptions('__all',true);
-  return `<option value="__all">${esc(relTodasLbl(emp).replace(/^t/,'T'))}</option>`+state.obras.filter(o=>relObraDaEmp(o,emp)).map(o=>`<option value="${o.id}">${esc(o.nome)}</option>`).join(''); }
-/* seleção de obra(s) do relatório: uma obra, todas, ou todas as da empresa escolhida */
-function relSel(){ const fobra=$('#relObra')?$('#relObra').value:'__all', emp=relEmpSel(), isAll=fobra==='__all';
-  const obras=isAll?state.obras.filter(o=>relObraDaEmp(o,emp)):state.obras.filter(o=>o.id===fobra);
-  const ids=new Set(obras.map(o=>o.id)), livre=isAll&&!emp;
-  return {fobra,isAll,emp,livre,obras,ok:id=>livre||ids.has(id),
-    sal:code=>livre?totalSaldo(code):isAll?obras.reduce((t,o)=>t+saldoOf(o.id,code),0):saldoOf(fobra,code),
-    naObra:()=>{ if(livre)return null; if(!isAll)return codigosNaObra(fobra); const c=new Set(); obras.forEach(o=>codigosNaObra(o.id).forEach(x=>c.add(x))); return c; },
-    lbl:isAll?(emp?relTodasLbl(emp):'todas as obras'):obraName(fobra)}; }
-function relSyncOpcoes(){ [['relEmpresa',relEmpOptions],['relObra',relObraOptions],['relGrupo',relGrupoOpts],['relLocal',relLocalOpts],['relTipoAplic',relTipoOpts]].forEach(([id,fn])=>{
+function relSyncOpcoes(){ [['relObra',()=>obraOptions('__all',true)],['relGrupo',relGrupoOpts],['relLocal',relLocalOpts],['relTipoAplic',relTipoOpts]].forEach(([id,fn])=>{
     const el=document.getElementById(id); if(!el)return; const h=fn(); if(el._relOpts===h)return; const v=el.value; el.innerHTML=h; el._relOpts=h;
     if([...el.options].some(o=>o.value===v))el.value=v; }); }
 const REL_VISAO={posicao:'Posição de estoque (saldo atual × custo médio)',aretirar:'A retirar por aplicação (posição atual)',atendidas:'Requisições atendidas — quem retirou',aplicacao:'Por aplicação',tipo:'Por tipo de aplicação',obra:'Por obra',produto:'Por produto',grupo:'Insumos por grupo',os:'Por Ordem de Serviço',consorcio:'P/ Consórcio (débito)',ajustes:'Ajustes de inventário — itens lançados'};
@@ -7429,7 +7411,6 @@ function renderRelatorios(){ if(needObra())return;
     <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
       <div class="field" style="margin:0"><label>De</label><input id="relFrom" type="date" value="${d1.toISOString().slice(0,10)}"></div>
       <div class="field" style="margin:0"><label>Até</label><input id="relTo" type="date" value="${d2.toISOString().slice(0,10)}"></div>
-      <div class="field" style="margin:0"><label>Empresa</label><select id="relEmpresa">${relEmpOptions()}</select></div>
       <div class="field" style="margin:0"><label>Obra</label><select id="relObra">${obraOptions('__all',true)}</select></div>
       <button class="btn ghost sm" onclick="drawRelatorio()">Atualizar</button>
       <button class="btn dark sm" onclick="printRelatorio()">🖨 Imprimir / PDF</button>
@@ -7468,8 +7449,6 @@ function renderRelatorios(){ if(needObra())return;
   /* Seletores e a caixa Curva ABC aplicam na hora; campos de texto esperam a pessoa parar de digitar (Enter aplica já);
      datas esperam a data ficar completa — digitar o ano à mão passa por 0002, 0020, 0202... */
   ['relObra','relGrupo','relLocal','relTipoAplic','relABC'].forEach(id=>{ const el=$('#'+id); if(el)el.onchange=()=>drawRelatorio(); });
-  /* trocar a empresa refaz a lista de obras (só as dela) e volta para "todas as obras" da empresa */
-  if($('#relEmpresa'))$('#relEmpresa').onchange=()=>{ const el=$('#relObra'); if(el){ const h=relObraOptions(); el.innerHTML=h; el._relOpts=h; el.value='__all'; } drawRelatorio(); };
   ['relProdutoTxt','relOSTxt'].forEach(id=>{ const el=$('#'+id); if(el){ el.oninput=()=>relAgendar(300); el.onkeydown=e=>{ if(e.key==='Enter')relAgendar(0); }; } });
   ['relFrom','relTo'].forEach(id=>{ const el=$('#'+id); if(el){ el.onchange=()=>relAgendar(700); el.onkeydown=e=>{ if(e.key==='Enter')relAgendar(0); }; } });
 }
@@ -7483,7 +7462,7 @@ function relAjOrigemDe(m){ const d=String(m.doc||''); if(/^Unifica[çc][ãa]o/i.
 function relAjDetalhe(m){ return String(m.doc||'').replace(/^Ajuste de invent[aá]rio:\s*/i,'').replace(/^Ajuste:\s*/i,'').replace(/\s*·\s*item fora da lista/i,'')||'—'; }
 function drawRelAjustes(f,t,fobra,isAll,gf,lf,pf){ const box=$('#relView'); if(!box)return;
   const OR={inv:'Inventário',extra:'Inventário · item fora da lista',manual:'Ajuste de saldo (manual)',unif:'Unificação de produtos'};
-  let base=state.movements.filter(m=>m.tipo==='ajuste'&&m.ts>=f&&m.ts<=t&&relSel().ok(m.obra));
+  let base=state.movements.filter(m=>m.tipo==='ajuste'&&m.ts>=f&&m.ts<=t&&(isAll||m.obra===fobra));
   if(gf)base=base.filter(m=>produtoGrupo(m.code)===gf);
   if(lf)base=base.filter(m=>produtoLocal(m.code)===lf);
   if(pf)base=base.filter(m=>{ const p=relProd(m.code); return buscaTem(String(m.desc||''),pf)||buscaTem(String(m.code),pf)||(p&&(buscaTem(String(p.desc||''),pf)||(p.aux&&buscaTem(String(p.aux),pf))||(p.fab&&buscaTem(String(p.fab),pf)))); });
@@ -7498,7 +7477,7 @@ function drawRelAjustes(f,t,fobra,isAll,gf,lf,pf){ const box=$('#relView'); if(!
   const vPos=pos.reduce((s,a)=>s+a.v,0), vNeg=neg.reduce((s,a)=>s+Math.abs(a.v),0);
   const semCusto=pos.filter(a=>!a.vu).length, nProd=new Set(lista.map(a=>a.code)).size;
   const titulo='Insumos lançados por ajuste de inventário';
-  const sub=`${new Date(f).toLocaleDateString('pt-BR')} a ${new Date(t).toLocaleDateString('pt-BR')}`+' · '+relSel().lbl+(gf?' · grupo: '+gf:'')+(lf?' · local: '+lf:'')+(pf?' · produto: '+pf:'')
+  const sub=`${new Date(f).toLocaleDateString('pt-BR')} a ${new Date(t).toLocaleDateString('pt-BR')}`+(isAll?' · todas as obras':' · '+obraName(fobra))+(gf?' · grupo: '+gf:'')+(lf?' · local: '+lf:'')+(pf?' · produto: '+pf:'')
     +(_relAjOrigem?' · origem: '+(_relAjOrigem==='invtodos'?'Inventário (todos)':OR[_relAjOrigem]):'')+(_relAjSentido?(_relAjSentido==='pos'?' · só entradas (+)':' · só saídas (−)'):'');
   const sq=a=>a==null?'—':numf(a);
   _rel={titulo,sub:sub+' · entradas: '+money(vPos)+' · saídas: '+money(vNeg),view:'ajustes',align:'lllllllrrrrr',
@@ -7547,7 +7526,7 @@ async function drawRelARetirar(){ if(_relRetModo==='atendidas')return drawRelAte
   const {data,error}=await fetchItensAguardandoRetirada('*','id,obra_id,obra_nome,mutuo_estoque_obra_id,ordem_servico,status,tipo_envio,criado_em,aplicacao_id,aplicacao_nome,solicitante_nome');
   if(relTipo!=='aretirar'||tk!==_relARetTk||!box.isConnected)return; /* chegou uma resposta mais nova (filtro trocado) — descarta esta */
   if(error){ box.innerHTML='<div class="empty" style="padding:24px">Erro: '+esc(error.message)+'</div>'; return; }
-  const R=relSel(), fobra=R.fobra, isAll=R.livre;
+  const fobra=$('#relObra')?$('#relObra').value:'__all'; const isAll=fobra==='__all';
   const taf=$('#relTipoAplic')?$('#relTipoAplic').value:'';
   const aef=$('#relAplicEsp')?$('#relAplicEsp').value:'';
   const atx=(!aef&&$('#relAplicTxt'))?$('#relAplicTxt').value.trim():''; const aset=atx?new Set(relAplicMatch(atx).map(a=>a.id)):null;
@@ -7557,7 +7536,7 @@ async function drawRelARetirar(){ if(_relRetModo==='atendidas')return drawRelAte
   const lf=$('#relLocal')?$('#relLocal').value:'';
   relIdxOn();
   let itens=(data||[]).filter(i=>i.requisicoes&&STATUS_AINDA_NAO_SAIU.includes(i.requisicoes.status)&&pendEntrega(i)>0.0001);
-  if(!isAll)itens=itens.filter(i=>R.ok(i.requisicoes.obra_id)||R.ok(i.requisicoes.mutuo_estoque_obra_id));
+  if(!isAll)itens=itens.filter(i=>i.requisicoes.obra_id===fobra||i.requisicoes.mutuo_estoque_obra_id===fobra);
   if(_relARetEnvio==='_indef')itens=itens.filter(i=>!i.requisicoes.tipo_envio); else if(_relARetEnvio)itens=itens.filter(i=>i.requisicoes.tipo_envio===_relARetEnvio);
   if(aef)itens=itens.filter(i=>i.requisicoes.aplicacao_id===aef); else if(aset)itens=itens.filter(i=>aset.has(i.requisicoes.aplicacao_id));
   if(taf)itens=itens.filter(i=>{ const a=relAplicById(i.requisicoes.aplicacao_id); return a&&a.tipo===taf; });
@@ -7574,7 +7553,7 @@ async function drawRelARetirar(){ if(_relRetModo==='atendidas')return drawRelAte
   const totItens=arr.reduce((s,a)=>s+a.itens,0), totValor=arr.reduce((s,a)=>s+a.valor,0), totReq=new Set(itens.map(i=>i.requisicoes.id)).size;
   const titulo='Material a retirar por aplicação';
   const envLbl={'':'',despacho:'Despacho',interna:'Retirada no balcão',aplicacao_direta:'Balcão — aplicação direta',_indef:'Envio não definido'}[_relARetEnvio];
-  const sub='Posição em '+fmtDate(Date.now())+' · '+R.lbl+(envLbl?' · '+envLbl:'')+(taf?' · tipo aplic.: '+aplicTipoLabel(taf):'')+(aef?' · aplicação: '+aplicName(aef):'')+(atx?' · aplicação/prefixo contém: '+atx:'')+(gf?' · grupo: '+gf:'')+(lf?' · local: '+lf:'')+(pf?' · produto: '+pf:'')+(osf?' · OS: '+osf:'');
+  const sub='Posição em '+fmtDate(Date.now())+(isAll?' · todas as obras':' · '+obraName(fobra))+(envLbl?' · '+envLbl:'')+(taf?' · tipo aplic.: '+aplicTipoLabel(taf):'')+(aef?' · aplicação: '+aplicName(aef):'')+(atx?' · aplicação/prefixo contém: '+atx:'')+(gf?' · grupo: '+gf:'')+(lf?' · local: '+lf:'')+(pf?' · produto: '+pf:'')+(osf?' · OS: '+osf:'');
   _rel={titulo,sub,view:'aretirar',align:'llllrrr',headers:['Aplicação','Prefixo','Tipo','Requisições','Nº itens','Valor total'].slice(0,6),rows:arr.map(a=>[a.nome,a.tag||'—',a.tipo,String(a.nreq),String(a.itens),money(a.valor)]),foot:['Total','','',String(totReq),String(totItens),money(totValor)],
     detailHeaders:['REQ','Desde','Item','Qtd','Valor','OS','Envio'],detailAlign:'lllrrll',detail:arr.map(a=>a.det.map(d=>[d.req,fmtDate(d.data),d.desc,numf(d.qty)+' '+(d.unit||''),money(d.valor),d.os||'—',d.envio]))};
   _rel.align='lllrrr';
@@ -7624,7 +7603,7 @@ async function drawRelAtendidas(){ const box=$('#relView'); if(!box)return;
   if(relTipo!=='aretirar'||_relRetModo!=='atendidas'||tk!==_relARetTk||!box.isConnected)return;
   /* filtros do painel */
   relIdxOn(); const lf=$('#relLocal')?$('#relLocal').value:'';
-  const R=relSel(), fobra=R.fobra, isAll=R.livre;
+  const fobra=$('#relObra')?$('#relObra').value:'__all'; const isAll=fobra==='__all';
   const taf=$('#relTipoAplic')?$('#relTipoAplic').value:'';
   const aef=$('#relAplicEsp')?$('#relAplicEsp').value:'';
   const atx=(!aef&&$('#relAplicTxt'))?$('#relAplicTxt').value.trim():''; const aset=atx?new Set(relAplicMatch(atx).map(a=>a.id)):null;
@@ -7635,7 +7614,7 @@ async function drawRelAtendidas(){ const box=$('#relView'); if(!box)return;
   const itemOk=i=>{ if(gf&&produtoGrupo(i.code)!==gf)return false; if(lf&&produtoLocal(i.code)!==lf)return false; if(pf){ const p=relProd(i.code); if(!(buscaTem(String(i.descricao||''),pf)||buscaTem(String(i.code),pf)||(p&&p.aux&&buscaTem(String(p.aux),pf))))return false; } return true; };
   const novoReq=new Set(parciais.map(p=>p.reqId));
   let lista=reqs.filter(r=>novoReq.has(String(r.id))||(STATUS_ATENDIDA.includes(r.status)&&saida[r.id]));
-  if(!isAll)lista=lista.filter(r=>R.ok(r.obra_id)||R.ok(r.mutuo_estoque_obra_id));
+  if(!isAll)lista=lista.filter(r=>r.obra_id===fobra||r.mutuo_estoque_obra_id===fobra);
   if(_relARetEnvio==='_indef')lista=lista.filter(r=>!r.tipo_envio); else if(_relARetEnvio)lista=lista.filter(r=>r.tipo_envio===_relARetEnvio);
   if(aef)lista=lista.filter(r=>r.aplicacao_id===aef); else if(aset)lista=lista.filter(r=>aset.has(r.aplicacao_id));
   if(taf)lista=lista.filter(r=>{ const a=relAplicById(r.aplicacao_id); return a&&a.tipo===taf; });
@@ -7652,7 +7631,7 @@ async function drawRelAtendidas(){ const box=$('#relView'); if(!box)return;
   const totValor=arr.reduce((t,a)=>t+a.valor,0), totItens=arr.reduce((t,a)=>t+a.itens.length,0);
   const envLbl={'':'',despacho:'Despacho',interna:'Retirada no balcão',aplicacao_direta:'Balcão — aplicação direta',_indef:'Envio não definido'}[_relARetEnvio];
   const titulo='Requisições atendidas — quem retirou';
-  const sub='Saídas de '+new Date(f||0).toLocaleDateString('pt-BR')+' a '+new Date(t).toLocaleDateString('pt-BR')+' · '+R.lbl+(envLbl?' · '+envLbl:'')+(taf?' · tipo aplic.: '+aplicTipoLabel(taf):'')+(aef?' · aplicação: '+aplicName(aef):'')+(atx?' · aplicação/prefixo contém: '+atx:'')+(gf?' · grupo: '+gf:'')+(lf?' · local: '+lf:'')+(pf?' · produto: '+pf:'')+(osf?' · OS: '+osf:'');
+  const sub='Saídas de '+new Date(f||0).toLocaleDateString('pt-BR')+' a '+new Date(t).toLocaleDateString('pt-BR')+(isAll?' · todas as obras':' · '+obraName(fobra))+(envLbl?' · '+envLbl:'')+(taf?' · tipo aplic.: '+aplicTipoLabel(taf):'')+(aef?' · aplicação: '+aplicName(aef):'')+(atx?' · aplicação/prefixo contém: '+atx:'')+(gf?' · grupo: '+gf:'')+(lf?' · local: '+lf:'')+(pf?' · produto: '+pf:'')+(osf?' · OS: '+osf:'');
   const quemTxt=a=>a.s.quem+(a.s.doc?' ('+a.s.doc+')':'');
   _rel={titulo,sub,view:'atendidas',align:'llllllllrr',
     headers:['Data da saída','REQ','Aplicação','Obra','OS','Solicitante','Retirado por','Registrado por','Nº itens','Valor'],
@@ -7722,16 +7701,16 @@ async function dupIgnorar(chave,ign){ if(!state.config)state.config={supHash:nul
   if(ign)l.add(chave); else l.delete(chave); state.config.dupIgnorados=[...l];
   await save((ign?'Marcado como não duplicidade: ':'Volta a aparecer em duplicidades: ')+chave.split('|').join(', ')); drawRelatorio(); }
 function drawRelDuplicidades(){ const box=$('#relView'); if(!box)return; relIdxOn();
-  const R=relSel(), isAll=R.livre;
+  const fobra=$('#relObra')?$('#relObra').value:'__all', isAll=fobra==='__all';
   const gf=$('#relGrupo')?$('#relGrupo').value:'', lf=$('#relLocal')?$('#relLocal').value:'';
   const pf=($('#relProdutoTxt')?$('#relProdutoTxt').value:'').toLowerCase().trim();
-  const sal=R.sal;
+  const sal=code=>isAll?totalSaldo(code):saldoOf(fobra,code);
   const NIV={3:'Alta',2:'Média',1:'Baixa'}, minN={alta:3,media:2,baixa:1}[_relDupConf]||2;
   const ign=new Set((state.config&&state.config.dupIgnorados)||[]);
   let grupos=dupGrupos(state.products.filter(p=>p&&p.code!=null));
   /* filtros: o grupo aparece se ALGUM produto dele atende (para não esconder o par do item filtrado) */
   /* obra: o grupo aparece se algum produto dele tem saldo registrado ou movimentação nessa obra */
-  const naObra=R.naObra();
+  const naObra=isAll?null:codigosNaObra(fobra);
   if(naObra)grupos=grupos.filter(gr=>gr.itens.some(p=>naObra.has(String(p.code))));
   if(gf)grupos=grupos.filter(gr=>gr.itens.some(p=>produtoGrupo(p.code)===gf));
   if(lf)grupos=grupos.filter(gr=>gr.itens.some(p=>produtoLocal(p.code)===lf));
@@ -7742,7 +7721,7 @@ function drawRelDuplicidades(){ const box=$('#relView'); if(!box)return; relIdxO
   grupos.sort((a,b)=>b.nivel-a.nivel||b.itens.length-a.itens.length||String(a.itens[0].desc).localeCompare(String(b.itens[0].desc),'pt-BR'));
   const nProd=grupos.reduce((t,gr)=>t+gr.itens.length,0), cont=k=>grupos.filter(gr=>gr.nivel===k).length;
   const titulo='Possíveis duplicidades no cadastro de produtos';
-  const sub=(R.livre?'saldo de todas as obras':R.isAll?'saldo de '+R.lbl:'obra: '+obraName(R.fobra)+' (produtos com saldo ou movimentação nela)')+(gf?' · grupo: '+gf:'')+(lf?' · local: '+lf:'')+(pf?' · produto: '+pf:'')+' · confiança: '+({alta:'só alta',media:'média ou alta',baixa:'todas'}[_relDupConf]);
+  const sub=(isAll?'saldo de todas as obras':'obra: '+obraName(fobra)+' (produtos com saldo ou movimentação nela)')+(gf?' · grupo: '+gf:'')+(lf?' · local: '+lf:'')+(pf?' · produto: '+pf:'')+' · confiança: '+({alta:'só alta',media:'média ou alta',baixa:'todas'}[_relDupConf]);
   _rel={titulo,sub:sub+' · '+grupos.length+' grupo(s), '+nProd+' produto(s)',view:'duplicidades',align:'lllllllr',
     headers:['Grupo','Confiança','Código','Cód. auxiliar','Descrição','Unid.','Grupo / Localização','Saldo'],
     rows:grupos.flatMap((gr,gi)=>gr.itens.map((p,k)=>[k?'':String(gi+1),k?'':NIV[gr.nivel]+': '+gr.motivos.join('; '),String(p.code),p.aux||'—',p.desc||'',p.unit||'',produtoGrupo(p.code)+' / '+produtoLocal(p.code),numf(sal(p.code))])),
@@ -7777,10 +7756,10 @@ function drawRelDuplicidades(){ const box=$('#relView'); if(!box)return; relIdxO
    Usa Grupo, Localização e Produto. Resumos por grupo (e por obra, em "todas") acima da lista. */
 let _relPosZero=false, _relPosOrd='valor';
 function drawRelPosicao(){ const box=$('#relView'); if(!box)return; relIdxOn();
-  const R=relSel(), fobra=R.fobra, isAll=R.isAll;
+  const fobra=$('#relObra')?$('#relObra').value:'__all', isAll=fobra==='__all';
   const gf=$('#relGrupo')?$('#relGrupo').value:'', lf=$('#relLocal')?$('#relLocal').value:'';
   const pf=($('#relProdutoTxt')?$('#relProdutoTxt').value:'').toLowerCase().trim();
-  const obras=R.obras;
+  const obras=isAll?state.obras:state.obras.filter(o=>o.id===fobra);
   const naObra=isAll?null:codigosNaObra(fobra);
   const lin=[];
   state.products.forEach(p=>{ if(!p||p.code==null||!produtoPassaFiltros(p,gf,lf,pf))return; const c=String(p.code);
@@ -7800,7 +7779,7 @@ function drawRelPosicao(){ const box=$('#relView'); if(!box)return; relIdxOn();
   const resO=isAll?obras.map(o=>{ let itens=0,valor=0; lin.forEach(l=>{ const x=l.por.find(y=>y.id===o.id); if(x){ if(x.s>0)itens++; valor+=x.s*l.custo; } }); return {nome:o.nome,itens,valor}; }).filter(x=>x.itens||x.valor).sort((a,b)=>b.valor-a.valor):[];
   const pct=v=>totV?(v/totV*100).toFixed(1).replace('.',',')+'%':'—';
   const titulo='Posição de estoque';
-  const sub=R.lbl+(gf?' · grupo: '+gf:'')+(lf?' · local: '+lf:'')+(pf?' · produto: '+pf:'')+' · posição em '+fmtDate(Date.now())+(_relPosZero?' · inclui zerados':'');
+  const sub=(isAll?'todas as obras':obraName(fobra))+(gf?' · grupo: '+gf:'')+(lf?' · local: '+lf:'')+(pf?' · produto: '+pf:'')+' · posição em '+fmtDate(Date.now())+(_relPosZero?' · inclui zerados':'');
   const porTxt=l=>l.por.filter(x=>x.s).map(x=>x.nome.split(' - ')[0]+': '+numf(x.s)).join(' · ');
   const headers=['Código','Cód. auxiliar','Descrição','Unid.','Grupo','Localização'].concat(isAll?['Saldo por obra']:[]).concat(['Saldo','Custo médio','Valor','% do total']);
   _rel={titulo,sub:sub+' · '+lin.length+' item(ns)',view:'posicao',align:'llllll'+(isAll?'l':'')+'rrrr',headers,
@@ -7951,7 +7930,7 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
       /* a busca falhou: avisa e deixa tentar de novo, em vez de ficar em "Carregando..." para sempre */
       $('#relView').innerHTML='<div class="empty" style="padding:24px">Não foi possível carregar o histórico deste período.<br><button class="btn ghost sm" onclick="drawRelatorio()">Tentar novamente</button></div>'; });
     return; }
-  relIdxOn(); const emi=emiMap(); const R=relSel(), fobra=R.fobra, isAll=R.livre;
+  relIdxOn(); const emi=emiMap(); const fobra=$('#relObra')?$('#relObra').value:'__all'; const isAll=fobra==='__all';
   const gf=$('#relGrupo')?$('#relGrupo').value:'';
   const lf=$('#relLocal')?$('#relLocal').value:'';
   const taf=$('#relTipoAplic')?$('#relTipoAplic').value:'';
@@ -7959,9 +7938,9 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
   const atx=(!aef&&$('#relAplicTxt'))?$('#relAplicTxt').value.trim():''; const aset=atx?new Set(relAplicMatch(atx).map(a=>a.id)):null;
   const pf=($('#relProdutoTxt')?$('#relProdutoTxt').value:'').toLowerCase().trim();
   const osf=($('#relOSTxt')?$('#relOSTxt').value:'').toLowerCase().trim();
-  let periodoLbl=`${new Date(f).toLocaleDateString('pt-BR')} a ${new Date(t).toLocaleDateString('pt-BR')}`+' · '+R.lbl+(gf?' · grupo: '+gf:'')+(lf?' · local: '+lf:'')+(taf?' · tipo aplic.: '+aplicTipoLabel(taf):'')+(aef?' · aplicação: '+aplicName(aef):'')+(atx?' · aplicação/prefixo contém: '+atx:'')+(pf?' · produto: '+pf:'')+(osf?' · OS: '+osf:'');
+  let periodoLbl=`${new Date(f).toLocaleDateString('pt-BR')} a ${new Date(t).toLocaleDateString('pt-BR')}`+(isAll?' · todas as obras':' · '+obraName(fobra))+(gf?' · grupo: '+gf:'')+(lf?' · local: '+lf:'')+(taf?' · tipo aplic.: '+aplicTipoLabel(taf):'')+(aef?' · aplicação: '+aplicName(aef):'')+(atx?' · aplicação/prefixo contém: '+atx:'')+(pf?' · produto: '+pf:'')+(osf?' · OS: '+osf:'');
   if(relTipo==='ajustes'){ drawRelAjustes(f,t,fobra,isAll,gf,lf,pf); return; }
-  let inP=state.movements.filter(m=>{const d=mdate(m,emi); return d>=f&&d<=t && (R.ok(m.obra)||(m.tipo==='transferencia'&&R.ok(m.obraDest)));});
+  let inP=state.movements.filter(m=>{const d=mdate(m,emi); return d>=f&&d<=t && (isAll||m.obra===fobra||(m.tipo==='transferencia'&&m.obraDest===fobra));});
   if(gf)inP=inP.filter(m=>produtoGrupo(m.code)===gf);
   if(lf)inP=inP.filter(m=>produtoLocal(m.code)===lf);
   if(taf)inP=inP.filter(m=>{ const a=relAplicById(m.aplic); return a&&a.tipo===taf; });
@@ -7999,7 +7978,7 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
     foot=['Total',String(arr.reduce((s,a)=>s+a.itens,0)),money(arr.reduce((s,a)=>s+a.valor,0)),'100%'];
   } else if(relTipo==='obra'){
     titulo='Movimentação por obra';
-    const obras=R.obras;
+    const obras=isAll?state.obras:state.obras.filter(o=>o.id===fobra);
     const arr=obras.map(o=>{ const ent=inP.filter(m=>m.tipo==='entrada'&&m.obra===o.id).reduce((s,m)=>s+m.valorTotal,0);
       const bx=inP.filter(m=>m.tipo==='baixa'&&m.obra===o.id).reduce((s,m)=>s+m.valorTotal,0);
       const tIn=inP.filter(m=>m.tipo==='transferencia'&&m.obraDest===o.id).reduce((s,m)=>s+m.valorTotal,0);
@@ -8014,14 +7993,14 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
     foot=['Total',money(S('ent')),money(S('ajP')),money(S('ajN')),money(S('bx')),money(S('tIn')),money(S('tOut')),money(S('estoque'))];
   } else if(relTipo==='grupo'){
     titulo='Insumos cadastrados por grupo';
-    const naObra=R.naObra();
+    const naObra=isAll?null:codigosNaObra(fobra);
     const list=state.products.filter(p=>produtoPassaFiltros(p,gf,lf,pf)&&(!naObra||naObra.has(String(p.code))))
-      .map(p=>{ const s=R.sal(p.code); return {grupo:produtoGrupo(p.code),code:p.code,aux:p.aux||'',desc:p.desc,unit:p.unit||'',saldo:s,valor:s*(p.custo||0)}; })
+      .map(p=>{ const s=isAll?totalSaldo(p.code):saldoOf(fobra,p.code); return {grupo:produtoGrupo(p.code),code:p.code,aux:p.aux||'',desc:p.desc,unit:p.unit||'',saldo:s,valor:s*(p.custo||0)}; })
       .sort((a,b)=>(a.grupo==='(sem grupo)'?1:b.grupo==='(sem grupo)'?-1:a.grupo.localeCompare(b.grupo,'pt-BR'))||a.desc.localeCompare(b.desc,'pt-BR'));
     headers=['Grupo do insumo','Código','Código auxiliar','Insumo (descrição)','Saldo','Valor em estoque'];
     rows=list.map(a=>[a.grupo,a.code,a.aux||'—',a.desc+(a.unit?' ('+a.unit+')':''),numf(a.saldo),money(a.valor)]);
     foot=['Total','','',list.length+' insumo(s)',numf(list.reduce((s,a)=>s+a.saldo,0)),money(list.reduce((s,a)=>s+a.valor,0))];
-    periodoLbl=(R.isAll?(R.emp?relTodasLbl(R.emp).replace(/^t/,'T'):'Todas as obras'):obraName(fobra))+(gf?' · grupo: '+gf:'')+' · cadastro atual (não depende do período)';
+    periodoLbl=(isAll?'Todas as obras':obraName(fobra))+(gf?' · grupo: '+gf:'')+' · cadastro atual (não depende do período)';
   } else if(relTipo==='os'){
     titulo='Insumos aplicados por Ordem de Serviço';
     const rowsRaw=inP.filter(m=>m.tipo==='baixa'&&movOS(m)).map(m=>{const p=relProd(m.code); return {os:movOS(m),obra:obraName(m.obra),aplic:m.aplic?aplicName(m.aplic):'—',desc:m.desc,code:m.code,unit:p?(p.unit||''):'',qty:m.qty,valor:m.valorTotal,ts:m.ts};})
@@ -8033,10 +8012,10 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
     const norm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
     let destObras=state.obras.filter(o=>norm(o.nome).includes('consorcio'));
     titulo='Materiais transferidos para Consórcio (nota de débito)';
-    if(!isAll) destObras=destObras.filter(o=>R.ok(o.id));
+    if(!isAll) destObras=destObras.filter(o=>o.id===fobra);
     if(!destObras.length){
       headers=['Aviso']; rows=[]; foot=null;
-      periodoLbl=!R.isAll?('A obra selecionada ("'+obraName(fobra)+'") não tem "Consórcio" no nome. Escolha "Todas as obras" ou um consórcio específico.'):'Nenhuma obra com "Consórcio" no nome foi encontrada no cadastro de Obras.';
+      periodoLbl=!isAll?('A obra selecionada ("'+obraName(fobra)+'") não tem "Consórcio" no nome. Escolha "Todas as obras" ou um consórcio específico.'):'Nenhuma obra com "Consórcio" no nome foi encontrada no cadastro de Obras.';
     } else {
       const destIds=destObras.map(o=>o.id);
       let rowsRaw=state.movements.filter(m=>m.tipo==='transferencia'&&destIds.includes(m.obraDest)).filter(m=>{const d=mdate(m,emi); return d>=f&&d<=t;});
@@ -8053,9 +8032,9 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
     titulo='Movimentação por produto';
     const g={}; inP.forEach(m=>{ if(m.tipo==='transferencia')return; if(!g[m.code])g[m.code]={entQ:0,entV:0,bxQ:0,bxV:0}; if(m.tipo==='entrada'){g[m.code].entQ+=m.qty;g[m.code].entV+=m.valorTotal;} else if(m.tipo==='baixa'){g[m.code].bxQ+=m.qty;g[m.code].bxV+=m.valorTotal;} });
     /* "Incluir produtos sem movimentação": entram também os produtos do cadastro (respeitando grupo/localização/produto) sem entrada nem saída no período */
-    const naObraP=R.naObra();
+    const naObraP=isAll?null:codigosNaObra(fobra);
     if(_relProdTodos)state.products.forEach(p=>{ const c=String(p.code); if(!g[c]&&produtoPassaFiltros(p,gf,lf,pf)&&(!naObraP||naObraP.has(c)))g[c]={entQ:0,entV:0,bxQ:0,bxV:0}; });
-    let arr=Object.entries(g).map(([code,v])=>{const p=relProd(code); return {code,desc:p?p.desc:code,unit:p?(p.unit||''):'',saldo:R.sal(code),...v};});
+    let arr=Object.entries(g).map(([code,v])=>{const p=relProd(code); return {code,desc:p?p.desc:code,unit:p?(p.unit||''):'',saldo:isAll?totalSaldo(code):saldoOf(fobra,code),...v};});
     /* filtro de saldo atual: com saldo (> 0) ou sem saldo (zerado ou negativo) */
     if(_relProdSaldo==='com')arr=arr.filter(a=>a.saldo>0); else if(_relProdSaldo==='sem')arr=arr.filter(a=>a.saldo<=0);
     arr.sort((a,b)=>b.bxV-a.bxV||a.desc.localeCompare(b.desc,'pt-BR'));
@@ -8136,8 +8115,8 @@ function drawABC(inP,isAll,fobra,periodoLbl){ const box=$('#relView'); if(!box)r
     <div class="tbl-wrap"><table><thead><tr><th>${esc(itemLabel)}</th>${hasTag?'<th>Prefixo</th>':''}<th class="num">Valor (baixas)</th><th class="num">% do total</th><th class="num">% acumulado</th><th>Classe</th></tr></thead><tbody>${metric.length?metric.map(x=>`<tr><td>${esc(x.nome)}</td>${hasTag?`<td class="mono" style="font-size:12.5px">${esc(x.tag||'—')}</td>`:''}<td class="num">${money(x.valor)}</td><td class="num">${x.pct.toFixed(1)}%</td><td class="num">${x.accpct.toFixed(1)}%</td><td>${pill(x.classe)}</td></tr>`).join(''):`<tr><td colspan="${hasTag?6:5}" class="empty" style="padding:24px">Sem consumo no período.</td></tr>`}</tbody>${metric.length?`<tfoot><tr><td><b>Total</b></td>${hasTag?'<td></td>':''}<td class="num"><b>${money(tv)}</b></td><td class="num"><b>100%</b></td><td></td><td></td></tr></tfoot>`:''}</table></div>`;
 }
 /* razão social da empresa dona da obra do relatório; em "Todas as obras", só aparece se todas as obras forem da mesma empresa */
-function relEmpresaTxt(){ const R=relSel(); if(R.emp&&R.emp!=='__sem')return relEmpNome(R.emp);
-  const obras=R.obras; const nomes=[];
+function relEmpresaTxt(){ const fobra=$('#relObra')?$('#relObra').value:'__all';
+  const obras=fobra==='__all'?state.obras:state.obras.filter(o=>o.id===fobra); const nomes=[];
   obras.forEach(o=>{ const e=o.empresaId&&(state.empresas||[]).find(x=>x.id===o.empresaId); const n=((e&&e.razaoSocial)||o.empresa||'').trim(); if(n&&!nomes.includes(n))nomes.push(n); });
   return nomes.length===1?nomes[0]:''; }
 function printRelatorio(){ if(!_rel||!_rel.rows.length){toast('Sem dados para imprimir.','err');return;}
