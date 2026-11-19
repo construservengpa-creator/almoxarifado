@@ -1,7 +1,7 @@
 {
-  "name": "Capivara Painel — AMETA",
+  "name": "Capivara Painel",
   "short_name": "Painel",
-  "description": "Painel de notificações do almoxarifado (separação e retirada) — AMETA Engenharia",
+  "description": "Painel de notificações do almoxarifado (separação e retirada)",
   "start_url": "./",
   "scope": "./",
   "id": "/almoxarifado/notificacoes/",

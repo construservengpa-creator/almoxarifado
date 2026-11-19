@@ -1,7 +1,7 @@
 {
-  "name": "Capivara Aprovações — AMETA",
+  "name": "Capivara Aprovações",
   "short_name": "Aprovações",
-  "description": "Aprovação de requisições de material — AMETA Engenharia",
+  "description": "Aprovação de requisições de material",
   "start_url": "./",
   "scope": "./",
   "id": "/almoxarifado/aprovacoes/",
