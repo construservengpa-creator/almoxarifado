@@ -8114,11 +8114,11 @@ function drawABC(inP,isAll,fobra,periodoLbl){ const box=$('#relView'); if(!box)r
     </div>
     <div class="tbl-wrap"><table><thead><tr><th>${esc(itemLabel)}</th>${hasTag?'<th>Prefixo</th>':''}<th class="num">Valor (baixas)</th><th class="num">% do total</th><th class="num">% acumulado</th><th>Classe</th></tr></thead><tbody>${metric.length?metric.map(x=>`<tr><td>${esc(x.nome)}</td>${hasTag?`<td class="mono" style="font-size:12.5px">${esc(x.tag||'—')}</td>`:''}<td class="num">${money(x.valor)}</td><td class="num">${x.pct.toFixed(1)}%</td><td class="num">${x.accpct.toFixed(1)}%</td><td>${pill(x.classe)}</td></tr>`).join(''):`<tr><td colspan="${hasTag?6:5}" class="empty" style="padding:24px">Sem consumo no período.</td></tr>`}</tbody>${metric.length?`<tfoot><tr><td><b>Total</b></td>${hasTag?'<td></td>':''}<td class="num"><b>${money(tv)}</b></td><td class="num"><b>100%</b></td><td></td><td></td></tr></tfoot>`:''}</table></div>`;
 }
-/* razão social da empresa dona da obra do relatório; em "Todas as obras", as empresas de todas as obras (sem repetir) */
+/* razão social da empresa dona da obra do relatório; em "Todas as obras", só aparece se todas as obras forem da mesma empresa */
 function relEmpresaTxt(){ const fobra=$('#relObra')?$('#relObra').value:'__all';
   const obras=fobra==='__all'?state.obras:state.obras.filter(o=>o.id===fobra); const nomes=[];
   obras.forEach(o=>{ const e=o.empresaId&&(state.empresas||[]).find(x=>x.id===o.empresaId); const n=((e&&e.razaoSocial)||o.empresa||'').trim(); if(n&&!nomes.includes(n))nomes.push(n); });
-  return nomes.join(' / '); }
+  return nomes.length===1?nomes[0]:''; }
 function printRelatorio(){ if(!_rel||!_rel.rows.length){toast('Sem dados para imprimir.','err');return;}
   const w=window.open('','_blank'); if(!w){toast('Permita pop-ups para gerar o relatório.','err');return;}
   const al=(_rel.align||'').split(''), N=_rel.headers.length;
