@@ -8262,7 +8262,8 @@ function patDeprec(b,ref){ ref=ref||patHoje();
   let fim=ref; if(b.status==='baixado'&&b.baixa&&b.baixa.data&&b.baixa.data<fim)fim=b.baixa.data;
   const meses=vida>0&&ini&&fim>=ini?Math.min(vida,patMesesEntre(ini,fim)):0;
   const mensal=vida>0?base/vida:0;
-  const acum=meses>=vida?base:Math.round(mensal*meses*100)/100;
+  /* sem vida útil o bem não deprecia (antes, 0 meses ≥ 0 de vida contava como totalmente depreciado e o valor contábil zerava) */
+  const acum=vida<=0?0:meses>=vida?base:Math.round(mensal*meses*100)/100;
   return {valor,residual:resid,base,vida,meses,mensal,acum,contabil:valor-acum,pct:base>0?acum/base:0,total:vida>0&&meses>=vida,restam:Math.max(0,vida-meses)}; }
 function patTaxaAnual(b){ const v=Number(b.vidaMeses)||0; return v>0?1200/v:0; }
 function pctf(n){ return (Number(n)||0).toLocaleString('pt-BR',{maximumFractionDigits:2})+'%'; }
