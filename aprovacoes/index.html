@@ -858,7 +858,7 @@ const isAdmin=()=>!!profile&&profile.papel==='admin'&&profile.ativo;
 /* quem aprova: marcação "Aprova requisições" de Administração → Usuários (state.config.aprovadores no app_kv);
    sem marcação vale o papel — admin e encarregado aprovam. Admin sempre aprova. */
 let aprovadores={};
-const podeAprovar=()=>!!profile&&profile.ativo&&(profile.papel==='admin'||(Object.prototype.hasOwnProperty.call(aprovadores,profile.id)?!!aprovadores[profile.id]:profile.papel==='encarregado'));
+const podeAprovar=()=>!!profile&&profile.ativo&&(profile.papel==='admin'||(typeof profile.aprova_requisicoes==='boolean'?profile.aprova_requisicoes:Object.prototype.hasOwnProperty.call(aprovadores,profile.id)?!!aprovadores[profile.id]:profile.papel==='encarregado'));
 const isEncAlmox=()=>!!profile&&profile.papel==='encarregado'&&profile.setor==='almoxarifado'&&profile.ativo;
 const veTodas=()=>podeAprovar()&&(isAdmin()||isEncAlmox());
 const vinculadas=()=>Array.isArray(profile&&profile.obras_vinculadas)?profile.obras_vinculadas:[];
@@ -871,7 +871,8 @@ const podeRetornar=r=>isEncarregado()&&!!r&&RET_APROV.includes(r.status)&&!r.tip
 
 /* ---------- login ---------- */
 async function carregarPerfil(){
-  const {data,error}=await sb.from('profiles').select('id,nome,email,papel,ativo,setor,obras_vinculadas').eq('id',user.id).maybeSingle();
+  // select('*'): traz aprova_requisicoes quando a coluna existir (Central de acessos), sem quebrar antes disso
+  const {data,error}=await sb.from('profiles').select('*').eq('id',user.id).maybeSingle();
   if(error)throw new Error('Não foi possível carregar o seu perfil: '+error.message);
   if(!data)throw new Error('Usuário sem cadastro no sistema de estoque — peça ao administrador.');
   if(!data.ativo)throw new Error('Seu usuário ainda não foi liberado pelo administrador.');

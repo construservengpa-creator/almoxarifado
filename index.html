@@ -1221,6 +1221,7 @@ function isEncFrotas(){ return !!profile && profile.papel==='encarregado' && pro
    Admin sempre aprova. Quem aprova e não é admin/encarregado do almoxarifado só aprova as obras vinculadas a ele. */
 function aprovaPorPadrao(u){ return !!u&&(u.papel==='admin'||u.papel==='encarregado'); }
 function usuarioAprova(u){ if(!u||!u.ativo)return false; if(u.papel==='admin')return true;
+  if(typeof u.aprova_requisicoes==='boolean')return u.aprova_requisicoes; /* gravado pela Central de acessos do Capivara */
   const m=(state.config&&state.config.aprovadores)||{}; return Object.prototype.hasOwnProperty.call(m,u.id)?!!m[u.id]:aprovaPorPadrao(u); }
 function podeAprovar(){ return usuarioAprova(profile); }
 function podeAprovarObra(obraId){ if(!podeAprovar())return false; if(isAdminOuEncAlmox())return true;
@@ -7031,7 +7032,7 @@ async function renderAdmin(){
     <td><label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:500;margin:0" title="${u.papel==='admin'?'Admin sempre aprova':'Marque para permitir que este usuário aprove requisições (no sistema e no app de Aprovações)'}"><input type="checkbox" id="uap_${u.id}" ${aprova||u.papel==='admin'?'checked':''} ${u.papel==='admin'?'disabled':''} style="width:auto"> Aprova</label></td>
     <td class="num"><label style="display:flex;align-items:center;gap:6px;justify-content:flex-end;text-transform:none;font-weight:500;margin:0"><input type="checkbox" id="ua_${u.id}" ${u.ativo?'checked':''} ${u.id===profile.id?'disabled':''} style="width:auto"> Ativo</label></td>
     <td class="num">${u.id===profile.id?'<span class="muted">você</span>':`<button class="btn primary sm" onclick="saveUserRole('${u.id}')">Salvar</button>`}</td></tr>`;}).join('');
-  let html=`<div class="panel"><h3>👤 Usuários</h3><p class="desc">Cadastros novos ficam <b>inativos</b> até você aprovar. <b>Papel</b> define a permissão — operador (solicita e consulta), encarregado (aprova requisições, faz entradas/baixas), admin (tudo). <b>Setor</b> é independente do papel e define a função — almoxarifado (separa e embala), compras/frotas (aparecem pra atribuição de compra de faltantes). <b>Aprova requisições</b> define quem aprova (no sistema e no app de Aprovações): vem marcado para encarregados e pode ser marcado para qualquer outro usuário. Quem aprova só vê e aprova requisições das <b>obras (centro de custo) vinculadas</b> a ele — sem nenhuma vinculada, não aprova nenhuma. Admin sempre aprova de qualquer obra; o encarregado do almoxarifado, se marcado, também.</p>
+  let html=`<div class="panel"><h3>👤 Usuários</h3><p class="desc">Os acessos também podem ser geridos na <b>Central de acessos</b> do Painel de Suprimentos (vale para todos os apps do Capivara); o que a central salvar substitui o ajuste feito aqui. Cadastros novos ficam <b>inativos</b> até você aprovar. <b>Papel</b> define a permissão — operador (solicita e consulta), encarregado (aprova requisições, faz entradas/baixas), admin (tudo). <b>Setor</b> é independente do papel e define a função — almoxarifado (separa e embala), compras/frotas (aparecem pra atribuição de compra de faltantes). <b>Aprova requisições</b> define quem aprova (no sistema e no app de Aprovações): vem marcado para encarregados e pode ser marcado para qualquer outro usuário. Quem aprova só vê e aprova requisições das <b>obras (centro de custo) vinculadas</b> a ele — sem nenhuma vinculada, não aprova nenhuma. Admin sempre aprova de qualquer obra; o encarregado do almoxarifado, se marcado, também.</p>
     <div class="tbl-wrap"><table><thead><tr><th>Usuário</th><th>Papel</th><th>Setor</th><th>Obras vinculadas</th><th>Aprova requisições</th><th class="num">Situação</th><th></th></tr></thead><tbody>${uRows||'<tr><td colspan="7" class="empty">Nenhum usuário.</td></tr>'}</tbody></table></div></div>
   <div class="panel"><h3>🧮 Recalcular custo médio</h3><p class="desc">Refaz o custo médio de cada produto pelo histórico de movimentações, com as regras atuais: entradas pelo custo gravado na nota (com frete e impostos quando houver), base no saldo de todas as obras, saldo negativo conta como zero e notas excluídas não contam. Mostra <b>antes × depois</b> e só grava os produtos que você marcar. Para incluir frete e impostos de notas antigas, use antes <b>Reprocessar XML</b> no detalhe da nota.</p>
     <button class="btn primary" onclick="recalcAbrir()">Calcular</button></div>
@@ -7061,7 +7062,9 @@ async function salvarObrasVinculadas(userId){
 }
 async function saveUserRole(id){ const papel=$('#up_'+id).value; const setor=$('#us_'+id).value||null; const ativo=$('#ua_'+id).checked;
   const apEl=$('#uap_'+id), aprova=papel==='admin'||!!(apEl&&apEl.checked);
-  const {error}=await sb.from('profiles').update({papel,setor,ativo}).eq('id',id);
+  const uAntes=_adminUsersCache.find(x=>x.id===id);
+  const dadosU={papel,setor,ativo}; if(uAntes&&Object.prototype.hasOwnProperty.call(uAntes,'aprova_requisicoes'))dadosU.aprova_requisicoes=papel==='admin'?true:aprova;
+  const {error}=await sb.from('profiles').update(dadosU).eq('id',id);
   if(error){toast('Erro: '+error.message,'err');return;}
   /* grava a marcação "Aprova requisições" só quando ela difere do padrão do papel (assim, mudar o papel depois continua natural) */
   if(!state.config)state.config={supHash:null};
