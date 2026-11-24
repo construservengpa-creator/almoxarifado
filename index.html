@@ -4263,7 +4263,7 @@ async function invCarregar(){
   ri.data.forEach(i=>{ const c=ciclos[i.ciclo_id]; if(!c)return;
     rows.push({key:'inv:item:'+i.id,tipo:'item',rowId:i.id,ciclo:c,obra:c.obra_id,code:i.code,desc:i.descricao||'',unit:i.unidade||'',snapshot:Number(i.saldo_sistema),contado:Number(i.qtd_final),lista:c.nome}); });
   re.data.forEach(x=>{ const c=ciclos[x.ciclo_id]; if(!c)return;
-    rows.push({key:'inv:extra:'+x.id,tipo:'extra',rowId:x.id,ciclo:c,obra:c.obra_id,decisao:x.decisao,code:x.code_final||'',desc:x.desc_final||x.descricao||'',unit:x.unid_final||x.unidade||'UN',contado:Number(x.quantidade),modo:x.modo,custo:x.custo==null?null:Number(x.custo),lista:c.nome,lido:x.code_lido||''}); });
+    rows.push({key:'inv:extra:'+x.id,tipo:'extra',rowId:x.id,ciclo:c,obra:c.obra_id,decisao:x.decisao,code:x.code_final||'',desc:x.desc_final||x.descricao||'',unit:x.unid_final||x.unidade||'UN',contado:Number(x.quantidade),modo:x.modo,custo:x.custo==null?null:Number(x.custo),lista:c.nome,lido:x.code_lido||'',endereco:String(x.endereco||'').trim()}); });
   return rows;
 }
 /* calcula o efeito das linhas sobre o estado atual, em sequência (várias linhas do mesmo produto se somam);
@@ -4310,7 +4310,7 @@ function invProdutosNovos(linhas){
     if(ja&&!L.code)L.code=ja.code;
     if(!L.code)L.code=genCode();
     if(findProduct(L.code))continue;
-    const p={code:L.code,desc:L.desc||(ja&&ja.desc)||L.code,unit:L.unit||'UN',aux:'',min:0,max:0,custo:ja?(Number(ja.valorUnit)||0):0,preco:0,ref:''};
+    const p={code:L.code,desc:L.desc||(ja&&ja.desc)||L.code,unit:L.unit||'UN',aux:'',min:0,max:0,custo:ja?(Number(ja.valorUnit)||0):0,preco:0,ref:'',...(L.endereco?{endereco:L.endereco}:{})};
     state.products.push(p); novos.push(p);
   }
   return novos;
@@ -4322,14 +4322,16 @@ function invAplicar(linhas){
     const ja=state.movements.find(m=>m.invId===L.key);
     if(ja){ marcas.push({...L,ja:true,mov:ja.id,code:L.code||ja.code,novo:ja.saldo,modoEf:ja.invModo||L.modoEf}); continue; }
     const p=findProduct(L.code); if(!p)continue; /* cadastrado na etapa 1 */
+    /* endereço informado na contagem (item fora da lista): só preenche se o produto ainda não tiver */
+    const endSet=!!(L.endereco&&!String(p.endereco||'').trim()); if(endSet)p.endereco=L.endereco;
     const atual=saldoOf(L.obra,L.code), delta=L.novo-atual;
-    if(delta===0){ marcas.push({...L,semMov:true}); continue; }
+    if(delta===0){ marcas.push({...L,semMov:true,endSet}); continue; }
     let custoFinal=p.custo||0; const ci=L.custo;
     if(delta>0&&ci!=null&&ci>0){ custoFinal=custoMedioEntrada(p,delta,ci).custoMedio; }
     const lt=addSaldo(L.obra,L.code,delta); p.custo=custoFinal;
     const mid=uid();
     pushMov({id:mid,ts:Date.now(),tipo:'ajuste',obra:L.obra,code:L.code,desc:p.desc,qty:delta,valorUnit:custoFinal,valorTotal:delta*custoFinal,doc:'Ajuste de inventário: '+L.lista+(L.tipo==='extra'?' · item fora da lista':''),saldo:saldoOf(L.obra,L.code),invId:L.key,invModo:L.modoEf,lotes:lt||undefined});
-    marcas.push({...L,mov:mid});
+    marcas.push({...L,mov:mid,endSet});
   }
   return marcas;
 }
@@ -4446,7 +4448,7 @@ function invLancar(){
         toast('Os produtos novos não foram cadastrados e o estoque não foi alterado. Tente novamente.','err'); invDraw(); return; }
     }
     const marcas=invAplicar(atuais);
-    if(marcas.some(m=>!m.ja&&!m.semMov)){
+    if(marcas.some(m=>(!m.ja&&!m.semMov)||m.endSet)){
       toast('Salvando...','warn');
       /* saldo e movimentos já foram para o banco (tabelas próprias); aqui vai só o custo médio atualizado */
       if(!(await invSalvar('Ajuste de inventário: '+marcas.length+' item(ns) · '+listas)))
