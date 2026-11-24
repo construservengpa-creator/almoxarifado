@@ -4289,7 +4289,8 @@ function invCalcUma(r,run){
   if(o.jaLancado){ o.novo=o.atual; o.delta=0; return o; }
   if(!(o.novo>=0))o.erro='O saldo ficaria negativo';
   o.delta=o.novo-o.atual;
-  if(!o.erro&&o.delta!==0&&!(p&&Number(p.custo)>0)&&!(o.delta>0&&Number(r.custo)>0))o.erro='Sem valor (custo R$ 0,00): cadastre o custo do produto antes de lançar';
+  /* no inventário, item sem custo NÃO bloqueia o lançamento (só avisa); o bloqueio continua nas demais telas */
+  o.semCusto=!o.erro&&o.delta!==0&&!(p&&Number(p.custo)>0)&&!(o.delta>0&&Number(r.custo)>0);
   return o;
 }
 function invCalcLote(rows){
@@ -4414,6 +4415,7 @@ function invDraw(){
       else{
         if(l.jaLancado)obs+='<span class="pill tr">Já lançado antes; só falta marcar</span> ';
         if(l.criar)obs+='<span class="pill tr">Será cadastrado'+(l.code?'':' (código gerado)')+'</span> ';
+        if(l.semCusto)obs+='<span class="pill high">Sem custo (R$ 0,00): será lançado com valor zero</span> ';
         if(l.tipo==='item'&&l.mudou)obs+='<div class="pill high" style="margin-bottom:4px">Saldo mudou desde a contagem ('+numf(l.snapshot)+' → '+numf(l.atual)+')</div><br><select onchange="invSetModo(\''+k+'\',this.value)" style="max-width:260px"><option value="diferenca"'+(l.modoEf==='diferenca'?' selected':'')+'>Aplicar a diferença contada ('+((l.contado-l.snapshot)>0?'+':'')+numf(l.contado-l.snapshot)+') ao saldo atual</option><option value="definir"'+(l.modoEf==='definir'?' selected':'')+'>Definir o saldo como '+numf(l.contado)+'</option></select>';
         if(l.tipo==='extra')obs+='<span class="muted" style="font-size:12px">'+(l.modoEf==='somar'?'soma ao saldo':'define o saldo')+'</span>';
       }
