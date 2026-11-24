@@ -6048,8 +6048,9 @@ function renderTransfer(){
       <button class="btn primary" id="trTransferBtn" onclick="confirmTransfer()">⇄ Transferir e gerar romaneio</button></div>
   </div>
   <div class="sechead" style="margin-top:24px"><h3 id="trHistTit">Últimas transferências</h3></div>
-  <div class="tbl-wrap"><table><thead><tr><th>Data</th><th>Nº</th><th>De → Para</th><th>Produto</th><th class="num">Qtd</th><th class="num">Valor</th><th></th></tr></thead><tbody id="trHist"></tbody></table></div>`;
-  drawTrHist(); drawTrCart(); checkTrEmpresa(); const inp=$('#trScan'); inp.focus();
+  <div id="trAnxAviso"></div>
+  <div class="tbl-wrap"><table><thead><tr><th>Data</th><th>Nº</th><th>De → Para</th><th>Produto</th><th class="num">Qtd</th><th class="num">Valor</th><th>Romaneio assinado</th><th></th></tr></thead><tbody id="trHist"></tbody></table></div>`;
+  _romAnxPedidos.clear(); drawTrHist(); drawTrCart(); checkTrEmpresa(); const inp=$('#trScan'); inp.focus();
   inp.oninput=e=>drawTrResults(e.target.value);
   inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault(); trLookup(inp.value,false);}});
 }
@@ -6099,9 +6100,12 @@ function updateTrTotal(){ const el=$('#trTotal'); if(!el)return; let t=0; trCart
 function drawTrCart(){ const b=$('#trCartBody'); if(!b)return; const orig=trOrigId();
   if(!trCart.length){ b.innerHTML=`<tr><td colspan="5" class="empty" style="padding:20px">Nenhum item. Pesquise acima e adicione.</td></tr>`; updateTrTotal(); return; }
   b.innerHTML=trCart.map(i=>{const p=findProduct(i.code);const s=saldoOf(orig,i.code);const tot=(i.qty||0)*((p.custo)||0);return `<tr><td>${esc(p.desc)}<br><span class="muted" style="font-size:11px">${esc(p.code)}${p.aux?' · aux '+esc(p.aux):''}</span></td><td class="num ${i.qty>s?'neg':''}">${numf(s)} ${esc(p.unit||'')}</td><td class="num"><input class="inline-edit" type="number" step="any" min="0" value="${i.qty}" oninput="setTrQty('${esc(i.code)}',this.value)"></td><td class="num" id="tv_${esc(i.code)}">${money(tot)}</td><td class="num"><button class="btn danger sm" onclick="rmTr('${esc(i.code)}')">✕</button></td></tr>`;}).join(''); updateTrTotal(); }
-function drawTrHist(){ const _o=$('#trOrig')?trOrigId():curObra(); const list=state.movements.filter(m=>m.tipo==='transferencia'&&(_o==='__all'||m.obra===_o||m.obraDest===_o)).slice(0,40);
-  if($('#trHistTit'))$('#trHistTit').textContent='Últimas transferências'+(_o&&_o!=='__all'?' · '+obraName(_o)+' (enviadas e recebidas)':'');
-  $('#trHist').innerHTML=list.length?list.map(m=>`<tr><td class="muted" style="font-size:12px">${fmtDate(m.ts)}</td><td class="mono">${m.seq?seqf(m.seq):'—'}</td><td style="font-size:12.5px">${esc(obraName(m.obra))} → ${esc(obraName(m.obraDest))}</td><td>${esc(m.desc)}${m.obs?`<br><span class="muted" style="font-size:11px">obs: ${esc(m.obs)}</span>`:''}</td><td class="num"><span class="pill tr">${numf(m.qty)}</span></td><td class="num">${money(m.valorTotal)}</td><td class="num"><button class="btn ghost sm" title="Romaneio (agrupado)" onclick="reportRomaneio('${m.romaneioId||m.id}')">🖨</button> <button class="btn danger sm" title="Excluir e estornar (supervisor)" onclick="delTrMov('${m.id}')">🗑</button></td></tr>`).join(''):`<tr><td colspan="7" class="empty" style="padding:24px">Nenhuma transferência.</td></tr>`; }
+function drawTrHist(){ if(!$('#trHist'))return; const _o=$('#trOrig')?trOrigId():curObra(); const list=state.movements.filter(m=>m.tipo==='transferencia'&&(_o==='__all'||m.obra===_o||m.obraDest===_o)).slice(0,40);
+  const _ks=[...new Set(list.map(romKey))], _pend=_ks.filter(k=>romAnxPendente(list.find(m=>romKey(m)===k))).length;
+  if($('#trHistTit'))$('#trHistTit').innerHTML=esc('Últimas transferências'+(_o&&_o!=='__all'?' · '+obraName(_o)+' (enviadas e recebidas)':''))+(_pend?' <span class="pill high" style="font-size:11px;vertical-align:middle">⏳ '+_pend+' aguardando romaneio assinado</span>':'');
+  romAnxAvisoDraw();
+  if(_romAnxOk!==false&&_ks.some(k=>!_romAnxPedidos.has(k)))carregarRomAnexos(_ks).then(()=>{ if(activeTab==='transfer')drawTrHist(); });
+  $('#trHist').innerHTML=list.length?list.map(m=>`<tr><td class="muted" style="font-size:12px">${fmtDate(m.ts)}</td><td class="mono">${m.seq?seqf(m.seq):'—'}</td><td style="font-size:12.5px">${esc(obraName(m.obra))} → ${esc(obraName(m.obraDest))}</td><td>${esc(m.desc)}${m.obs?`<br><span class="muted" style="font-size:11px">obs: ${esc(m.obs)}</span>`:''}</td><td class="num"><span class="pill tr">${numf(m.qty)}</span></td><td class="num">${money(m.valorTotal)}</td><td>${romAnxCell(m)}</td><td class="num"><button class="btn ghost sm" title="Romaneio (agrupado)" onclick="reportRomaneio('${m.romaneioId||m.id}')">🖨</button> <button class="btn danger sm" title="Excluir e estornar (supervisor)" onclick="delTrMov('${m.id}')">🗑</button></td></tr>`).join(''):`<tr><td colspan="8" class="empty" style="padding:24px">Nenhuma transferência.</td></tr>`; }
 function delTrMov(id){ const m=state.movements.find(x=>x.id===id&&x.tipo==='transferencia'); if(!m)return; requireSupervisor('Excluir transferência Nº '+seqf(m.seq),()=>{ addSaldo(m.obra,m.code,m.qty,m.lotes); addSaldo(m.obraDest,m.code,-m.qty,m.lotes); state.movements=state.movements.filter(x=>x.id!==id); sb.from('movimentos_estoque').delete().eq('id',id).then(({error})=>{ if(error)toast('Erro ao excluir movimentação no banco: '+error.message,'err'); }); save('Transferência Nº '+seqf(m.seq)+' excluída e estornada'); drawTrHist(); toast('Transferência excluída e estornada.','warn'); }); }
 async function confirmTransfer(){ const orig=$('#trOrig').value, dest=$('#trDest').value;
   if(orig===dest){toast('Origem e destino devem ser diferentes.','err');return;}
@@ -6119,12 +6123,73 @@ async function confirmTransfer(){ const orig=$('#trOrig').value, dest=$('#trDest
   itens.forEach(i=>{const p=findProduct(i.code); const vu=p.custo||0; const lt=addSaldo(orig,p.code,-i.qty); addSaldo(dest,p.code,i.qty,lt); /* os mesmos lotes chegam ao destino */
     pushMov({id:uid(),ts,seq,romaneioId,tipo:'transferencia',obra:orig,obraDest:dest,obs,code:p.code,desc:p.desc,qty:i.qty,valorUnit:vu,valorTotal:i.qty*vu,doc:`Romaneio Nº ${seqf(seq)} · ${obraName(orig)} → ${obraName(dest)}`,saldo:saldoOf(orig,p.code),saldoDest:saldoOf(dest,p.code),lotes:lt||undefined});
     repItens.push({code:p.code,aux:p.aux,desc:p.desc,qty:i.qty,unit:p.unit,valor:vu}); });
-  save('Transferência Nº '+seqf(seq)+' · '+obraName(orig)+' → '+obraName(dest)); toast(`Romaneio Nº ${seqf(seq)} · ${itens.length} item(ns) · ${esc(obraName(orig))} → ${esc(obraName(dest))}`,'ok');
+  save('Transferência Nº '+seqf(seq)+' · '+obraName(orig)+' → '+obraName(dest)); toast(`Romaneio Nº ${seqf(seq)} · ${itens.length} item(ns) · ${esc(obraName(orig))} → ${esc(obraName(dest))}. Depois de assinado, anexe o romaneio pelo botão 📎 no histórico.`,'ok');
+  _romAnx[romaneioId]=[]; _romAnxPedidos.add(romaneioId);
   if(wantReport)printSignReport({titulo:'Romaneio de Transferência de Estoque',numero:seqf(seq),conferencia:true,recebimento:true,subtitulo:'Movimentação entre obras',data:fmtDate(ts),obra:obraName(orig),obraDest:obraName(dest),obs,itens:repItens,assinaturas:['Responsável obra origem','Responsável obra destino','Transportador / Conferente']});
   trCart=[]; drawTrCart(); drawTrHist(); if($('#trScan'))$('#trScan').focus(); }
 function reportRomaneio(id){ const ms=state.movements.filter(m=>m.tipo==='transferencia'&&(m.romaneioId||m.id)===id); if(!ms.length)return; const m0=ms[0];
   const itens=ms.map(m=>{const p=findProduct(m.code); return {code:m.code,aux:p?p.aux:'',desc:m.desc,qty:m.qty,unit:p?p.unit:'',valor:m.valorUnit};});
   printSignReport({titulo:'Romaneio de Transferência de Estoque',numero:seqf(m0.seq),conferencia:true,recebimento:true,subtitulo:'Movimentação entre obras',data:fmtDate(m0.ts),obra:obraName(m0.obra),obraDest:obraName(m0.obraDest),obs:m0.obs,itens,assinaturas:['Responsável obra origem','Responsável obra destino','Transportador / Conferente']}); }
+
+/* ===== ROMANEIO ASSINADO (transferência entre obras) =====
+   Depois de impresso e assinado (origem, destino e transportador), o romaneio é fotografado ou digitalizado e
+   anexado à transferência. O arquivo vai para o armazenamento "comprovantes" (pasta transferencias/) e o vínculo
+   fica na tabela romaneio_anexos (script ROM_ASSIN_SQL / scripts/romaneio_assinado.sql). O anexo não pode ser
+   trocado; só o administrador exclui um anexo errado. Transferências anteriores a ROM_ASSIN_DESDE não são cobradas. */
+const ROM_ASSIN_SQL="-- Romaneio de transferência assinado (foto ou PDF anexado à transferência entre obras)\n-- Rodar uma vez no Supabase (SQL Editor) do projeto Estoque. Pode rodar de novo sem problema.\n-- O arquivo fica no armazenamento \"comprovantes\" (pasta transferencias/), o mesmo do canhoto do despacho.\n-- Depois de anexado, o registro não pode ser alterado; só o administrador pode excluir (anexo errado).\n\ncreate table if not exists public.romaneio_anexos (\n  id                bigint generated always as identity primary key,\n  romaneio_id       text        not null,\n  seq               integer,\n  obra_origem       text,\n  obra_destino      text,\n  path              text        not null unique,\n  nome_arquivo      text,\n  hash              text,\n  enviado_por       uuid        not null default auth.uid(),\n  enviado_por_nome  text,\n  enviado_em        timestamptz not null default now()\n);\n\ncreate index if not exists romaneio_anexos_romaneio_idx on public.romaneio_anexos (romaneio_id);\n\nalter table public.romaneio_anexos enable row level security;\n\n-- Leitura: qualquer usuário ativo\ndrop policy if exists \"romaneio_anexos: leitura\" on public.romaneio_anexos;\ncreate policy \"romaneio_anexos: leitura\" on public.romaneio_anexos\n  for select to authenticated\n  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.ativo));\n\n-- Anexar: administrador, encarregado e almoxarifado (mesma regra do envio ao bucket \"comprovantes\")\ndrop policy if exists \"romaneio_anexos: anexar\" on public.romaneio_anexos;\ncreate policy \"romaneio_anexos: anexar\" on public.romaneio_anexos\n  for insert to authenticated\n  with check (\n    enviado_por = auth.uid()\n    and path like 'transferencias/%'\n    and exists (select 1 from public.profiles p where p.id = auth.uid() and p.ativo\n                and (p.papel in ('admin','encarregado') or p.setor = 'almoxarifado'))\n  );\n\n-- Excluir: só administrador (o arquivo continua guardado no armazenamento)\ndrop policy if exists \"romaneio_anexos: excluir\" on public.romaneio_anexos;\ncreate policy \"romaneio_anexos: excluir\" on public.romaneio_anexos\n  for delete to authenticated\n  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.ativo and p.papel = 'admin'));\n\n-- Sem regra de alteração: o anexo não pode ser trocado depois de enviado.\n\n-- Garante que o bucket aceita foto e PDF (já vale se o script canhoto_pdf.sql foi rodado)\nupdate storage.buckets\n   set allowed_mime_types = array['image/jpeg', 'application/pdf'],\n       file_size_limit    = 10485760\n where id = 'comprovantes';\n\n-- Conferência\nselect count(*) as anexos from public.romaneio_anexos;\n";
+const ROM_ASSIN_DESDE=Date.parse('2026-11-24T00:00:00-03:00');
+let _romAnx={}, _romAnxOk=null; const _romAnxPedidos=new Set();
+function romKey(m){ return m.romaneioId||m.id; }
+function romAnxPendente(m){ return !!m&&_romAnxOk===true&&Number(m.ts)>=ROM_ASSIN_DESDE&&Array.isArray(_romAnx[romKey(m)])&&!_romAnx[romKey(m)].length; }
+async function carregarRomAnexos(keys){ const falta=[...new Set((keys||[]).filter(k=>k&&!_romAnxPedidos.has(k)))]; if(!falta.length||_romAnxOk===false||!isOnline)return;
+  falta.forEach(k=>_romAnxPedidos.add(k));
+  for(let i=0;i<falta.length;i+=100){ const lote=falta.slice(i,i+100);
+    const {data,error}=await sb.from('romaneio_anexos').select('id,romaneio_id,path,nome_arquivo,enviado_por_nome,enviado_em').in('romaneio_id',lote).order('enviado_em');
+    if(error){ if(/PGRST205|42P01|does not exist|schema cache/i.test((error.code||'')+' '+(error.message||'')))_romAnxOk=false; console.warn('romaneio_anexos',error); return; }
+    _romAnxOk=true; lote.forEach(k=>_romAnx[k]=[]); (data||[]).forEach(a=>_romAnx[a.romaneio_id].push(a)); } }
+async function recarregarRomAnexos(k){ delete _romAnx[k]; _romAnxPedidos.delete(k); await carregarRomAnexos([k]); }
+function romAnxAvisoDraw(){ const box=$('#trAnxAviso'); if(!box)return;
+  if(_romAnxOk!==false){ box.innerHTML=''; return; }
+  box.innerHTML=isAdmin()?`<div class="panel" style="border-left:4px solid #c98a1a;margin-bottom:12px"><h3 style="font-size:14px">⚠ Falta atualizar o banco para anexar o romaneio assinado</h3><p class="desc">Rode uma vez o script abaixo no Supabase (SQL Editor) do projeto Estoque. Também está no arquivo <span class="mono">scripts/romaneio_assinado.sql</span>.</p><button class="btn primary sm" onclick="navigator.clipboard.writeText(ROM_ASSIN_SQL).then(()=>toast('Script copiado.','ok'),()=>toast('Não foi possível copiar — use o arquivo scripts/romaneio_assinado.sql.','err'))">Copiar script SQL</button></div>`
+    :`<div class="muted" style="font-size:12px;margin-bottom:8px">Anexo do romaneio assinado ainda não configurado — avise o administrador.</div>`; }
+function romAnxCell(m){ const k=romKey(m), l=_romAnx[k]; if(_romAnxOk!==true||!Array.isArray(l))return '';
+  if(l.length)return `<button class="btn ghost sm" style="color:#1c7a52" title="Ver romaneio assinado" onclick="romAnxModal('${esc(k)}')">✔ Assinado${l.length>1?' ('+l.length+')':''}</button>`;
+  const pend=romAnxPendente(m);
+  return `<button class="btn ${pend?'primary':'ghost'} sm" title="Anexar o romaneio assinado (foto ou PDF)" onclick="romAnxModal('${esc(k)}')">📎 ${pend?'Anexar assinado':'Anexar'}</button>`; }
+function romAnxMovs(k){ return state.movements.filter(m=>m.tipo==='transferencia'&&romKey(m)===k); }
+function romAnxModal(k){ const ms=romAnxMovs(k); if(!ms.length)return; const m0=ms[0], l=_romAnx[k]||[], pode=podeOperarRetiradas();
+  modal(`<h3>📎 Romaneio assinado · Nº ${seqf(m0.seq)}</h3><p class="mp">${esc(obraName(m0.obra))} → ${esc(obraName(m0.obraDest))} · ${fmtDate(m0.ts)} · ${ms.length} item(ns)</p>
+    ${l.length?'<div class="tbl-wrap"><table><tbody>'+l.map(a=>`<tr><td>${canhotoEhPdf(a.path)?'📄':'🖼'} ${esc(a.nome_arquivo||'arquivo')}<br><span class="muted" style="font-size:11px">anexado em ${fmtTs(a.enviado_em)}${a.enviado_por_nome?' por '+esc(a.enviado_por_nome):''}</span></td><td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="romAnxVer('${esc(a.path)}')">👁 Ver</button>${isAdmin()?` <button class="btn danger sm" title="Excluir anexo (administrador)" onclick="romAnxExcluir(${Number(a.id)},'${esc(k)}')">✕</button>`:''}</td></tr>`).join('')+'</tbody></table></div>'
+      :'<p class="mp" style="color:#a8731a">Nenhum romaneio assinado anexado ainda.</p>'}
+    ${pode?`<div class="field" style="margin-top:12px"><label>${l.length?'Anexar outra página':'Romaneio assinado (foto ou PDF)'}</label><input id="romAnxFile" type="file" accept="${CANHOTO_ACCEPT}" multiple><div class="muted" style="font-size:11px;margin-top:3px">Fotografe ou digitalize o romaneio com as assinaturas. Pode enviar várias páginas de uma vez (PDF até ${CANHOTO_PDF_MAX/1048576} MB).</div></div>`:''}
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap"><button class="btn ghost" onclick="reportRomaneio('${esc(k)}')">🖨 Imprimir romaneio</button><button class="btn ghost" onclick="closeModal()">Fechar</button>${pode?`<button class="btn primary" id="romAnxOk" onclick="romAnxEnviar('${esc(k)}')">Anexar</button>`:''}</div>`); }
+async function romAnxEnviar(k){ const inp=$('#romAnxFile'), fs=inp&&inp.files?[...inp.files]:[]; if(!fs.length){ toast('Escolha a foto ou o PDF do romaneio assinado.','err'); return; }
+  const ms=romAnxMovs(k); if(!ms.length)return; const m0=ms[0];
+  const b=$('#romAnxOk'); if(b){ b.disabled=true; b.textContent='Enviando...'; }
+  let ok=0; const erros=[];
+  for(const f of fs){ const pdf=ehPdf(f); let blob;
+    if(pdf){ if(f.size>CANHOTO_PDF_MAX){ erros.push((f.name||'PDF')+': passa de '+(CANHOTO_PDF_MAX/1048576)+' MB'); continue; } blob=f; }
+    else { try{ blob=await comprimirFoto(f,1800,0.7); }catch(e){ erros.push((f.name||'foto')+': '+e.message); continue; } }
+    const path='transferencias/'+k+'/'+Date.now()+'-'+Math.random().toString(36).slice(2,8)+(pdf?'.pdf':'.jpg');
+    let up; try{ up=await sb.storage.from('comprovantes').upload(path,blob,{contentType:pdf?'application/pdf':'image/jpeg',upsert:false}); }catch(e){ up={error:e}; }
+    if(up.error){ erros.push((f.name||'arquivo')+': '+((up.error&&up.error.message)||up.error)); continue; }
+    const {error}=await sb.from('romaneio_anexos').insert({romaneio_id:k,seq:Number(m0.seq)||null,obra_origem:m0.obra||null,obra_destino:m0.obraDest||null,path,nome_arquivo:f.name||null,hash:await arquivoHash(blob),enviado_por:session.user.id,enviado_por_nome:profile.nome||profile.email});
+    if(error){ erros.push((f.name||'arquivo')+': '+error.message); continue; }
+    ok++; }
+  if(ok){ try{ await sb.rpc('log_event',{p_acao:'romaneio_assinado_anexado',p_entidade:'transferencia',p_entidade_id:String(k)}); }catch(e){} }
+  await recarregarRomAnexos(k);
+  if(erros.length)toast((ok?ok+' arquivo(s) anexado(s), mas ':'')+'não foi possível anexar: '+esc(erros.join(' · ')),'err');
+  else toast('Romaneio assinado anexado ('+ok+' arquivo'+(ok>1?'s':'')+').','ok');
+  romAnxModal(k); drawTrHist(); }
+async function romAnxVer(path){ const w=window.open('','_blank');
+  const {data,error}=await sb.storage.from('comprovantes').createSignedUrl(path,900);
+  if(error||!data||!data.signedUrl){ if(w)w.close(); toast('Não foi possível abrir o romaneio: '+esc(error?error.message:'sem endereço'),'err'); return; }
+  if(w)w.location.href=data.signedUrl; else toast('Permita pop-ups para ver o romaneio.','err'); }
+function romAnxExcluir(id,k){ requireSupervisor('Excluir anexo do romaneio assinado',async()=>{
+  const {error}=await sb.from('romaneio_anexos').delete().eq('id',id);
+  if(error){ toast('Não foi possível excluir: '+esc(error.message),'err'); return; }
+  try{ await sb.rpc('log_event',{p_acao:'romaneio_assinado_excluido',p_entidade:'transferencia',p_entidade_id:String(k)}); }catch(e){}
+  await recarregarRomAnexos(k); toast('Anexo excluído.','warn'); romAnxModal(k); drawTrHist(); }); }
 
 /* ===== MÚTUO ENTRE EMPRESAS ===== */
 function periodoAtual(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
