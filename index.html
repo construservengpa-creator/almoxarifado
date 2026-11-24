@@ -4974,7 +4974,7 @@ function entregaHistHTML(){ const {rets}=window._expedCtx; const lst=(rets||[]).
       ${_comprovOk?`<div class="muted" style="font-size:11.5px">${esc(comprovDetalhe(x))}</div>${x.comprov_em&&x.comprov_tipo==='assinatura'?`<div style="margin-top:4px">${sigSvg(x.comprov_assinatura,44)}</div>`:''}`:''}
       <ul style="margin:6px 0 0;padding-left:18px;font-size:12.5px">${x.itens.map(it=>`<li>${esc(it.descricao||it.code||'')} — ${numf(it.quantidade)} ${esc(it.unidade||'')}</li>`).join('')}</ul>
       ${x.observacao?`<div class="muted" style="font-size:11.5px;margin-top:4px">Obs.: ${esc(x.observacao)}</div>`:''}
-      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn ghost sm" onclick="imprimirComprovanteEntrega('${esc(String(x.id))}')">🖨 Comprovante</button>${comprovPendente(x)&&podeOperarRetiradas()?`<button class="btn primary sm" onclick="comprovarEntregaModal('${esc(String(x.id))}','exped')">${x.comprov_tipo==='login'?'✍ Trocar por assinatura':'✍ Colher comprovação'}</button>`:''}${String(x.id)===ultId&&podeOperarRetiradas()?`<button class="btn danger sm" onclick="estornarEntregaBalcao('${esc(String(x.id))}')">Desfazer entrega</button>`:''}</div></div>`).join('')}</div>`; }
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn ghost sm" onclick="imprimirComprovanteEntrega('${esc(String(x.id))}')">🖨 Comprovante</button><button class="btn ghost sm" title="Arquivo para enviar a terceiros (abre sem login)" onclick="enviarComprovArquivo('b',window._expedCtx.r.id,'${esc(String(x.id))}',this)">📤 Enviar</button>${comprovPendente(x)&&podeOperarRetiradas()?`<button class="btn primary sm" onclick="comprovarEntregaModal('${esc(String(x.id))}','exped')">${x.comprov_tipo==='login'?'✍ Trocar por assinatura':'✍ Colher comprovação'}</button>`:''}${String(x.id)===ultId&&podeOperarRetiradas()?`<button class="btn danger sm" onclick="estornarEntregaBalcao('${esc(String(x.id))}')">Desfazer entrega</button>`:''}</div></div>`).join('')}</div>`; }
 function entregaBalcaoHTML(){ const {r,itens,parcialOk}=window._expedCtx;
   if(r.tipo_envio==='despacho')return '';
   const aberta=ENT_STATUS.includes(r.status);
@@ -5201,6 +5201,9 @@ function comprovAssinaturasPrint(x){ const quem=(x.colaborador_nome||'')+(x.cola
   return [almox,{label:'Recebido por: '+quem+(x.comprov_tipo==='login'?' — aguardando confirmação no sistema':''),html:''}]; }
 function comprovRodapePrint(x){ if(!_comprovOk||!x.comprov_tipo||x.comprov_tipo==='papel')return '';
   return `<div style="margin-top:18px;font-size:10.5px;color:#555;border-top:1px solid #ccc;padding-top:6px">Comprovação digital — ${esc(comprovDetalhe(x))}. Registro eletrônico da entrega nº ${esc(String(x.id))}, guardado no sistema de estoque; este documento pode ser reemitido a qualquer momento e dispensa via assinada em papel.</div>`; }
+/* HTML do comprovante do balcão como texto (para o arquivo enviado a terceiros) */
+function montarComprovEntrega(r,x){ let buf=''; const fake={document:{open(){},write(h){ buf+=h; },close(){}}}; _printComprovEntrega(r,x,fake);
+  return {titulo:'Comprovante de Entrega no Balcão '+reqNum(r.id),htmlCompleto:buf}; }
 function _printComprovEntrega(r,x,win){ const reqN=reqNum(r.id);
   const lista=(Array.isArray(x.itens)&&x.itens.length)?x.itens.map(it=>({code:it.code,descricao:it.descricao,quantidade:it.quantidade,unidade:it.unidade})):(r.itens||[]).map(i=>({code:i.code,descricao:i.desc,quantidade:i.qty,unidade:i.unit}));
   printSignReport({win,titulo:'Comprovante de Entrega no Balcão',numero:reqN,subtitulo:x.parcial?'Entrega parcial — o restante da requisição continua pendente':'Entrega final da requisição',
@@ -5265,7 +5268,7 @@ function despachoComprovHTML(r,emb,caixas){ if(!_comprovOk||!emb)return '';
   else if(emb.comprov_legado&&r.status==='embarcado')h+=`<span class="muted">Sem registro digital de recebimento na obra.</span>`;
   else h+=`⏳ <b>Aguardando recebimento na obra</b> · ${rec} de ${caixas.length} volume(s) recebido(s)`;
   if(emb.recebimento_obs)h+=`<div class="muted" style="font-size:11.5px;margin-top:3px">Obs. do recebimento: ${esc(emb.recebimento_obs)}</div>`;
-  h+=`</div><div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">${r.status==='embarcado'?`<button class="btn ghost sm" onclick="abrirRecebimentoObra(${r.id})">📦 Recebimento na obra</button>`:''}<button class="btn ghost sm" onclick="imprimirComprovDespacho(${r.id})">🖨 Comprovante do despacho</button></div></div>`;
+  h+=`</div><div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">${r.status==='embarcado'?`<button class="btn ghost sm" onclick="abrirRecebimentoObra(${r.id})">📦 Recebimento na obra</button>`:''}<button class="btn ghost sm" onclick="imprimirComprovDespacho(${r.id})">🖨 Comprovante do despacho</button><button class="btn ghost sm" title="Arquivo para enviar a terceiros (abre sem login; canhoto incluído)" onclick="enviarComprovArquivo('d',${r.id},null,this)">📤 Enviar a terceiros</button></div></div>`;
   return h; }
 
 /* --- Recebimento na obra (QR da etiqueta do volume, aviso no topo ou "Minhas requisições") --- */
@@ -5358,7 +5361,7 @@ function drawComprovLista(){ const box=$('#cvList'); if(!box)return; const a=_co
       <td style="white-space:nowrap">${l.k==='b'?'🤝 Balcão':'🚚 Despacho'}</td>
       <td>${esc(l.quem)}${l.k==='b'&&l.x.registrado_por_nome?`<div class="muted" style="font-size:11px">entregue por ${esc(l.x.registrado_por_nome)}</div>`:''}</td>
       <td>${l.pills}${l.det?`<div class="muted" style="font-size:11px;margin-top:2px">${esc(l.det)}</div>`:''}</td>
-      <td class="num" style="white-space:nowrap">${l.k==='b'&&l.pend&&opera?`<button class="btn primary sm" onclick="comprovarEntregaModal('${esc(l.id)}','arq')">✍ Colher</button> `:''}${l.k==='d'&&l.x.canhoto_path?`<button class="btn ghost sm" title="Ver foto do canhoto" onclick="verCanhoto('${esc(l.x.canhoto_path)}')">👁</button> `:''}<button class="btn ghost sm" title="Comprovante" onclick="imprimirComprovArquivo('${l.k}',${Number(l.reqId)},'${esc(l.id)}')">🖨</button>${opera?` <button class="btn ghost sm" title="Abrir a expedição desta requisição" onclick="abrirExpedicao(${Number(l.reqId)})">Abrir</button>`:''}</td></tr>`).join('')
+      <td class="num" style="white-space:nowrap">${l.k==='b'&&l.pend&&opera?`<button class="btn primary sm" onclick="comprovarEntregaModal('${esc(l.id)}','arq')">✍ Colher</button> `:''}${l.k==='d'&&l.x.canhoto_path?`<button class="btn ghost sm" title="Ver foto do canhoto" onclick="verCanhoto('${esc(l.x.canhoto_path)}')">👁</button> `:''}<button class="btn ghost sm" title="Comprovante" onclick="imprimirComprovArquivo('${l.k}',${Number(l.reqId)},'${esc(l.id)}')">🖨</button> <button class="btn ghost sm" title="Enviar a terceiros (arquivo que abre sem login, com o comprovante dentro)" onclick="enviarComprovArquivo('${l.k}',${Number(l.reqId)},'${esc(l.id)}',this)">📤</button>${opera?` <button class="btn ghost sm" title="Abrir a expedição desta requisição" onclick="abrirExpedicao(${Number(l.reqId)})">Abrir</button>`:''}</td></tr>`).join('')
     ||`<tr><td colspan="6" class="empty" style="padding:24px">Nenhuma entrega encontrada com estes filtros.</td></tr>`}</tbody></table>`; }
 async function comprovDadosReq(ids){ const {data,error}=await sb.rpc('comprov_dados',{p_requisicoes:ids}); if(error){ toast('Erro ao carregar a comprovação: '+esc(error.message),'err'); return null; } return data||{reqs:[],balcao:[],despachos:[],caixas:[]}; }
 async function comprovUrlsCanhoto(paths){ const urls={}; paths=[...new Set((paths||[]).filter(Boolean))]; if(!paths.length)return urls;
@@ -5411,13 +5414,14 @@ function comprovBlocoReq(r,d,urls){ const bal=d.balcao.filter(x=>x.requisicao_id
       ${e.canhoto_path&&urls[e.canhoto_path]?(canhotoEhPdf(e.canhoto_path)?(String(urls[e.canhoto_path]).startsWith('data:')?`<br>📄 Canhoto em PDF: <a href="#" class="anx" data-b64="${esc(urls[e.canhoto_path])}" data-nome="canhoto-${reqNum(r.id)}.pdf">abrir arquivo</a>`:`<br>📄 Canhoto em PDF: <a href="${esc(urls[e.canhoto_path])}" target="_blank" rel="noopener">abrir arquivo</a>`):`<img class="foto" src="${esc(urls[e.canhoto_path])}" alt="Canhoto">`):''}</div>`; });
   if(!tem){ completo=false; h+=`<div class="box"><span class="pend">⚠ Nenhuma entrega registrada no sistema para esta requisição até o momento.</span></div>`; }
   return {html:h,completo}; }
-async function _printComprovDespacho(r,d,w){ const urls=await comprovUrlsCanhoto(d.despachos.map(e=>e.canhoto_path)); const b=comprovBlocoReq(r,d,urls); const reqN=reqNum(r.id);
+async function _printComprovDespacho(r,d,w){ const doc=await montarComprovDespacho(r,d,false); comprovPrintFim(w,doc.html,doc.titulo); }
+async function montarComprovDespacho(r,d,embutir){ let urls=await comprovUrlsCanhoto(d.despachos.map(e=>e.canhoto_path)); if(embutir)urls=await comprovEmbutirArquivos(urls); const b=comprovBlocoReq(r,d,urls); const reqN=reqNum(r.id);
   const itens=(r.itens||[]).map((i,n)=>`<tr><td>${n+1}</td><td class="mono">${esc(i.code||'')}</td><td>${esc(i.desc||'')}</td><td style="text-align:right">${numf(i.qty)} ${esc(i.unit||'')}</td></tr>`).join('');
-  comprovPrintFim(w,`<div class="hd"><div><h1>Comprovante de Entrega — Despacho</h1><div class="sub">${b.completo?'Entrega comprovada digitalmente':'Comprovação ainda incompleta'}</div></div><div class="numbox"><div class="l">Documento Nº</div><div class="n">${reqN}</div></div></div>
+  return {titulo:'Comprovante de Despacho '+reqN,html:`<div class="hd"><div><h1>Comprovante de Entrega — Despacho</h1><div class="sub">${b.completo?'Entrega comprovada digitalmente':'Comprovação ainda incompleta'}</div></div><div class="numbox"><div class="l">Documento Nº</div><div class="n">${reqN}</div></div></div>
     <div class="meta"><div><b>Obra:</b> ${esc(r.obra_nome||'')}</div>${r.aplicacao_nome?`<div><b>Aplicação:</b> ${esc(r.aplicacao_nome)}</div>`:''}${r.ordem_servico?`<div><b>Ordem de serviço:</b> ${esc(r.ordem_servico)}</div>`:''}${r.mutuo_empresa_destino?`<div><b>Mútuo:</b> ${esc(r.mutuo_empresa_origem||'')} → ${esc(r.mutuo_empresa_destino)}</div>`:''}<div><b>Emitido em:</b> ${esc(fmtDate(Date.now()))} por ${esc(profile.nome||profile.email)}</div></div>
     <h2>Itens da requisição</h2><table><thead><tr><th style="width:28px">#</th><th>Código</th><th>Descrição</th><th style="text-align:right">Solicitado</th></tr></thead><tbody>${itens}</tbody></table>
     <h2>Comprovação da entrega</h2>${b.html}
-    <div class="nota">Documento gerado a partir dos registros eletrônicos do sistema de estoque (entrega, foto do canhoto e confirmação de recebimento com login individual). Pode ser reemitido a qualquer momento e dispensa arquivo em papel.</div>`,'Comprovante de Despacho '+reqN); }
+    <div class="nota">Documento gerado a partir dos registros eletrônicos do sistema de estoque (entrega, foto do canhoto e confirmação de recebimento com login individual). Pode ser reemitido a qualquer momento e dispensa arquivo em papel.</div>`}; }
 
 /* --- Mútuo entre empresas: comprovante do período (lançamentos + comprovação de cada entrega) --- */
 async function imprimirComprovMutuo(tipo,key){ const w=window.open('','_blank'); if(!w){ toast('Permita pop-ups para gerar o comprovante.','err'); return; }
@@ -5427,13 +5431,28 @@ async function imprimirComprovMutuo(tipo,key){ const w=window.open('','_blank');
    (fotos e PDFs dos canhotos vão dentro do arquivo; "✔ Comprovada" leva à comprovação no fim do documento) */
 async function enviarComprovMutuo(tipo,key,btn){ if(btn){ btn.disabled=true; btn._t=btn.innerHTML; btn.innerHTML='⏳ Gerando...'; }
   try{ const doc=await montarComprovMutuo(tipo,key,true); if(!doc)return;
-    const nome=('Comprovante-Mutuo-'+doc.periodo+'-'+doc.destino).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Za-z0-9._-]+/g,'-').replace(/-+/g,'-').slice(0,90)+'.html';
-    const barra=`<div class="barra noprint"><b>📎 Comprovante para envio</b><span style="flex:1;color:#555">Clique em “✔ Comprovada” para ver o termo de entrega de cada lançamento.</span><button onclick="window.print()">🖨 Imprimir / salvar PDF</button></div>`;
-    const file=new File([comprovDocHtml(barra+doc.html,doc.titulo,false)],nome,{type:'text/html'});
-    if(navigator.canShare&&navigator.canShare({files:[file]})&&/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)){
-      try{ await navigator.share({files:[file],title:doc.titulo}); return; }catch(e){ if(e&&e.name==='AbortError')return; } }
-    const a=document.createElement('a'); a.href=URL.createObjectURL(file); a.download=nome; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),60000);
-    toast('Arquivo gerado: '+esc(nome)+' — pode ser enviado por e-mail ou WhatsApp e aberto em qualquer navegador.','ok');
+    await comprovEntregarArquivo(comprovDocHtml(comprovBarraEnvio('Clique em “✔ Comprovada” para ver o termo de entrega de cada lançamento.')+doc.html,doc.titulo,false),'Comprovante-Mutuo-'+doc.periodo+'-'+doc.destino,doc.titulo);
+  }finally{ if(btn){ btn.disabled=false; btn.innerHTML=btn._t; } } }
+function comprovBarraEnvio(txt){ return `<div class="barra noprint"><b>📎 Comprovante para envio</b><span style="flex:1;color:#555">${esc(txt)}</span><button onclick="window.print()">🖨 Imprimir / salvar PDF</button></div>`; }
+/* baixa o .html (no celular abre o compartilhamento: WhatsApp, e-mail...) */
+async function comprovEntregarArquivo(html,base,titulo){
+  const nome=String(base).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Za-z0-9._-]+/g,'-').replace(/-+/g,'-').slice(0,90)+'.html';
+  const file=new File([html],nome,{type:'text/html'});
+  if(navigator.canShare&&navigator.canShare({files:[file]})&&/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)){
+    try{ await navigator.share({files:[file],title:titulo}); return; }catch(e){ if(e&&e.name==='AbortError')return; } }
+  const a=document.createElement('a'); a.href=URL.createObjectURL(file); a.download=nome; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),60000);
+  toast('Arquivo gerado: '+esc(nome)+' — pode ser enviado por e-mail ou WhatsApp e aberto em qualquer navegador.','ok'); }
+/* Despacho ('d') ou entrega no balcão ('b') como arquivo para terceiros: abre sem login, canhotos embutidos */
+async function enviarComprovArquivo(k,reqId,id,btn){ if(btn){ btn.disabled=true; btn._t=btn.innerHTML; btn.innerHTML='⏳'; }
+  try{ const d=await comprovDadosReq([reqId]); if(!d)return; const r=d.reqs[0]; if(!r){ toast('Requisição não encontrada.','err'); return; }
+    if(k==='b'){ const x=d.balcao.find(y=>String(y.id)===String(id)); if(!x){ toast('Entrega não encontrada.','err'); return; }
+      const doc=montarComprovEntrega(r,x);
+      const html=doc.htmlCompleto.replace(/<script>setTimeout\(\(\)=>window\.print\(\),\d+\);<\/script>/,()=>'<script>'+COMPROV_DOC_JS+'<\/script>')
+        .replace('</style>',()=>COMPROV_EXTRA_CSS+'.barra{margin:0 0 14px}</style>').replace('<head>','<head><meta name="viewport" content="width=device-width,initial-scale=1">')
+        .replace('<body>',()=>'<body>'+comprovBarraEnvio('Comprovante de entrega no balcão com a comprovação registrada no sistema.'));
+      await comprovEntregarArquivo(html,'Comprovante-Balcao-'+reqNum(r.id)+'-'+String(x.data_retirada||'').slice(0,10),doc.titulo); }
+    else{ const doc=await montarComprovDespacho(r,d,true);
+      await comprovEntregarArquivo(comprovDocHtml(comprovBarraEnvio('Foto ou PDF do canhoto e confirmação de recebimento na obra incluídos no arquivo.')+doc.html,doc.titulo,false),'Comprovante-Despacho-'+reqNum(r.id),doc.titulo); }
   }finally{ if(btn){ btn.disabled=false; btn.innerHTML=btn._t; } } }
 async function montarComprovMutuo(tipo,key,embutir){
   let itens=[], cab=null;
