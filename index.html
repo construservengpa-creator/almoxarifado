@@ -5364,6 +5364,15 @@ async function comprovDadosReq(ids){ const {data,error}=await sb.rpc('comprov_da
 async function comprovUrlsCanhoto(paths){ const urls={}; paths=[...new Set((paths||[]).filter(Boolean))]; if(!paths.length)return urls;
   try{ const {data}=await sb.storage.from('comprovantes').createSignedUrls(paths,3600); (data||[]).forEach(s=>{ if(s&&s.signedUrl&&s.path)urls[s.path]=s.signedUrl; }); }catch(e){}
   return urls; }
+/* embute os canhotos no próprio documento (dataURL): fotos reduzidas a até 1600px, PDFs inteiros. O que falhar fica com o link. */
+async function comprovEmbutirArquivos(urls){ const out={};
+  for(const [path,u] of Object.entries(urls)){ out[path]=u;
+    try{ const resp=await fetch(u); if(!resp.ok)continue; const blob=await resp.blob();
+      if(canhotoEhPdf(path)){ out[path]=await new Promise((ok,ko)=>{ const fr=new FileReader(); fr.onload=()=>ok(String(fr.result).replace(/^data:[^;,]*/,'data:application/pdf')); fr.onerror=ko; fr.readAsDataURL(blob); }); }
+      else{ const bmp=await createImageBitmap(blob); const k=Math.min(1,1600/Math.max(bmp.width,bmp.height)); const c=document.createElement('canvas');
+        c.width=Math.round(bmp.width*k); c.height=Math.round(bmp.height*k); c.getContext('2d').drawImage(bmp,0,0,c.width,c.height); out[path]=c.toDataURL('image/jpeg',0.82); }
+    }catch(e){} }
+  return out; }
 async function imprimirComprovArquivo(k,reqId,id){ const w=window.open('','_blank'); if(!w){ toast('Permita pop-ups para gerar o comprovante.','err'); return; }
   w.document.write('<p style="font-family:Arial;padding:30px">Gerando comprovante...</p>');
   const d=await comprovDadosReq([reqId]); if(!d){ w.close(); return; }
@@ -5374,8 +5383,20 @@ async function imprimirComprovDespacho(reqId){ const w=window.open('','_blank');
   w.document.write('<p style="font-family:Arial;padding:30px">Gerando comprovante...</p>');
   const d=await comprovDadosReq([reqId]); if(!d||!d.reqs[0]){ w.close(); return; } await _printComprovDespacho(d.reqs[0],d,w); }
 const COMPROV_PRINT_CSS=`body{font-family:Arial,Helvetica,sans-serif;margin:34px;color:#111;font-size:12.5px}.hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:8px}h1{font-size:18px;margin:0 0 2px}h2{font-size:14px;margin:20px 0 6px;border-bottom:1px solid #999;padding-bottom:3px}.sub{color:#555;font-size:12px}.numbox{text-align:right;border:2px solid #111;border-radius:6px;padding:6px 14px}.numbox .l{font-size:9px;letter-spacing:1px;color:#555;text-transform:uppercase}.numbox .n{font-size:22px;font-weight:bold;font-family:'Courier New',monospace}.meta{margin:10px 0;line-height:1.7}.meta b{display:inline-block;min-width:130px}table{width:100%;border-collapse:collapse;margin-top:6px}th,td{border:1px solid #999;padding:5px 7px;font-size:11px;vertical-align:top}th{background:#eee;text-align:left}tfoot td{font-weight:bold;background:#f6f6f6}.mono{font-family:'Courier New',monospace}.box{border:1px solid #999;border-radius:6px;padding:9px 12px;margin-top:8px;page-break-inside:avoid}.ok{color:#12583c;font-weight:bold}.pend{color:#8a1f1f;font-weight:bold}.foto{max-width:100%;max-height:330px;border:1px solid #999;margin-top:6px;display:block}.sigs{display:flex;gap:36px;margin-top:64px;flex-wrap:wrap;page-break-inside:avoid}.sig{flex:1;min-width:170px;text-align:center;border-top:1px solid #333;padding-top:5px;font-size:11.5px}.nota{margin-top:18px;font-size:10.5px;color:#555;border-top:1px solid #ccc;padding-top:6px}`;
+/* roda dentro do documento gerado (janela de impressão ou arquivo .html enviado a terceiros):
+   - links "#..." (ex.: "✔ Comprovada" → comprovação da requisição) rolam até o ponto certo do próprio documento,
+     sem depender do endereço da página (na janela de impressão o endereço base é o do sistema);
+   - anexos embutidos (PDF do canhoto) abrem numa nova aba; se o navegador bloquear, são baixados. */
+const COMPROV_DOC_JS=`document.addEventListener('click',function(ev){var a=ev.target.closest&&ev.target.closest('a');if(!a)return;
+var h=a.getAttribute('href')||'';if(a.hasAttribute('data-b64')){ev.preventDefault();try{var u=a.getAttribute('data-b64'),p=u.split(','),bin=atob(p[1]),arr=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+var bl=new Blob([arr],{type:(/data:([^;,]+)/.exec(p[0])||[])[1]||'application/octet-stream'}),url=URL.createObjectURL(bl),w=window.open(url,'_blank');
+if(!w){var d=document.createElement('a');d.href=url;d.download=a.getAttribute('data-nome')||'anexo';document.body.appendChild(d);d.click();d.remove();}}catch(e){alert('Não foi possível abrir o anexo: '+e.message);}return;}
+if(h.charAt(0)==='#'){ev.preventDefault();var id=decodeURIComponent(h.slice(1)),el=id?document.getElementById(id):document.body;if(el){el.scrollIntoView({behavior:'smooth',block:'start'});
+el.classList&&el.classList.add('alvo');setTimeout(function(){el.classList&&el.classList.remove('alvo');},1600);}}});`;
+const COMPROV_EXTRA_CSS=`a{color:inherit}a.lk{text-decoration:none;border-bottom:1px dotted currentColor}a.lk:hover{border-bottom-style:solid}.topo{float:right;font-size:11px;font-weight:normal;color:#555}.alvo{background:#fff6cc;transition:background .4s}.barra{position:sticky;top:0;background:#f3f4f6;border:1px solid #ccc;border-radius:6px;padding:8px 12px;margin:-20px 0 18px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px}.barra button{font:inherit;padding:5px 12px;border:1px solid #888;border-radius:5px;background:#fff;cursor:pointer}@media print{.noprint{display:none!important}a.lk{border:0}}@media (max-width:700px){body{margin:14px}.hd{flex-direction:column;gap:8px}table{display:block;overflow-x:auto}}`;
+function comprovDocHtml(html,titulo,imprimir){ return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(titulo)}</title><style>${COMPROV_PRINT_CSS}${COMPROV_EXTRA_CSS}</style></head><body>${html}<script>${COMPROV_DOC_JS}${imprimir?'window.onload=function(){setTimeout(function(){window.print();},500);};':''}<\/script></body></html>`; }
 function comprovPrintFim(w,html,titulo){ try{ w.document.open(); }catch(e){}
-  w.document.write(`<html><head><meta charset="utf-8"><title>${esc(titulo)}</title><style>${COMPROV_PRINT_CSS}</style></head><body>${html}<script>window.onload=function(){setTimeout(function(){window.print();},500);};<\/script></body></html>`); w.document.close(); }
+  w.document.write(comprovDocHtml(html,titulo,true)); w.document.close(); }
 /* bloco HTML com a comprovação de UMA requisição (usado no comprovante do despacho e no do mútuo) */
 function comprovBlocoReq(r,d,urls){ const bal=d.balcao.filter(x=>x.requisicao_id===r.id), des=d.despachos.filter(e=>e.requisicao_id===r.id), cx=d.caixas.filter(c=>c.requisicao_id===r.id); let h='', completo=true, tem=false;
   bal.forEach(x=>{ tem=true; const ok=!!x.comprov_em||x.comprov_tipo==='papel'; if(!ok)completo=false;
@@ -5387,7 +5408,7 @@ function comprovBlocoReq(r,d,urls){ const bal=d.balcao.filter(x=>x.requisicao_id
       <br>${leg?'Despacho anterior à comprovação digital (canhoto em papel).':(e.canhoto_path?`<span class="ok">✔ Canhoto anexado</span> em ${esc(fmtTs(e.canhoto_em))}${e.canhoto_por_nome?' por '+esc(e.canhoto_por_nome):''}`:'<span class="pend">⚠ Sem foto do canhoto</span>')}
       ${leg?'':'<br>'+(e.recebido_em?`<span class="ok">✔ Recebido na obra</span> por <b>${esc(e.recebido_por_nome||'—')}</b>, com login próprio, em ${esc(fmtTs(e.recebido_em))}`:`<span class="pend">⚠ Recebimento na obra ainda não confirmado</span> (${rec} de ${cx.length} volume(s))`)}
       ${e.recebimento_obs?'<br>Obs. do recebimento: '+esc(e.recebimento_obs):''}
-      ${e.canhoto_path&&urls[e.canhoto_path]?(canhotoEhPdf(e.canhoto_path)?`<br>📄 Canhoto em PDF: <a href="${esc(urls[e.canhoto_path])}" target="_blank" rel="noopener">abrir arquivo</a>`:`<img class="foto" src="${esc(urls[e.canhoto_path])}" alt="Canhoto">`):''}</div>`; });
+      ${e.canhoto_path&&urls[e.canhoto_path]?(canhotoEhPdf(e.canhoto_path)?(String(urls[e.canhoto_path]).startsWith('data:')?`<br>📄 Canhoto em PDF: <a href="#" class="anx" data-b64="${esc(urls[e.canhoto_path])}" data-nome="canhoto-${reqNum(r.id)}.pdf">abrir arquivo</a>`:`<br>📄 Canhoto em PDF: <a href="${esc(urls[e.canhoto_path])}" target="_blank" rel="noopener">abrir arquivo</a>`):`<img class="foto" src="${esc(urls[e.canhoto_path])}" alt="Canhoto">`):''}</div>`; });
   if(!tem){ completo=false; h+=`<div class="box"><span class="pend">⚠ Nenhuma entrega registrada no sistema para esta requisição até o momento.</span></div>`; }
   return {html:h,completo}; }
 async function _printComprovDespacho(r,d,w){ const urls=await comprovUrlsCanhoto(d.despachos.map(e=>e.canhoto_path)); const b=comprovBlocoReq(r,d,urls); const reqN=reqNum(r.id);
@@ -5401,32 +5422,46 @@ async function _printComprovDespacho(r,d,w){ const urls=await comprovUrlsCanhoto
 /* --- Mútuo entre empresas: comprovante do período (lançamentos + comprovação de cada entrega) --- */
 async function imprimirComprovMutuo(tipo,key){ const w=window.open('','_blank'); if(!w){ toast('Permita pop-ups para gerar o comprovante.','err'); return; }
   w.document.write('<p style="font-family:Arial;padding:30px">Gerando comprovante do período...</p>');
+  const doc=await montarComprovMutuo(tipo,key,false); if(!doc){ w.close(); return; } comprovPrintFim(w,doc.html,doc.titulo); }
+/* versão para enviar a terceiros: um único arquivo .html, sem login e sem links que expiram
+   (fotos e PDFs dos canhotos vão dentro do arquivo; "✔ Comprovada" leva à comprovação no fim do documento) */
+async function enviarComprovMutuo(tipo,key,btn){ if(btn){ btn.disabled=true; btn._t=btn.innerHTML; btn.innerHTML='⏳ Gerando...'; }
+  try{ const doc=await montarComprovMutuo(tipo,key,true); if(!doc)return;
+    const nome=('Comprovante-Mutuo-'+doc.periodo+'-'+doc.destino).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Za-z0-9._-]+/g,'-').replace(/-+/g,'-').slice(0,90)+'.html';
+    const barra=`<div class="barra noprint"><b>📎 Comprovante para envio</b><span style="flex:1;color:#555">Clique em “✔ Comprovada” para ver o termo de entrega de cada lançamento.</span><button onclick="window.print()">🖨 Imprimir / salvar PDF</button></div>`;
+    const file=new File([comprovDocHtml(barra+doc.html,doc.titulo,false)],nome,{type:'text/html'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})&&/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)){
+      try{ await navigator.share({files:[file],title:doc.titulo}); return; }catch(e){ if(e&&e.name==='AbortError')return; } }
+    const a=document.createElement('a'); a.href=URL.createObjectURL(file); a.download=nome; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),60000);
+    toast('Arquivo gerado: '+esc(nome)+' — pode ser enviado por e-mail ou WhatsApp e aberto em qualquer navegador.','ok');
+  }finally{ if(btn){ btn.disabled=false; btn.innerHTML=btn._t; } } }
+async function montarComprovMutuo(tipo,key,embutir){
   let itens=[], cab=null;
-  if(tipo==='aberto'){ const g=_mutuoGrupos[key]; if(!g){ w.close(); toast('Grupo não encontrado — atualize a tela.','err'); return; }
+  if(tipo==='aberto'){ const g=_mutuoGrupos[key]; if(!g){ toast('Grupo não encontrado — atualize a tela.','err'); return null; }
     itens=g.itens.slice(); cab={periodo:g.periodo,origem:g.origem,destino:g.destino,sit:'Período em aberto — sujeito a novos lançamentos'}; }
-  else{ const f=_mutuoFechados[key]; if(!f){ w.close(); toast('Fechamento não encontrado — atualize a tela.','err'); return; }
+  else{ const f=_mutuoFechados[key]; if(!f){ toast('Fechamento não encontrado — atualize a tela.','err'); return null; }
     const {data,error}=await sb.from('mutuos_intercompany').select('*').eq('fechamento_id',key).order('criado_em',{ascending:true});
-    if(error){ w.close(); toast('Erro ao carregar os lançamentos: '+esc(error.message),'err'); return; }
+    if(error){ toast('Erro ao carregar os lançamentos: '+esc(error.message),'err'); return null; }
     itens=data||[]; cab={periodo:f.periodo,origem:f.empresa_origem,destino:f.empresa_destino,sit:'Período fechado em '+fmtTs(f.criado_em)+(f.fechado_por_nome?' por '+f.fechado_por_nome:'')}; }
   const reqIds=[...new Set(itens.map(m=>m.requisicao_id).filter(v=>v!=null))];
   let d={reqs:[],balcao:[],despachos:[],caixas:[]}, aviso='';
   if(!_comprovOk)aviso='A comprovação digital de entrega ainda não está ativada — este documento lista apenas os lançamentos.';
   else if(reqIds.length){ const r=await comprovDadosReq(reqIds); if(r)d=r; else aviso='Não foi possível carregar a comprovação das entregas.'; }
-  const urls=await comprovUrlsCanhoto(d.despachos.map(e=>e.canhoto_path));
+  let urls=await comprovUrlsCanhoto(d.despachos.map(e=>e.canhoto_path)); if(embutir)urls=await comprovEmbutirArquivos(urls);
   const blocos={}; reqIds.forEach(id=>{ const r=d.reqs.find(x=>x.id===id); if(r)blocos[id]=comprovBlocoReq(r,d,urls); });
   let total=0, comOk=0;
   const linhas=itens.map((m,i)=>{ total+=Number(m.valor)||0; const b=m.requisicao_id!=null?blocos[m.requisicao_id]:null; if(b&&b.completo)comOk++;
-    const st=m.requisicao_id==null?'Lançamento manual (sem requisição)':!_comprovOk?'—':(b&&b.completo)?'<span class="ok">✔ Comprovada</span>':'<span class="pend">⚠ Pendente</span>';
+    const st=m.requisicao_id==null?'Lançamento manual (sem requisição)':!_comprovOk?'—':(b&&b.completo)?`<a class="lk ok" href="#rq-${m.requisicao_id}" title="Ver o termo de entrega">✔ Comprovada</a>`:b?`<a class="lk pend" href="#rq-${m.requisicao_id}" title="Ver a situação da entrega">⚠ Pendente</a>`:'<span class="pend">⚠ Pendente</span>';
     return `<tr><td>${i+1}</td><td style="white-space:nowrap">${esc(fmtTs(m.criado_em))}</td><td class="mono" style="white-space:nowrap">${m.requisicao_id!=null?reqNum(m.requisicao_id):'—'}</td><td>${esc(m.descricao||'—')}</td><td>${(m.obra_origem_nome||m.obra_destino_nome)?esc(m.obra_origem_nome||'—')+' → '+esc(m.obra_destino_nome||'—'):'—'}</td><td style="text-align:right;white-space:nowrap">${money(m.valor)}</td><td>${st}</td></tr>`; }).join('');
   const comReq=itens.filter(m=>m.requisicao_id!=null).length;
-  const secoes=reqIds.map(id=>{ const r=d.reqs.find(x=>x.id===id); const b=blocos[id]; if(!r||!b)return ''; return `<h2>${reqNum(id)} — ${esc(r.obra_nome||'')}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}</h2>${b.html}`; }).join('');
-  comprovPrintFim(w,`<div class="hd"><div><h1>Comprovante de Entregas — Mútuo entre Empresas</h1><div class="sub">${esc(cab.origem)} → ${esc(cab.destino)}</div></div><div class="numbox"><div class="l">Período</div><div class="n">${esc(periodoLabel(cab.periodo))}</div></div></div>
+  const secoes=reqIds.map(id=>{ const r=d.reqs.find(x=>x.id===id); const b=blocos[id]; if(!r||!b)return ''; return `<div id="rq-${id}"><h2>${reqNum(id)} — ${esc(r.obra_nome||'')}${r.ordem_servico?' · OS '+esc(r.ordem_servico):''}<a class="topo noprint" href="#lanc">↑ voltar aos lançamentos</a></h2>${b.html}</div>`; }).join('');
+  return {titulo:'Comprovante de Mútuo '+periodoLabel(cab.periodo),periodo:periodoLabel(cab.periodo),destino:cab.destino,html:`<div class="hd"><div><h1>Comprovante de Entregas — Mútuo entre Empresas</h1><div class="sub">${esc(cab.origem)} → ${esc(cab.destino)}</div></div><div class="numbox"><div class="l">Período</div><div class="n">${esc(periodoLabel(cab.periodo))}</div></div></div>
     <div class="meta"><div><b>Empresa fornecedora:</b> ${esc(cab.origem)}</div><div><b>Empresa recebedora:</b> ${esc(cab.destino)}</div><div><b>Situação:</b> ${esc(cab.sit)}</div><div><b>Emitido em:</b> ${esc(fmtDate(Date.now()))} por ${esc(profile.nome||profile.email)}</div>${_comprovOk?`<div><b>Comprovação digital:</b> ${comOk} de ${comReq} lançamento(s) com requisição estão com a entrega comprovada${itens.length-comReq?' · '+(itens.length-comReq)+' lançamento(s) manual(is)':''}</div>`:''}</div>
     ${aviso?`<div class="box"><span class="pend">${esc(aviso)}</span></div>`:''}
-    <h2>Lançamentos do período</h2><table><thead><tr><th style="width:26px">#</th><th>Data</th><th>Requisição</th><th>Descrição</th><th>Obras</th><th style="text-align:right">Valor</th><th>Entrega</th></tr></thead><tbody>${linhas||'<tr><td colspan="7">Nenhum lançamento.</td></tr>'}</tbody><tfoot><tr><td colspan="5" style="text-align:right">Total devido por ${esc(cab.destino)} a ${esc(cab.origem)}</td><td style="text-align:right;white-space:nowrap">${money(total)}</td><td></td></tr></tfoot></table>
+    <h2 id="lanc">Lançamentos do período</h2><table><thead><tr><th style="width:26px">#</th><th>Data</th><th>Requisição</th><th>Descrição</th><th>Obras</th><th style="text-align:right">Valor</th><th>Entrega</th></tr></thead><tbody>${linhas||'<tr><td colspan="7">Nenhum lançamento.</td></tr>'}</tbody><tfoot><tr><td colspan="5" style="text-align:right">Total devido por ${esc(cab.destino)} a ${esc(cab.origem)}</td><td style="text-align:right;white-space:nowrap">${money(total)}</td><td></td></tr></tfoot></table>
     ${secoes?`<h2 style="margin-top:26px;border-bottom:2px solid #111">Comprovação das entregas</h2>${secoes}`:''}
     <div class="sigs"><div class="sig">${esc(cab.origem)}<br>Responsável (empresa fornecedora)</div><div class="sig">${esc(cab.destino)}<br>Responsável (empresa recebedora)</div><div class="sig">Contabilidade</div></div>
-    <div class="nota">As comprovações acima foram colhidas eletronicamente no sistema de estoque (assinatura na tela, confirmação com login individual, foto do canhoto e recebimento na obra), com data, hora e usuário gravados pelo banco de dados. Este documento pode ser reemitido a qualquer momento.</div>`,'Comprovante de Mútuo '+periodoLabel(cab.periodo)); }
+    <div class="nota">As comprovações acima foram colhidas eletronicamente no sistema de estoque (assinatura na tela, confirmação com login individual, foto do canhoto e recebimento na obra), com data, hora e usuário gravados pelo banco de dados. Este documento pode ser reemitido a qualquer momento.</div>`}; }
 
 /* ===== EXPEDIÇÃO (embalagem, romaneio, NF, etiquetas de volume, envio) ===== */
 const EXPED_STAGES=['Separado','Romaneio','Embalado','Nota Fiscal','Etiquetas','Envio'];
@@ -6218,7 +6253,7 @@ async function drawMutuoAbertos(){ const box=$('#mutuoAbertos'); if(!box)return;
     <table><thead><tr><th>Data</th><th>Descrição</th><th>Obras</th><th class="num">Valor</th><th></th></tr></thead><tbody>${
       g.itens.map(m=>`<tr><td class="muted" style="font-size:12px">${fmtDate(new Date(m.criado_em).getTime())}${m.registrado_por_nome?'<br><span style="font-size:10.5px">'+esc(m.registrado_por_nome)+'</span>':''}</td><td>${esc(m.descricao||'—')}</td><td class="muted" style="font-size:12px">${esc(m.obra_origem_nome||'')} → ${esc(m.obra_destino_nome||'')}</td><td class="num">${money(m.valor)}</td><td class="num" style="white-space:nowrap">${podeAlterarMutuo(m)?`<button class="btn ghost sm" title="Editar" onclick="editarMutuoModal('${m.id}')">✎</button> <button class="btn danger sm" title="Excluir" onclick="excluirMutuo('${m.id}')">✕</button>`:''}</td></tr>`).join('')
     }</tbody></table>
-    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;flex-wrap:wrap"><button class="btn ghost sm" onclick="imprimirComprovMutuo('aberto',${gi})">📄 Comprovante do período</button>${isAdminOuEncAlmox()?`<button class="btn primary sm" onclick="fecharPeriodoMutuo(${gi})">🔒 Fechar período</button>`:''}</div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;flex-wrap:wrap"><button class="btn ghost sm" onclick="imprimirComprovMutuo('aberto',${gi})">📄 Comprovante do período</button><button class="btn ghost sm" title="Gera um arquivo para enviar a terceiros (abre sem login; os termos de entrega vão dentro do arquivo)" onclick="enviarComprovMutuo('aberto',${gi},this)">📤 Enviar a terceiros</button>${isAdminOuEncAlmox()?`<button class="btn primary sm" onclick="fecharPeriodoMutuo(${gi})">🔒 Fechar período</button>`:''}</div>
   </div>`).join('');
 }
 async function drawMutuoFechados(){ const box=$('#mutuoFechados'); if(!box)return;
@@ -6227,7 +6262,7 @@ async function drawMutuoFechados(){ const box=$('#mutuoFechados'); if(!box)retur
   _mutuoFechados={}; (data||[]).forEach(f=>{ _mutuoFechados[f.id]=f; });
   const podeReabrir=isAdmin(); /* reabrir período: somente administrador */
   box.innerHTML=`<table><thead><tr><th>Período</th><th>Empresas</th><th class="num">Total</th><th>Fechado por</th><th>Quando</th><th></th></tr></thead><tbody>${
-    (data||[]).map(f=>`<tr><td>${periodoLabel(f.periodo)}</td><td>${esc(f.empresa_origem)} → ${esc(f.empresa_destino)}</td><td class="num">${money(f.total_valor)}</td><td class="muted" style="font-size:12px">${esc(f.fechado_por_nome||'—')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(f.criado_em).getTime())}</td><td class="num" style="white-space:nowrap"><button class="btn ghost sm" title="Comprovante do período" onclick="imprimirComprovMutuo('fechado','${esc(f.id)}')">📄 Comprovante</button>${podeReabrir?` <button class="btn ghost sm" title="Reabrir período" onclick="reabrirPeriodoMutuo('${esc(f.id)}')">🔓 Reabrir</button>`:''}</td></tr>`).join('')||`<tr><td colspan="6" class="empty" style="padding:20px">Nenhum período fechado ainda.</td></tr>`}</tbody></table>`;
+    (data||[]).map(f=>`<tr><td>${periodoLabel(f.periodo)}</td><td>${esc(f.empresa_origem)} → ${esc(f.empresa_destino)}</td><td class="num">${money(f.total_valor)}</td><td class="muted" style="font-size:12px">${esc(f.fechado_por_nome||'—')}</td><td class="muted" style="font-size:12px">${fmtDate(new Date(f.criado_em).getTime())}</td><td class="num" style="white-space:nowrap"><button class="btn ghost sm" title="Comprovante do período" onclick="imprimirComprovMutuo('fechado','${esc(f.id)}')">📄 Comprovante</button> <button class="btn ghost sm" title="Gera um arquivo para enviar a terceiros (abre sem login; os termos de entrega vão dentro do arquivo)" onclick="enviarComprovMutuo('fechado','${esc(f.id)}',this)">📤 Enviar</button>${podeReabrir?` <button class="btn ghost sm" title="Reabrir período" onclick="reabrirPeriodoMutuo('${esc(f.id)}')">🔓 Reabrir</button>`:''}</td></tr>`).join('')||`<tr><td colspan="6" class="empty" style="padding:20px">Nenhum período fechado ainda.</td></tr>`}</tbody></table>`;
 }
 function mutuoModal(){
   const empresas=[...new Set(state.obras.map(o=>o.empresa).filter(Boolean))];
