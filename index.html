@@ -5437,11 +5437,13 @@ function comprovBarraEnvio(txt){ return `<div class="barra noprint"><b>📎 Comp
 /* baixa o .html (no celular abre o compartilhamento: WhatsApp, e-mail...) */
 async function comprovEntregarArquivo(html,base,titulo){
   const nome=String(base).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Za-z0-9._-]+/g,'-').replace(/-+/g,'-').slice(0,90)+'.html';
-  const file=new File([html],nome,{type:'text/html'});
+  await compartilharArquivo(new File([html],nome,{type:'text/html'}),titulo,'pode ser enviado por e-mail ou WhatsApp e aberto em qualquer navegador'); }
+/* celular: compartilhamento nativo (WhatsApp, e-mail...); computador: baixa o arquivo */
+async function compartilharArquivo(file,titulo,dica){
   if(navigator.canShare&&navigator.canShare({files:[file]})&&/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)){
     try{ await navigator.share({files:[file],title:titulo}); return; }catch(e){ if(e&&e.name==='AbortError')return; } }
-  const a=document.createElement('a'); a.href=URL.createObjectURL(file); a.download=nome; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),60000);
-  toast('Arquivo gerado: '+esc(nome)+' — pode ser enviado por e-mail ou WhatsApp e aberto em qualquer navegador.','ok'); }
+  const a=document.createElement('a'); a.href=URL.createObjectURL(file); a.download=file.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),60000);
+  toast('Arquivo gerado: '+esc(file.name)+(dica?' — '+esc(dica)+'.':''),'ok'); }
 /* Despacho ('d') ou entrega no balcão ('b') como arquivo para terceiros: abre sem login, canhotos embutidos */
 async function enviarComprovArquivo(k,reqId,id,btn){ if(btn){ btn.disabled=true; btn._t=btn.innerHTML; btn.innerHTML='⏳'; }
   try{ const d=await comprovDadosReq([reqId]); if(!d)return; const r=d.reqs[0]; if(!r){ toast('Requisição não encontrada.','err'); return; }
@@ -9056,6 +9058,17 @@ async function patTermoGuardarPdf(id){ try{ const t=await patTermoBuscar1(id); i
   }catch(e){ return (e&&e.message)||String(e); } }
 async function patTermoImprimir(id){ const w=window.open('','_blank'); try{ const t=await patTermoBuscar1(id); const url=(await patTermoPdf(t)).output('bloburl'); if(w)w.location.href=url; else toast('Permita pop-ups para abrir o termo.','err'); }
   catch(e){ if(w)w.close(); toast('Não foi possível gerar o termo: '+esc((e&&e.message)||e),'err'); } }
+/* termo para enviar a terceiros: o documento assinado guardado (PDF ou foto do papel); se ainda não foi guardado, o PDF gerado agora */
+async function patTermoEnviar(id,btn){ if(btn){ btn.disabled=true; btn._t=btn.innerHTML; btn.innerHTML='⏳'; }
+  try{ const t=await patTermoBuscar1(id); const base='Termo-'+String(t.numero||id).replace(/[^A-Za-z0-9._-]+/g,'-'); let file=null;
+    if(t.arquivo_path){ const {data,error}=await sb.storage.from('comprovantes').createSignedUrl(t.arquivo_path,300);
+      if(!error&&data&&data.signedUrl){ const resp=await fetch(data.signedUrl); if(resp.ok){ const blob=await resp.blob();
+        const ext=(/\.([A-Za-z0-9]{2,5})$/.exec(t.arquivo_path)||[])[1]||(blob.type==='application/pdf'?'pdf':'jpg');
+        file=new File([blob],base+'-assinado.'+ext.toLowerCase(),{type:blob.type||(ext.toLowerCase()==='pdf'?'application/pdf':'image/jpeg')}); } } }
+    if(!file)file=new File([(await patTermoPdf(t)).output('blob')],base+(t.assinado_em?'-assinado':'')+'.pdf',{type:'application/pdf'});
+    await compartilharArquivo(file,'Termo de entrega '+(t.numero||''),'pode ser enviado por e-mail ou WhatsApp');
+  }catch(e){ toast('Não foi possível gerar o termo: '+esc((e&&e.message)||e),'err'); }
+  finally{ if(btn){ btn.disabled=false; btn.innerHTML=btn._t; } } }
 async function patTermoVerArquivo(path){ const w=window.open('','_blank'); const {data,error}=await sb.storage.from('comprovantes').createSignedUrl(path,900);
   if(error||!data||!data.signedUrl){ if(w)w.close(); toast('Não foi possível abrir o documento: '+esc(error?error.message:'sem endereço'),'err'); return; }
   if(w)w.location.href=data.signedUrl; else toast('Permita pop-ups para ver o documento.','err'); }
@@ -9101,6 +9114,7 @@ function patTermosDesenhar(){ const box=$('#ptqLista'); if(!box)return; const q=
   box.innerHTML=l.length?l.slice(0,200).map(t=>{ const pend=!t.assinado_em&&!t.cancelado_em;
     let ac=''; if(t.arquivo_path)ac+=`<button class="btn ghost sm" onclick="patTermoVerArquivo('${esc(t.arquivo_path)}')">👁 Documento assinado</button> `;
     if(!t.cancelado_em&&!(t.tipo==='papel'&&t.arquivo_path))ac+=`<button class="btn ghost sm" onclick="patTermoImprimir(${t.id})">🖨 ${pend?'Imprimir para assinar':'Termo'}</button> `;
+    if(!t.cancelado_em&&(t.assinado_em||t.arquivo_path))ac+=`<button class="btn ghost sm" title="Arquivo do termo para enviar a terceiros (abre sem login)" onclick="patTermoEnviar(${t.id},this)">📤 Enviar</button> `;
     if(op&&t.assinado_em&&!t.arquivo_path&&!t.cancelado_em)ac+=`<button class="btn primary sm" onclick="patTermoGuardarAgora(${t.id},this)">💾 Guardar documento</button> `;
     if(op&&pend)ac+=`<button class="btn ghost sm" onclick="patTermoCancelar(${t.id})">✕ Cancelar</button>`;
     const anexo=op&&pend&&t.tipo==='papel'?`<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;align-items:center"><input id="ptaFile${t.id}" type="file" accept="${CANHOTO_ACCEPT}" style="flex:1;min-width:160px" title="Foto ou PDF do termo assinado"><button class="btn primary sm" onclick="patTermoAnexarPapel(${t.id})">📎 Anexar termo assinado</button></div>`:'';
