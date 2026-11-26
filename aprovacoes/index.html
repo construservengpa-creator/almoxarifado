@@ -974,16 +974,27 @@ async function tagsAplicacoes(){
 function equipHTML(r,tags,vazio){ const t=r.aplicacao_id&&tags[r.aplicacao_id];
   return t?'⚙ Prefixo <b class="pref">'+esc(t)+'</b> · '+esc(r.aplicacao_nome||''):esc(r.aplicacao_nome||vazio); }
 
-/* saldo disponível = saldo da obra − bloqueado por devolução ao fornecedor em aberto */
+/* saldo disponível = saldo da obra − bloqueado por devolução ao fornecedor em aberto − reservas abertas da O.S. RAF
+   (as reservas ligadas à própria requisição não contam contra ela: ver dispReq) */
+let _rafRes={}, _rafResReq={};
+function dispReq(saldo,r,ob,code){
+  const k=ob+'|'+code; if(saldo[k]==null)return undefined;
+  const res=_rafRes[k]||0, propria=_rafResReq[String(r.id)+'|'+k]||0;
+  return Math.max(saldo[k]-Math.max(res-propria,0),0);
+}
 async function saldosPara(reqs){
   const obras=[...new Set(reqs.map(obraEstoque))]; const codes=[...new Set(reqs.flatMap(r=>(r.itens||[]).map(i=>String(i.code))))];
   const saldo={};
   if(!obras.length||!codes.length)return saldo;
-  const [s,d]=await Promise.all([
+  const [s,d,r]=await Promise.all([
     sb.from('saldos_estoque').select('obra_id,code,saldo').in('obra_id',obras).in('code',codes),
-    sb.from('devolucoes').select('obra_id,itens').in('status',['aguardando_nota','em_envio']).in('obra_id',obras)
+    sb.from('devolucoes').select('obra_id,itens').in('status',['aguardando_nota','em_envio']).in('obra_id',obras),
+    sb.from('raf_os_reservas').select('obra_id,code,quantidade,requisicao_id').eq('status','ativa').in('obra_id',obras).in('code',codes)
   ]);
   if(s.error)throw s.error;
+  _rafRes={}; _rafResReq={}; /* sem a tabela (ou sem acesso), segue como antes: nenhuma reserva */
+  if(!r.error)(r.data||[]).forEach(x=>{ const k=x.obra_id+'|'+x.code, q=Number(x.quantidade)||0;
+    _rafRes[k]=(_rafRes[k]||0)+q; if(x.requisicao_id!=null){ const kr=String(x.requisicao_id)+'|'+k; _rafResReq[kr]=(_rafResReq[kr]||0)+q; } });
   (s.data||[]).forEach(x=>{ saldo[x.obra_id+'|'+x.code]=Number(x.saldo)||0; });
   (d.data||[]).forEach(dv=>(dv.itens||[]).forEach(it=>{ const k=dv.obra_id+'|'+it.code; if(k in saldo)saldo[k]-=Number(it.qty)||0; }));
   Object.keys(saldo).forEach(k=>{ if(saldo[k]<0)saldo[k]=0; });
@@ -1001,9 +1012,9 @@ async function desenharPendentes(){
   let saldo={}; try{ saldo=await saldosPara(pendentes); }catch(e){ toast('Não foi possível conferir o saldo agora.','warn'); }
   box.innerHTML=pendentes.map(r=>{
     const ob=obraEstoque(r);
-    const itens=(r.itens||[]).map(i=>{ const disp=saldo[ob+'|'+i.code]; const falta=disp!=null?Math.max((Number(i.qty)||0)-disp,0):null;
+    const itens=(r.itens||[]).map(i=>{ const disp=dispReq(saldo,r,ob,i.code); const falta=disp!=null?Math.max((Number(i.qty)||0)-disp,0):null;
       return `<li><span>${esc(i.desc||i.code)}</span><span class="q">${numf(i.qty)} ${esc(i.unit||'')}${disp==null?'<small>saldo —</small>':falta>0?`<small class="falta">falta ${numf(falta)} · disp. ${numf(disp)}</small>`:`<small>disp. ${numf(disp)}</small>`}</span></li>`; }).join('');
-    const nFalta=(r.itens||[]).filter(i=>{ const disp=saldo[ob+'|'+i.code]; return disp!=null&&(Number(i.qty)||0)>disp; }).length;
+    const nFalta=(r.itens||[]).filter(i=>{ const disp=dispReq(saldo,r,ob,i.code); return disp!=null&&(Number(i.qty)||0)>disp; }).length;
     return `<article class="card" id="r${r.id}">
       <div class="card-hd"><span class="req">${reqN(r.id)}</span><span class="when">${quando(r.criado_em)}</span></div>
       <div class="obra">${esc(r.obra_nome)}</div>
@@ -1046,7 +1057,7 @@ async function aprovar(id,btn){
     if(r.status!=='pendente'){ toast(reqN(id)+' já foi decidida por outra pessoa.','warn'); atualizar(); return; }
     if(!podeAprovarObra(r.obra_id))throw new Error('Você não está vinculado à obra desta requisição.');
     const ob=obraEstoque(r); const saldo=await saldosPara([r]);
-    const avaliados=(r.itens||[]).map(i=>{ const disponivel=Math.max(Math.min(saldo[ob+'|'+i.code]||0,Number(i.qty)||0),0);
+    const avaliados=(r.itens||[]).map(i=>{ const disponivel=Math.max(Math.min(dispReq(saldo,r,ob,i.code)||0,Number(i.qty)||0),0);
       return {code:i.code,desc:i.desc,unit:i.unit||'',qty:Number(i.qty)||0,disponivel,faltante:Math.max((Number(i.qty)||0)-disponivel,0)}; });
     const {error:e2}=await sb.from('requisicao_itens_status').upsert(avaliados.map(i=>({requisicao_id:r.id,code:i.code,descricao:i.desc,unidade:i.unit,
       quantidade_solicitada:i.qty,quantidade_disponivel:i.disponivel,status:i.faltante>0?'faltante':'disponivel'})),{onConflict:'requisicao_id,code'});
