@@ -1762,6 +1762,11 @@ function subscribeRealtime(){
   // Devoluções ao fornecedor: registro/conclusão feitos por outra pessoa (ou outra aba) atualizam a tela,
   // o bloqueio de saldo e os contadores sem precisar sair e voltar. A consulta a cada 30 s cobre o caso
   // de o evento em tempo real não chegar (tabela fora da publicação do Realtime, conexão caiu etc.).
+  // Reservas criadas dentro da O.S. RAF: entram no saldo disponível em tempo real; a consulta a cada 30 s cobre o Realtime fora do ar.
+  sb.channel('raf_os_reservas_sync').on('postgres_changes',{event:'*',schema:'public',table:'raf_os_reservas'},()=>{
+    queueRefresh(async()=>{ await refreshRafOsReservas(); refreshTelaAtual(); refreshBadge(); });
+  }).subscribe();
+  setInterval(()=>{ if(profile&&document.visibilityState==='visible')refreshRafOsReservas().then(()=>{refreshTelaAtual();refreshBadge();}); },30000);
   sb.channel('devolucoes_sync').on('postgres_changes',{event:'*',schema:'public',table:'devolucoes'},()=>queueRefresh(atualizarDevolucoesAoVivo)).subscribe();
   setInterval(()=>{ if(activeTab==='devolucao'&&document.visibilityState==='visible')atualizarDevolucoesAoVivo(); },30000);
   // Lotes: aplica a linha alterada por outro usuário (saldo/validade do lote)
@@ -1924,7 +1929,30 @@ function curObra(){ return state.currentObra; }
 let devolucoesBloqueio={};
 function saldoTotalOf(obra,code){ return (state.estoque[obra]&&state.estoque[obra][code])||0; }
 function saldoBloqueadoOf(obra,code){ return (devolucoesBloqueio[obra]&&devolucoesBloqueio[obra][code])||0; }
-function saldoOf(obra,code){ return Math.max(saldoTotalOf(obra,code)-saldoBloqueadoOf(obra,code),0); }
+let rafOsReservas={}; /* reservas abertas (status 'ativa') criadas na O.S. RAF: obra -> code -> quantidade */
+function saldoReservadoRafOf(obra,code){ return (rafOsReservas[obra]&&rafOsReservas[obra][String(code)])||0; }
+/* Saldo contábil: físico menos o que está bloqueado para devolução ao fornecedor (regra de sempre).
+   NÃO desconta a reserva RAF — o material reservado continua na prateleira. Usar em inventário,
+   ajuste, custo médio, valorização e no saldo gravado nas movimentações. */
+function saldoContabilOf(obra,code){ return Math.max(saldoTotalOf(obra,code)-saldoBloqueadoOf(obra,code),0); }
+/* Saldo disponível: contábil menos as reservas abertas da O.S. RAF. Usar no que compromete estoque
+   (aprovação, saída, transferência) e nas telas de consulta. */
+function saldoOf(obra,code){ return Math.max(saldoContabilOf(obra,code)-saldoReservadoRafOf(obra,code),0); }
+async function refreshRafOsReservas(){
+  try{
+    const {data,error}=await sb.from('raf_os_reservas').select('obra_id,code,quantidade').eq('status','ativa');
+    if(error){
+      if(/raf_os_reservas|does not exist|schema cache|could not find/i.test(error.message||'')){rafOsReservas={};return;}
+      console.warn('refreshRafOsReservas',error); return;
+    }
+    const novo={};
+    (data||[]).forEach(r=>{
+      if(!novo[r.obra_id])novo[r.obra_id]={};
+      novo[r.obra_id][String(r.code)]=(novo[r.obra_id][String(r.code)]||0)+(Number(r.quantidade)||0);
+    });
+    rafOsReservas=novo;
+  }catch(e){console.warn('refreshRafOsReservas',e);}
+}
 async function refreshDevolucoesBloqueio(){
   const {data,error}=await sb.from('devolucoes').select('obra_id,itens').in('status',['aguardando_nota','em_envio']);
   if(error){console.warn('refreshDevolucoesBloqueio',error);return;}
@@ -1944,6 +1972,7 @@ function buscaReqObra(q,obra,lim){ const naObra=codigosNaObra(obra);
     .sort((a,b)=>(b.na-a.na)||(b.s-a.s)||(a.i-b.i)).slice(0,lim||8); }
 function tagSemEstoqueObra(x,obra){ return x.na?'':` · <span style="color:#a0620a">sem estoque em ${esc(obraName(obra))} (vai para compra)</span>`; }
 function totalSaldo(code){ let s=0; state.obras.forEach(o=>s+=saldoOf(o.id,code)); return s; }
+function totalSaldoContabil(code){ let s=0; state.obras.forEach(o=>s+=saldoContabilOf(o.id,code)); return s; }
 /* lotes (opcional): na entrada, os lotes que entram; na saída, os lotes que saem (sem informar, sai por FEFO).
    Devolve os lotes movimentados (null se o produto não tem lote nesta obra). */
 function addSaldo(obra,code,delta,lotes){
@@ -2748,7 +2777,7 @@ function drawDashboard(){
   const nEntr=cnt(inP.filter(m=>m.tipo==='entrada'),'notaId');
   const nBaixa=cnt(inP.filter(m=>m.tipo==='baixa'&&!isMovDevolReq(m)),'baixaId');
   const nTransf=cnt(inP.filter(m=>m.tipo==='transferencia'),'romaneioId');
-  const valEstoque = isAll ? state.products.reduce((s,p)=>s+totalSaldo(p.code)*(p.custo||0),0) : state.products.reduce((s,p)=>s+saldoOf(fobra,p.code)*(p.custo||0),0);
+  const valEstoque = isAll ? state.products.reduce((s,p)=>s+totalSaldoContabil(p.code)*(p.custo||0),0) : state.products.reduce((s,p)=>s+saldoContabilOf(fobra,p.code)*(p.custo||0),0);
   const fobraLbl = isAll?'todas as obras':obraName(fobra);
   const pl=(n,um,varios)=>n+' '+(n===1?um:varios);
   const cards=$('#dashCards'); if(cards)cards.innerHTML=`
@@ -2760,7 +2789,7 @@ function drawDashboard(){
   if($('#dhVal')){ const [int,ct]=(Number(valEstoque)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}).split(','); $('#dhVal').innerHTML=`<small>R$</small>${int}<span class="ct">,${ct}</span>`; }
   // estoque por obra (sempre todas as obras; entradas e baixas são do período) — barras ordenadas pelo valor
   const res=$('#obraResumo'); if(res){
-    const lin=state.obras.map(ob=>{ let itens=0,val=0; state.products.forEach(p=>{const s=saldoOf(ob.id,p.code); if(s>0){itens++;val+=s*(p.custo||0);}});
+    const lin=state.obras.map(ob=>{ let itens=0,val=0; state.products.forEach(p=>{const s=saldoContabilOf(ob.id,p.code); if(s>0){itens++;val+=s*(p.custo||0);}});
       const ent=inP.filter(m=>m.tipo==='entrada'&&m.obra===ob.id).reduce((a,m)=>a+m.valorTotal,0);
       const bx=inP.filter(m=>m.tipo==='baixa'&&m.obra===ob.id).reduce((a,m)=>a+m.valorTotal,0);
       return {ob,itens,val,ent,bx}; }).sort((a,b)=>b.val-a.val||a.ob.nome.localeCompare(b.ob.nome,'pt-BR'));
@@ -2822,7 +2851,7 @@ function renderObras(){
   let html=`<div class="sechead"><h3>Obras cadastradas</h3></div>`;
   if(!state.obras.length){ html+=`<div class="tbl-wrap"><div class="empty"><div class="ico">⌂</div>Nenhuma obra cadastrada.<br><button class="btn primary" onclick="obraModal()">+ Cadastrar primeira obra</button></div></div>`; $('#view').innerHTML=html; return; }
   html+=`<div class="tbl-wrap"><table><thead><tr><th>Obra</th><th>Empresa</th><th>Local</th><th class="num">Itens c/ saldo</th><th class="num">Valor em estoque</th><th></th></tr></thead><tbody>`;
-  state.obras.forEach(o=>{ let itens=0,val=0; state.products.forEach(p=>{const s=saldoOf(o.id,p.code); if(s>0){itens++;val+=s*(p.custo||0);}});
+  state.obras.forEach(o=>{ let itens=0,val=0; state.products.forEach(p=>{const s=saldoContabilOf(o.id,p.code); if(s>0){itens++;val+=s*(p.custo||0);}});
     html+=`<tr><td><b>${esc(o.nome)}</b>${o.ehEstoque?' <span class="pill disponivel" style="font-size:10px">Estoque</span>':''}</td><td class="muted">${esc(o.empresa||'—')}</td><td class="muted">${esc(o.local||'—')}</td><td class="num">${itens}</td><td class="num">${money(val)}</td>
     <td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="obraModal('${o.id}')">✎</button> <button class="btn danger sm" onclick="delObra('${o.id}')">✕</button></td></tr>`; });
   html+=`</tbody></table></div>`;
@@ -2845,7 +2874,7 @@ function saveObra(id){ const nome=$('#obNome').value.trim(); if(!nome){toast('In
   const ehEstoque=$('#obEhEstoque')?$('#obEhEstoque').checked:false;
   if(id){ const o=state.obras.find(x=>x.id===id); o.nome=nome; o.local=local; o.empresa=empresa; o.empresaId=empresaId||null; o.ehEstoque=ehEstoque; } else { const nid=uid(); state.obras.push({id:nid,nome,local,empresa,empresaId:empresaId||null,ehEstoque}); if(!state.currentObra)state.currentObra=nid; }
   save(); closeModal(); renderObras(); toast('Obra salva.','ok'); }
-function delObra(id){ const itens=state.products.filter(p=>saldoOf(id,p.code)>0).length;
+function delObra(id){ const itens=state.products.filter(p=>saldoContabilOf(id,p.code)>0).length;
   if(itens>0){ toast('A obra tem saldo em estoque. Zere ou transfira antes de excluir.','err'); return; }
   const nomeObra=obraName(id); requireSupervisor(`Excluir obra "${nomeObra}"`,()=>{ state.obras=state.obras.filter(o=>o.id!==id); delete state.estoque[id];
     if(state.currentObra===id)state.currentObra=state.obras[0]?state.obras[0].id:null; save('Obra excluída: '+nomeObra); renderObras(); toast('Obra excluída.','ok'); }); }
@@ -3270,7 +3299,7 @@ const NF_EXTRAS=[['frete','Frete'],['cte','Frete CT-e'],['seg','Seguro'],['outro
 function nfExtrasLista(o){ return NF_EXTRAS.filter(([k])=>Number(o&&o[k])>0).map(([k,l])=>({k,l,v:Number(o[k]),neg:k==='descto'})); }
 /* Custo médio ponderado de uma entrada: base = saldo total do produto (todas as obras); saldo negativo conta como zero,
    para não distorcer a média. Devolve o saldo/custo usados e o novo custo médio. */
-function custoMedioEntrada(p,qty,custoUnit){ const qAnt=Math.max(0,totalSaldo(p.code)); const custoAnt=p.custo||0;
+function custoMedioEntrada(p,qty,custoUnit){ const qAnt=Math.max(0,totalSaldoContabil(p.code)); const custoAnt=p.custo||0;
   if(!(custoUnit>0)||!(qty>0))return {qAnt,custoAnt,custoMedio:custoAnt};
   return {qAnt,custoAnt,custoMedio:((qAnt*custoAnt)+(qty*custoUnit))/(qAnt+qty)}; }
 /* CST do ICMS do item: origem + CST (ex.: 000, 060) ou origem + CSOSN no Simples Nacional (ex.: 0102) */
@@ -3413,8 +3442,8 @@ function processNf(force){
     const lt=addSaldo(obra,p.code,it.qty,ltIn); total+=it.qty*it.custo;
     notaItens.push(Object.assign({code:p.code,desc:p.desc,qty:it.qty,custo:it.custo,unit:p.unit},lt?{lotes:lt}:{}, it.xml?{xmlCod:it.xml.cProd,xmlDesc:it.xml.xProd,xmlUnit:it.xml.uCom,xmlQty:it.xml.qty,fator:it.fator||1,ncm:it.xml.ncm||'',cst:it.xml.cst||'',frete:it.xml.frete||0,seg:it.xml.seg||0,outro:it.xml.outro||0,ipi:it.xml.ipi||0,st:it.xml.st||0,descto:it.xml.descto||0,custoNF:+((it.xml.custoNF!=null?it.xml.custoNF:it.xml.custo)/(it.fator||1)).toFixed(6)}:{},
       cteIt>0?{cte:cteIt}:{},{qAnt,custoAnt,custoMedio:p.custo||0})); /* composição do custo: saldo e custo médio antes da entrada e o custo médio resultante */
-    movsNota.push(pushMov({id:uid(),ts,tipo:'entrada',obra,notaId,code:p.code,desc:p.desc,qty:it.qty,valorUnit:it.custo,valorTotal:it.qty*it.custo,doc,saldo:saldoOf(obra,p.code),lotes:lt||undefined}));
-    { const Lm=limDe(p,obra); if(!Lm.off&&Lm.max>0&&saldoOf(obra,p.code)>Lm.max)alerts.push(`${p.desc}: ${numf(saldoOf(obra,p.code))} acima do máximo`); }
+    movsNota.push(pushMov({id:uid(),ts,tipo:'entrada',obra,notaId,code:p.code,desc:p.desc,qty:it.qty,valorUnit:it.custo,valorTotal:it.qty*it.custo,doc,saldo:saldoContabilOf(obra,p.code),lotes:lt||undefined}));
+    { const Lm=limDe(p,obra); if(!Lm.off&&Lm.max>0&&saldoContabilOf(obra,p.code)>Lm.max)alerts.push(`${p.desc}: ${numf(saldoContabilOf(obra,p.code))} acima do máximo`); }
   });
   const xmlExtra=_nfXmlExtra||{}; _nfXmlExtra=null;
   const ctrl=ctrlNf; const anexosCtrl=ctrlLerAnexos('nf'); const totCte=cteRat.reduce((a,b)=>a+(b||0),0); const valorNota=xmlExtra.vNF>0?xmlExtra.vNF:+(total-totCte).toFixed(2); /* valor da NF sem o CT-e */
@@ -3601,7 +3630,7 @@ async function requisicaoAplicacaoDireta({obra,itens,numero,forn,aplic,os}){
     const p=findProduct(i.code); const vu=p?(p.custo||0):0;
     const lt=addSaldo(obra,i.code,-i.qty,i.lotes);
     const {data:numData,error:eNum}=await sb.rpc('proximo_numero_documento',{p_tipo:'baixa'});
-    pushMov({id:uid(),ts:Date.now(),seq:eNum?0:numData,tipo:'baixa',obra,aplic,obs:payload.observacao,os,code:i.code,desc:i.desc,qty:i.qty,valorUnit:vu,valorTotal:i.qty*vu,doc:'Separação '+reqN,saldo:saldoOf(obra,i.code),lotes:lt||undefined});
+    pushMov({id:uid(),ts:Date.now(),seq:eNum?0:numData,tipo:'baixa',obra,aplic,obs:payload.observacao,os,code:i.code,desc:i.desc,qty:i.qty,valorUnit:vu,valorTotal:i.qty*vu,doc:'Separação '+reqN,saldo:saldoContabilOf(obra,i.code),lotes:lt||undefined});
   }
   await save('Separação '+reqN+' (aplicação direta)');
   const c=await concluirSeparacaoReq(reqId); if(!c.ok){ _sepPresas.set(reqId,c.motivo); return etapa('separação não concluída ('+c.motivo+')',reqN); }
@@ -4220,7 +4249,7 @@ function criarProdutoAjuste(){ if(ajTravaBarrar())return; const desc=$('#ajNewDe
   const code=$('#ajNewCode').value.trim()||genCode(); if(findProduct(code)){toast('Já existe um produto com esse código.','err');return;}
   const unit=$('#ajNewUnit').value.trim()||'UN'; state.products.push({code,desc,unit,aux:'',min:0,max:0,custo:0,preco:0,ref:''}); save('Produto cadastrado via ajuste: '+desc);
   toast('Produto cadastrado.','ok'); selecionarAjuste(code); }
-function selecionarAjuste(code){ if(ajTravaBarrar())return; const p=findProduct(code); if(!p)return; const obra=$('#ajObra').value; const atual=saldoOf(obra,code);
+function selecionarAjuste(code){ if(ajTravaBarrar())return; const p=findProduct(code); if(!p)return; const obra=$('#ajObra').value; const atual=saldoContabilOf(obra,code);
   $('#ajSearch').value=p.desc; $('#ajResults').innerHTML='';
   $('#ajForm').innerHTML=`<div class="panel" style="background:var(--panel2);margin-top:12px"><h3 style="margin-bottom:4px">${esc(p.desc)} <span class="muted" style="font-size:12px">(${esc(p.code)})</span></h3>
     <p class="desc">Saldo atual em <b>${esc(obraName(obra))}</b>: <b>${numf(atual)} ${esc(p.unit||'')}</b> · custo médio atual: <b>${money(p.custo||0)}</b></p>
@@ -4230,7 +4259,7 @@ function selecionarAjuste(code){ if(ajTravaBarrar())return; const p=findProduct(
     </div>
     <div class="field"><label>Motivo / observação</label><input id="ajMotivo" placeholder="ex.: saldo inicial, contagem física..."></div>
     <button class="btn primary" onclick="aplicarAjuste('${esc(code)}')">Aplicar ajuste</button></div>`; }
-function aplicarAjuste(code){ if(ajTravaBarrar())return; const p=findProduct(code); if(!p)return; const obra=$('#ajObra').value; const atual=saldoOf(obra,code);
+function aplicarAjuste(code){ if(ajTravaBarrar())return; const p=findProduct(code); if(!p)return; const obra=$('#ajObra').value; const atual=saldoContabilOf(obra,code);
   const novo=parseFloat($('#ajNovoSaldo').value); if(isNaN(novo)||novo<0){toast('Informe um saldo válido.','err');return;}
   const delta=novo-atual; if(delta===0){toast('Nenhuma mudança — o saldo já é esse.','err');return;}
   const custoInformado=parseFloat($('#ajCusto').value); const motivo=$('#ajMotivo').value.trim()||'Ajuste manual';
@@ -4243,7 +4272,7 @@ function aplicarAjuste(code){ if(ajTravaBarrar())return; const p=findProduct(cod
   requireSupervisor(`Ajustar saldo de "${p.desc}" em ${obraName(obra)} de ${numf(atual)} para ${numf(novo)}`,async()=>{
     if(ajTravaBarrar())return; /* pode ter sido bloqueado enquanto a confirmação estava aberta */
     const lt=addSaldo(obra,code,delta); p.custo=custoFinal;
-    pushMov({id:uid(),ts:Date.now(),tipo:'ajuste',obra,code:p.code,desc:p.desc,qty:delta,valorUnit:custoFinal,valorTotal:delta*custoFinal,doc:'Ajuste: '+motivo,saldo:saldoOf(obra,code),lotes:lt||undefined});
+    pushMov({id:uid(),ts:Date.now(),tipo:'ajuste',obra,code:p.code,desc:p.desc,qty:delta,valorUnit:custoFinal,valorTotal:delta*custoFinal,doc:'Ajuste: '+motivo,saldo:saldoContabilOf(obra,code),lotes:lt||undefined});
     toast('Salvando...','warn');
     await save('Ajuste de saldo: '+p.desc+' em '+obraName(obra)+' ('+(delta>0?'+':'')+numf(delta)+') · '+motivo);
     toast('Saldo ajustado e salvo.','ok'); renderAjuste(); }); }
@@ -4273,7 +4302,7 @@ function invCalcUma(r,run){
   const rk=r.obra+'|'+(r.code||('#'+r.key)); o.rk=rk;
   o.jaLancado=state.movements.some(m=>m.invId===r.key);
   if(!state.obras.some(ob=>ob.id===r.obra)){ o.erro='Obra não existe mais'; return o; }
-  const real=p?saldoOf(r.obra,r.code):0;
+  const real=p?saldoContabilOf(r.obra,r.code):0;
   o.atual=run[rk]!==undefined?run[rk]:real;
   if(r.tipo==='item'){
     if(!p){ o.erro='Produto não existe mais no cadastro'; return o; }
@@ -4328,13 +4357,13 @@ function invAplicar(linhas){
     const p=findProduct(L.code); if(!p)continue; /* cadastrado na etapa 1 */
     /* endereço informado na contagem (item fora da lista): só preenche se o produto ainda não tiver */
     const endSet=!!(L.endereco&&!String(p.endereco||'').trim()); if(endSet)p.endereco=L.endereco;
-    const atual=saldoOf(L.obra,L.code), delta=L.novo-atual;
+    const atual=saldoContabilOf(L.obra,L.code), delta=L.novo-atual;
     if(delta===0){ marcas.push({...L,semMov:true,endSet}); continue; }
     let custoFinal=p.custo||0; const ci=L.custo;
     if(delta>0&&ci!=null&&ci>0){ custoFinal=custoMedioEntrada(p,delta,ci).custoMedio; }
     const lt=addSaldo(L.obra,L.code,delta); p.custo=custoFinal;
     const mid=uid();
-    pushMov({id:mid,ts:Date.now(),tipo:'ajuste',obra:L.obra,code:L.code,desc:p.desc,qty:delta,valorUnit:custoFinal,valorTotal:delta*custoFinal,doc:'Ajuste de inventário: '+L.lista+(L.tipo==='extra'?' · item fora da lista':''),saldo:saldoOf(L.obra,L.code),invId:L.key,invModo:L.modoEf,lotes:lt||undefined});
+    pushMov({id:mid,ts:Date.now(),tipo:'ajuste',obra:L.obra,code:L.code,desc:p.desc,qty:delta,valorUnit:custoFinal,valorTotal:delta*custoFinal,doc:'Ajuste de inventário: '+L.lista+(L.tipo==='extra'?' · item fora da lista':''),saldo:saldoContabilOf(L.obra,L.code),invId:L.key,invModo:L.modoEf,lotes:lt||undefined});
     marcas.push({...L,mov:mid,endSet});
   }
   return marcas;
@@ -4561,12 +4590,12 @@ async function aprovarRequisicao(id){
   // Saldo lido do banco na hora: o cache local pode ainda estar vazio (aprovação logo após o login)
   // e aí tudo viraria "aguardando compra" mesmo com estoque.
   const codes=[...new Set(r.itens.map(i=>String(i.code)))];
-  const [{data:sd,error:eS}]=await Promise.all([sb.from('saldos_estoque').select('code,saldo').eq('obra_id',obraSaldo).in('code',codes),refreshDevolucoesBloqueio()]);
+  const [{data:sd,error:eS}]=await Promise.all([sb.from('saldos_estoque').select('code,saldo').eq('obra_id',obraSaldo).in('code',codes),refreshDevolucoesBloqueio(),refreshRafOsReservas()]);
   if(eS){toast('Erro ao consultar o saldo: '+eS.message,'err');return;}
   const saldoBanco={}; (sd||[]).forEach(x=>{ saldoBanco[x.code]=Number(x.saldo)||0; });
   // Verifica o saldo item a item — não bloqueia mais a aprovação por falta de estoque.
   const itensAvaliados=r.itens.map(i=>{
-    const disponivel=Math.max(Math.min((saldoBanco[String(i.code)]||0)-saldoBloqueadoOf(obraSaldo,i.code), i.qty),0);
+    const disponivel=Math.max(Math.min((saldoBanco[String(i.code)]||0)-saldoBloqueadoOf(obraSaldo,i.code)-saldoReservadoRafOf(obraSaldo,i.code), i.qty),0); /* físico - devoluções - reservas RAF abertas */
     return {code:i.code, desc:i.desc, unit:i.unit||'', qty:i.qty, disponivel, faltante:Math.max(i.qty-disponivel,0)};
   });
   const temFaltante=itensAvaliados.some(i=>i.faltante>0);
@@ -4940,7 +4969,7 @@ async function _separarItem(id,conf){
   const {data:numData,error:eNum}=await sb.rpc('proximo_numero_documento',{p_tipo:'baixa'});
   const numero=eNum?0:numData;
   if(eNum) console.warn('Falha ao gerar numeração da baixa, seguindo sem número:',eNum);
-  pushMov({id:uid(),ts:Date.now(),seq:numero,tipo:'baixa',obra:obraSaldo,aplic:r.aplicacao_id||'',obs:r.observacao||'',os:r.ordem_servico||'',code:item.code,desc:item.descricao,qty:qtdSeparar,valorUnit:vu,valorTotal:qtdSeparar*vu,doc:'Separação REQ-'+String(r.id).padStart(5,'0'),saldo:saldoOf(obraSaldo,item.code),lotes:lt||undefined});
+  pushMov({id:uid(),ts:Date.now(),seq:numero,tipo:'baixa',obra:obraSaldo,aplic:r.aplicacao_id||'',obs:r.observacao||'',os:r.ordem_servico||'',code:item.code,desc:item.descricao,qty:qtdSeparar,valorUnit:vu,valorTotal:qtdSeparar*vu,doc:'Separação REQ-'+String(r.id).padStart(5,'0'),saldo:saldoContabilOf(obraSaldo,item.code),lotes:lt||undefined});
   await save('Separação REQ-'+String(r.id).padStart(5,'0')+': '+item.descricao);
   if(r.mutuo_empresa_destino){
     const estObra=state.obras.find(x=>x.id===r.mutuo_estoque_obra_id);
@@ -6208,7 +6237,7 @@ async function confirmTransfer(){ const orig=$('#trOrig').value, dest=$('#trDest
   const seq=eNum?0:numData; if(eNum)console.warn('Falha ao gerar numeração da transferência, seguindo sem número:',eNum);
   const romaneioId=uid(); const ts=Date.now(); const repItens=[];
   itens.forEach(i=>{const p=findProduct(i.code); const vu=p.custo||0; const lt=addSaldo(orig,p.code,-i.qty); addSaldo(dest,p.code,i.qty,lt); /* os mesmos lotes chegam ao destino */
-    pushMov({id:uid(),ts,seq,romaneioId,tipo:'transferencia',obra:orig,obraDest:dest,obs,code:p.code,desc:p.desc,qty:i.qty,valorUnit:vu,valorTotal:i.qty*vu,doc:`Romaneio Nº ${seqf(seq)} · ${obraName(orig)} → ${obraName(dest)}`,saldo:saldoOf(orig,p.code),saldoDest:saldoOf(dest,p.code),lotes:lt||undefined});
+    pushMov({id:uid(),ts,seq,romaneioId,tipo:'transferencia',obra:orig,obraDest:dest,obs,code:p.code,desc:p.desc,qty:i.qty,valorUnit:vu,valorTotal:i.qty*vu,doc:`Romaneio Nº ${seqf(seq)} · ${obraName(orig)} → ${obraName(dest)}`,saldo:saldoContabilOf(orig,p.code),saldoDest:saldoContabilOf(dest,p.code),lotes:lt||undefined});
     repItens.push({code:p.code,aux:p.aux,desc:p.desc,qty:i.qty,unit:p.unit,valor:vu}); });
   save('Transferência Nº '+seqf(seq)+' · '+obraName(orig)+' → '+obraName(dest)); toast(`Romaneio Nº ${seqf(seq)} · ${itens.length} item(ns) · ${esc(obraName(orig))} → ${esc(obraName(dest))}. Depois de assinado, anexe o romaneio pelo botão 📎 no histórico.`,'ok');
   _romAnx[romaneioId]=[]; _romAnxPedidos.add(romaneioId);
@@ -7184,7 +7213,7 @@ function commitImport(){ const obra=$('#impObra').value; let novos=0,atual=0;
   importRows.forEach(r=>{ let p=r.code?findProduct(r.code):null;
     if(p){ p.desc=r.desc||p.desc;p.unit=r.unit||p.unit; if((r.min||r.max)&&podeEditarLimites()){ if(!state.limitesObra)state.limitesObra={}; if(!state.limitesObra[obra])state.limitesObra[obra]={}; state.limitesObra[obra][p.code]={min:r.min,max:r.max}; }if(r.custo>0)p.custo=r.custo;if(r.preco>0)p.preco=r.preco;if(r.ref)p.ref=r.ref;if(r.aux)p.aux=r.aux; atual++; }
     else{ const code=r.code||genCode(); p={code,desc:r.desc,unit:r.unit,aux:r.aux,min:r.min,max:r.max,custo:r.custo,preco:r.preco,ref:r.ref}; state.products.push(p); novos++; }
-    if(r.qty>0){ addSaldo(obra,p.code,r.qty); pushMov({ts:Date.now(),tipo:'entrada',obra,code:p.code,desc:p.desc,qty:r.qty,valorUnit:p.custo||0,valorTotal:r.qty*(p.custo||0),doc:'Carga inicial (planilha)',saldo:saldoOf(obra,p.code)}); } });
+    if(r.qty>0){ addSaldo(obra,p.code,r.qty); pushMov({ts:Date.now(),tipo:'entrada',obra,code:p.code,desc:p.desc,qty:r.qty,valorUnit:p.custo||0,valorTotal:r.qty*(p.custo||0),doc:'Carga inicial (planilha)',saldo:saldoContabilOf(obra,p.code)}); } });
   save('Importação de planilha em '+obraName(obra)+' · '+novos+' novo(s), '+atual+' atualizado(s)'); importRows=[]; toast(`Importado em ${esc(obraName(obra))} · ${novos} novo(s), ${atual} atualizado(s).`,'ok'); go('produtos'); }
 async function downloadTemplate(){
   try{ await ensureXLSX(); }catch(e){ toast('Não foi possível carregar o gerador de Excel (verifique a conexão).','err'); return; }
@@ -7255,7 +7284,7 @@ async function saveUserRole(id){ const papel=$('#up_'+id).value; const setor=$('
    gravado; senão retira a entrada da média — (saldo × custo atual − qtd × custo de entrada) ÷ (saldo − qtd). */
 function estornarCustoNota(n){ (n.itens||[]).slice().reverse().forEach(it=>{ const p=findProduct(it.code); if(!p||!(it.qty>0)||!(it.custo>0))return;
   if(it.custoMedio!=null&&Math.abs((p.custo||0)-it.custoMedio)<0.0005){ p.custo=it.custoAnt||0; return; }
-  const S=Math.max(0,totalSaldo(p.code)), rest=S-it.qty;
+  const S=Math.max(0,totalSaldoContabil(p.code)), rest=S-it.qty;
   if(rest>0){ const c=(S*(p.custo||0)-it.qty*it.custo)/rest; if(c>=0)p.custo=c; else if(it.custoAnt!=null)p.custo=it.custoAnt; }
   else if(it.custoAnt!=null)p.custo=it.custoAnt; }); }
 /* ===== Recálculo do custo médio pelo histórico =====
@@ -7273,7 +7302,7 @@ async function recalcCalcular(codes){
   const res=[];
   (codes&&codes.length?codes.map(findProduct).filter(Boolean):state.products).forEach(p=>{
     const movs=(porCod.get(String(p.code))||[]).sort((a,b)=>a.ts-b.ts||String(a.id).localeCompare(String(b.id)));
-    const atualS=totalSaldo(p.code); const s0=+(atualS-movs.reduce((t,m)=>t+recalcEfeito(m),0)).toFixed(6);
+    const atualS=totalSaldoContabil(p.code); const s0=+(atualS-movs.reduce((t,m)=>t+recalcEfeito(m),0)).toFixed(6);
     let S=s0, C=null; const passos=[];
     movs.forEach(m=>{ const e=recalcEfeito(m); let vu=m.valorUnit||0, origem=m.tipo==='entrada'?'entrada':'ajuste';
       if(m.tipo==='entrada'&&m.notaId){ const nc=notaCusto.get(m.notaId+'|'+m.code); if(nc&&nc.q>0){ vu=nc.v/nc.q; origem='nota'; } }
@@ -7385,7 +7414,7 @@ function deleteNotaId(id,fromEntrada){ const n=state.notas.find(x=>x.id===id); i
    no IndexedDB deste navegador e o backup roda sozinho quando o último passou do intervalo. Configuração e
    data do último backup são deste computador (localStorage), já que o OneDrive é pessoal. */
 const BKP_PREFIXO='backup_almoxarifado_', BKP_MANTER=30, BKP_INTERVALOS=[[6,'6 horas'],[12,'12 horas'],[24,'1 dia'],[168,'1 semana']];
-const BKP_TABELAS=['app_kv','saldos_estoque','lotes_estoque','movimentos_estoque','requisicoes','requisicao_itens_status','compras_pendentes','caixas','itens_caixa','embarques','devolucoes','devolucoes_requisicao','reposicoes_estoque','reposicoes_recebimentos','retiradas_internas','mutuos_intercompany','mutuo_fechamentos','notas_fiscais_saida','produto_fotos','contagem_ciclos','contagem_itens','contagem_extras','sienge_envios','sienge_envio_itens','audit_log','profiles'];
+const BKP_TABELAS=['app_kv','saldos_estoque','lotes_estoque','movimentos_estoque','raf_os_reservas','requisicoes','requisicao_itens_status','compras_pendentes','caixas','itens_caixa','embarques','devolucoes','devolucoes_requisicao','reposicoes_estoque','reposicoes_recebimentos','retiradas_internas','mutuos_intercompany','mutuo_fechamentos','notas_fiscais_saida','produto_fotos','contagem_ciclos','contagem_itens','contagem_extras','sienge_envios','sienge_envio_itens','audit_log','profiles'];
 let _bkpRodando=false, _bkpTimer=null, _bkpAvisoPermissao=false;
 function bkpSuportado(){ return typeof window.showDirectoryPicker==='function'&&typeof indexedDB!=='undefined'; }
 function bkpCfg(){ let c={}; try{ c=JSON.parse(localStorage.getItem('almox_backup_cfg')||'{}')||{}; }catch(e){} return Object.assign({horas:24,ultimo:0,pasta:'',erro:''},c); }
@@ -7543,7 +7572,7 @@ function onAuthReady(){
   const p=(async()=>{
     profile=await loadProfile();
     if(!profile||!profile.ativo){ showPending(); return; }
-    hideGate(); applyRoleNav(); initNavGrps(); const pDev=refreshDevolucoesBloqueio().catch(()=>{}); const pLot=loadLotes().catch(e=>console.warn('loadLotes',e)); await load(); applyRoleNav(); /* a marcação "Aprova requisições" vem do documento carregado agora */ await pDev; await pLot; loadPhotos().then(()=>{ refreshTelaAtual(); migrarFotosAntigas(); }); loadFotosExt().then(mudou=>{ if(mudou&&!usuarioInteragindo())refreshTelaAtual(); }); loadReposAbertas().then(()=>refreshTelaAtual()); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); checkEntregaParcial().then(()=>refreshRetiradasBadge()); _comprovOk=null; _comprovPend={confirmar:[],receber:[]}; _comprovUsers=null; _patTermoOk=null; _patTermoPend=[]; _patTermoUsers=null; _patTermos=null; refreshComprovPend().then(()=>{ refreshComprovBadge(); processarLinkRecebimento(); }); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge();
+    hideGate(); applyRoleNav(); initNavGrps(); const pDev=refreshDevolucoesBloqueio().catch(()=>{}); const pRaf=refreshRafOsReservas().catch(()=>{}); const pLot=loadLotes().catch(e=>console.warn('loadLotes',e)); await load(); applyRoleNav(); /* a marcação "Aprova requisições" vem do documento carregado agora */ await pDev; await pRaf; await pLot; loadPhotos().then(()=>{ refreshTelaAtual(); migrarFotosAntigas(); }); loadFotosExt().then(mudou=>{ if(mudou&&!usuarioInteragindo())refreshTelaAtual(); }); loadReposAbertas().then(()=>refreshTelaAtual()); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); checkEntregaParcial().then(()=>refreshRetiradasBadge()); _comprovOk=null; _comprovPend={confirmar:[],receber:[]}; _comprovUsers=null; _patTermoOk=null; _patTermoPend=[]; _patTermoUsers=null; _patTermos=null; refreshComprovPend().then(()=>{ refreshComprovBadge(); processarLinkRecebimento(); }); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge();
     _bootedUid=uid; go(abaInicial());
     if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); drenarGravacoes(); recuperarDocPendente(); startVersionWatch(); iniciarBackupAuto(); }
   })();
@@ -7884,7 +7913,7 @@ function drawRelDuplicidades(){ const box=$('#relView'); if(!box)return; relIdxO
   const fobra=$('#relObra')?$('#relObra').value:'__all', isAll=fobra==='__all';
   const gf=$('#relGrupo')?$('#relGrupo').value:'', lf=$('#relLocal')?$('#relLocal').value:'';
   const pf=($('#relProdutoTxt')?$('#relProdutoTxt').value:'').toLowerCase().trim();
-  const sal=code=>isAll?totalSaldo(code):saldoOf(fobra,code);
+  const sal=code=>isAll?totalSaldoContabil(code):saldoContabilOf(fobra,code);
   const NIV={3:'Alta',2:'Média',1:'Baixa'}, minN={alta:3,media:2,baixa:1}[_relDupConf]||2;
   const ign=new Set((state.config&&state.config.dupIgnorados)||[]);
   let grupos=dupGrupos(state.products.filter(p=>p&&p.code!=null));
@@ -8165,7 +8194,7 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
       const tOut=inP.filter(m=>m.tipo==='transferencia'&&m.obra===o.id).reduce((s,m)=>s+m.valorTotal,0);
       /* Inventário e Ajuste de Saldo entram como movimento 'ajuste' (qtd positiva = entrada, negativa = saída) — antes ficavam fora deste relatório */
       let ajP=0, ajN=0; inP.forEach(m=>{ if(m.tipo!=='ajuste'||m.obra!==o.id)return; const q=Number(m.qty)||0; const v=Math.abs(m.valorTotal||(q*(m.valorUnit||0))); if(q>=0)ajP+=v; else ajN+=v; });
-      const estoque=state.products.filter(p=>produtoPassaFiltros(p,gf,lf,pf)).reduce((s,p)=>s+saldoOf(o.id,p.code)*(p.custo||0),0);
+      const estoque=state.products.filter(p=>produtoPassaFiltros(p,gf,lf,pf)).reduce((s,p)=>s+saldoContabilOf(o.id,p.code)*(p.custo||0),0);
       return {nome:o.nome,ent,ajP,ajN,bx,tIn,tOut,estoque}; });
     headers=['Obra','Entradas','Inventário/ajuste (+)','Inventário/ajuste (−)','Baixas','Transf. recebidas','Transf. enviadas','Valor em estoque'];
     rows=arr.map(a=>[a.nome,money(a.ent),money(a.ajP),money(a.ajN),money(a.bx),money(a.tIn),money(a.tOut),money(a.estoque)]);
@@ -8175,7 +8204,7 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
     titulo='Insumos cadastrados por grupo';
     const naObra=isAll?null:codigosNaObra(fobra);
     const list=state.products.filter(p=>produtoPassaFiltros(p,gf,lf,pf)&&(!naObra||naObra.has(String(p.code))))
-      .map(p=>{ const s=isAll?totalSaldo(p.code):saldoOf(fobra,p.code); return {grupo:produtoGrupo(p.code),code:p.code,aux:p.aux||'',desc:p.desc,unit:p.unit||'',saldo:s,valor:s*(p.custo||0)}; })
+      .map(p=>{ const s=isAll?totalSaldoContabil(p.code):saldoContabilOf(fobra,p.code); return {grupo:produtoGrupo(p.code),code:p.code,aux:p.aux||'',desc:p.desc,unit:p.unit||'',saldo:s,valor:s*(p.custo||0)}; })
       .sort((a,b)=>(a.grupo==='(sem grupo)'?1:b.grupo==='(sem grupo)'?-1:a.grupo.localeCompare(b.grupo,'pt-BR'))||a.desc.localeCompare(b.desc,'pt-BR'));
     headers=['Grupo do insumo','Código','Código auxiliar','Insumo (descrição)','Saldo','Valor em estoque'];
     rows=list.map(a=>[a.grupo,a.code,a.aux||'—',a.desc+(a.unit?' ('+a.unit+')':''),numf(a.saldo),money(a.valor)]);
@@ -8214,7 +8243,7 @@ function drawRelatorio(){ const box=$('#relView'); if(!box)return;
     /* "Incluir produtos sem movimentação": entram também os produtos do cadastro (respeitando grupo/localização/produto) sem entrada nem saída no período */
     const naObraP=isAll?null:codigosNaObra(fobra);
     if(_relProdTodos)state.products.forEach(p=>{ const c=String(p.code); if(!g[c]&&produtoPassaFiltros(p,gf,lf,pf)&&(!naObraP||naObraP.has(c)))g[c]={entQ:0,entV:0,bxQ:0,bxV:0}; });
-    let arr=Object.entries(g).map(([code,v])=>{const p=relProd(code); return {code,desc:p?p.desc:code,unit:p?(p.unit||''):'',saldo:isAll?totalSaldo(code):saldoOf(fobra,code),...v};});
+    let arr=Object.entries(g).map(([code,v])=>{const p=relProd(code); return {code,desc:p?p.desc:code,unit:p?(p.unit||''):'',saldo:isAll?totalSaldoContabil(code):saldoContabilOf(fobra,code),...v};});
     /* filtro de saldo atual: com saldo (> 0) ou sem saldo (zerado ou negativo) */
     if(_relProdSaldo==='com')arr=arr.filter(a=>a.saldo>0); else if(_relProdSaldo==='sem')arr=arr.filter(a=>a.saldo<=0);
     arr.sort((a,b)=>b.bxV-a.bxV||a.desc.localeCompare(b.desc,'pt-BR'));
