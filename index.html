@@ -4263,7 +4263,7 @@ async function invCarregar(){
   ri.data.forEach(i=>{ const c=ciclos[i.ciclo_id]; if(!c)return;
     rows.push({key:'inv:item:'+i.id,tipo:'item',rowId:i.id,ciclo:c,obra:c.obra_id,code:i.code,desc:i.descricao||'',unit:i.unidade||'',snapshot:Number(i.saldo_sistema),contado:Number(i.qtd_final),lista:c.nome}); });
   re.data.forEach(x=>{ const c=ciclos[x.ciclo_id]; if(!c)return;
-    rows.push({key:'inv:extra:'+x.id,tipo:'extra',rowId:x.id,ciclo:c,obra:c.obra_id,decisao:x.decisao,code:x.code_final||'',desc:x.desc_final||x.descricao||'',unit:x.unid_final||x.unidade||'UN',contado:Number(x.quantidade),modo:x.modo,custo:x.custo==null?null:Number(x.custo),lista:c.nome,lido:x.code_lido||'',endereco:String(x.endereco||'').trim()}); });
+    rows.push({key:'inv:extra:'+x.id,tipo:'extra',rowId:x.id,ciclo:c,obra:c.obra_id,decisao:x.decisao,code:x.code_final||'',desc:x.desc_final||x.descricao||'',unit:x.unid_final||x.unidade||'UN',contado:Number(x.quantidade),modo:x.modo,custo:x.custo==null?null:Number(x.custo),lista:c.nome,lido:x.code_lido||'',endereco:String(x.endereco||'').trim(),aux:String(x.aux_final||'').trim(),fab:String(x.fab_final||'').trim(),grupo:String(x.grupo_final||'').trim(),localizacao:String(x.local_final||'').trim()}); });
   return rows;
 }
 /* calcula o efeito das linhas sobre o estado atual, em sequência (várias linhas do mesmo produto se somam);
@@ -4310,7 +4310,11 @@ function invProdutosNovos(linhas){
     if(ja&&!L.code)L.code=ja.code;
     if(!L.code)L.code=genCode();
     if(findProduct(L.code))continue;
-    const p={code:L.code,desc:L.desc||(ja&&ja.desc)||L.code,unit:L.unit||'UN',aux:'',min:0,max:0,custo:ja?(Number(ja.valorUnit)||0):0,preco:0,ref:'',...(L.endereco?{endereco:L.endereco}:{})};
+    /* código auxiliar, fabricante, grupo e estoque informados na aprovação da contagem; um código que, nesse meio-tempo,
+       passou a ser de outro produto fica de fora (o produto é criado igual, sem ele) */
+    const livre=c=>c&&!findByCodeOrAux(c);
+    const fab=fabNormalizar(L.fab).filter(c=>c!==String(L.code).toUpperCase()&&livre(c));
+    const p={code:L.code,desc:L.desc||(ja&&ja.desc)||L.code,unit:L.unit||'UN',aux:livre(L.aux)?L.aux:'',min:0,max:0,custo:ja?(Number(ja.valorUnit)||0):0,preco:0,ref:'',...(fab.length?{fab:fab.join(', ')}:{}),...(L.grupo?{grupo:L.grupo}:{}),...(L.localizacao?{localizacao:L.localizacao}:{}),...(L.endereco?{endereco:L.endereco}:{})};
     state.products.push(p); novos.push(p);
   }
   return novos;

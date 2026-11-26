@@ -945,7 +945,8 @@ function lerProdutos(v){
     ref  : String(x.ref ?? '').trim(),
     fab  : String(x.fab ?? '').trim(),          // código(s) de barras do fabricante, separados por vírgula
     min  : Number(x.min) || 0,
-    grupo: String(x.grupo ?? x.group ?? x.categoria ?? x.cat ?? '').trim()
+    grupo: String(x.grupo ?? x.group ?? x.categoria ?? x.cat ?? '').trim(),
+    loc  : String(x.localizacao ?? '').trim()
   })).filter(x => x.code);
 }
 /* retorna número, ou null se o item não existe no estoque da obra */
@@ -2313,7 +2314,7 @@ function formEx(x){
   const f = S.rev.form;
   if (!f[x.id]) {
     const sug = prodSugerido(x.code_lido);
-    f[x.id] = { decisao: sug ? 'vincular' : '', code: sug ? sug.code : '', modo: '', busca: '', ccode: x.code_lido || '', desc: x.descricao, unid: x.unidade || 'UN', custo: '', motivo: '' };
+    f[x.id] = { decisao: sug ? 'vincular' : '', code: sug ? sug.code : '', modo: '', busca: '', ccode: x.code_lido || '', desc: x.descricao, unid: x.unidade || 'UN', custo: '', motivo: '', aux: '', fab: '', grupo: '', local: '' };
     if (sug) f[x.id].modo = saldoNaObra(sug.code) > 0 ? '' : 'definir';
   }
   return f[x.id];
@@ -2323,7 +2324,9 @@ function htmlRevExtras(){
   const ex = S.rev.extras || [];
   if (!ex.length) return '';
   const pend = ex.filter(x => x.status === 'pendente').length;
-  return `<h3>Itens fora da lista ou do cadastro${pend ? ` · ${pend} para analisar` : ''}</h3><div class="rows">${ex.map(htmlRevExtra).join('')}</div>`;
+  const prods = prodsBlob(), uniq = k => [...new Set(prods.map(p => p[k]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const dl = (id, l) => `<datalist id="${id}">${l.map(v => `<option value="${esc(v)}">`).join('')}</datalist>`;
+  return `<h3>Itens fora da lista ou do cadastro${pend ? ` · ${pend} para analisar` : ''}</h3><div class="rows">${ex.map(htmlRevExtra).join('')}</div>${pend ? dl('exGrupos', uniq('grupo')) + dl('exLocais', uniq('loc')) : ''}`;
 }
 function htmlRevExtra(x){
   const cab = `<div class="rv-h"><span class="rcode">${esc(x.code_lido || 'sem código')}</span>${chipEx(x.status)}<span class="rdesc"><b>${esc(x.descricao)}</b>${x.endereco ? ` <span class="mu sm">· 📍 ${esc(x.endereco)}</span>` : ''}</span></div>
@@ -2331,7 +2334,7 @@ function htmlRevExtra(x){
     <div><small>Contador</small><b style="font:500 15px var(--f-body)">${esc(x.contador_nome || '')}</b></div></div>
     ${x.obs ? `<div class="mu sm" style="margin-top:6px">Obs.: ${esc(x.obs)}</div>` : ''}${htmlFotosRev(x.id)}`;
   if (x.status === 'aprovado' || x.status === 'ajustado')
-    return `<div class="rv">${cab}<div class="mu sm" style="margin-top:8px">${x.decisao === 'cadastrar' ? 'Novo produto' : 'Vinculado a'} <b>${esc(x.code_final || 'código gerado no lançamento')}</b> · ${esc(x.desc_final || '')} · ${x.modo === 'somar' ? 'soma ao saldo' : 'define o saldo'}${x.custo != null ? ' · custo ' + fmt(x.custo) : ''}</div></div>`;
+    return `<div class="rv">${cab}<div class="mu sm" style="margin-top:8px">${x.decisao === 'cadastrar' ? 'Novo produto' : 'Vinculado a'} <b>${esc(x.code_final || 'código gerado no lançamento')}</b> · ${esc(x.desc_final || '')} · ${x.modo === 'somar' ? 'soma ao saldo' : 'define o saldo'}${x.custo != null ? ' · custo ' + fmt(x.custo) : ''}${x.decisao === 'cadastrar' ? [x.aux_final ? 'aux. ' + esc(x.aux_final) : '', x.fab_final ? 'fabricante ' + esc(x.fab_final) : '', x.grupo_final ? 'grupo ' + esc(x.grupo_final) : '', x.local_final ? 'estoque ' + esc(x.local_final) : ''].filter(Boolean).map(t => ' · ' + t).join('') : ''}</div></div>`;
   if (x.status === 'rejeitado') return `<div class="rv">${cab}<div class="mu sm" style="margin-top:8px">Rejeitado: ${esc(x.motivo || '')}</div></div>`;
   const f = formEx(x), id = esc(x.id);
   const sug = prodSugerido(x.code_lido);
@@ -2354,6 +2357,12 @@ function htmlRevExtra(x){
         <div><label class="f" for="exc-${id}">Código do produto</label><input id="exc-${id}" class="inp mono" value="${esc(f.ccode)}" data-bind="rev.form.${x.id}.ccode" placeholder="em branco: o sistema gera"></div>
         <div><label class="f" for="exu-${id}">Unidade</label><input id="exu-${id}" class="inp" value="${esc(f.unid)}" data-bind="rev.form.${x.id}.unid" maxlength="10"></div></div>
       <div><label class="f" for="exd-${id}">Descrição no cadastro</label><input id="exd-${id}" class="inp" value="${esc(f.desc)}" data-bind="rev.form.${x.id}.desc" maxlength="120"></div>
+      <div class="grid2">
+        <div><label class="f" for="exa-${id}">Código auxiliar (outro sistema)</label><input id="exa-${id}" class="inp mono" value="${esc(f.aux)}" data-bind="rev.form.${x.id}.aux" maxlength="60" placeholder="ex.: 4666-364"></div>
+        <div><label class="f" for="exf-${id}">Código de barras do fabricante</label><input id="exf-${id}" class="inp mono" value="${esc(f.fab)}" data-bind="rev.form.${x.id}.fab" maxlength="200" placeholder="mais de um? separe por vírgula"></div></div>
+      <div class="grid2">
+        <div><label class="f" for="exg-${id}">Grupo do insumo</label><input id="exg-${id}" class="inp" list="exGrupos" value="${esc(f.grupo)}" data-bind="rev.form.${x.id}.grupo" maxlength="60" placeholder="ex.: PNEUS"></div>
+        <div><label class="f" for="exl-${id}">Estoque (localização)</label><input id="exl-${id}" class="inp" list="exLocais" value="${esc(f.local)}" data-bind="rev.form.${x.id}.local" maxlength="60" placeholder="ex.: ALMOX"></div></div>
       <div><label class="f" for="exv-${id}">Custo unitário (opcional)</label><input id="exv-${id}" class="inp" inputmode="decimal" value="${esc(f.custo)}" data-bind="rev.form.${x.id}.custo" placeholder="ex.: 8,50"></div>
       <div class="mu sm">O produto novo é criado no cadastro na hora do lançamento, com estoque mínimo e máximo zerados.</div>`;
   } else if (f.decisao === 'rejeitar') {
@@ -2518,13 +2527,36 @@ const ACT = {
       if (code && prods.some(q => q.code === code)) return toast('Já existe produto com esse código. Use "Vincular a um produto que já existe".', 'bad');
       const custo = String(f.custo).trim() === '' ? null : parseNum(f.custo);
       if (custo !== null && !Number.isFinite(custo)) return toast('Custo inválido.', 'bad');
+      /* mesmos campos e regras do "Novo produto" do sistema de estoque: auxiliar e fabricante não podem ser de outro produto */
+      const aux = f.aux.trim(), grupo = f.grupo.trim(), local = f.local.trim();
+      const fabL = [...new Set(String(f.fab || '').split(/[\s,;|]+/).map(normC).filter(Boolean))];
+      if (fabL.some(c => c.length < 4 || c.length > 60)) return toast('Código de barras do fabricante inválido (de 4 a 60 caracteres).', 'bad');
+      for (const c of [aux ? normC(aux) : '', ...fabL].filter(Boolean)) {
+        const o = prodSugerido(c);
+        if (o) return toast(`O código ${c} já está no cadastro de outro produto: ${o.desc} (${o.code}).`, 'bad');
+      }
+      if (code && fabL.includes(normC(code))) return toast('O código de barras do fabricante é igual ao código do produto. Deixe só em um dos campos.', 'bad');
+      if (aux && fabL.includes(normC(aux))) return toast('O código auxiliar e o do fabricante são iguais.', 'bad');
+      const outros = (S.rev.extras || []).filter(e => e.id !== x.id && e.status === 'aprovado' && e.decisao === 'cadastrar');
+      for (const c of [aux ? normC(aux) : '', ...fabL].filter(Boolean)) {
+        const o = outros.find(e => normC(e.aux_final) === c || String(e.fab_final || '').split(/[\s,;|]+/).map(normC).includes(c));
+        if (o) return toast(`O código ${c} já foi informado em outro item aprovado desta lista: ${o.desc_final || o.descricao}.`, 'bad');
+      }
       patch = { status: 'aprovado', decisao: 'cadastrar', code_final: code || null, desc_final: desc, unid_final: (f.unid.trim() || 'UN').toUpperCase(), modo: 'somar', custo, ...base };
+      /* só manda as colunas novas quando preenchidas: assim quem ainda não rodou o script continua aprovando sem elas */
+      if (aux) patch.aux_final = aux;
+      if (fabL.length) patch.fab_final = fabL.join(', ');
+      if (grupo) patch.grupo_final = grupo;
+      if (local) patch.local_final = local;
     } else if (f.decisao === 'rejeitar') {
       if (!f.motivo.trim()) return toast('Explique o motivo da rejeição.', 'bad');
       patch = { status: 'rejeitado', motivo: f.motivo.trim(), ...base };
     } else return toast('Escolha o que fazer com o item.', 'bad');
     const { data, error } = await sb.from('contagem_extras').update(patch).eq('id', x.id).eq('status', 'pendente').select('id');
-    if (error) return toast('Erro: ' + error.message, 'bad');
+    if (error) {
+      if (/(aux|fab|grupo|local)_final/.test(error.message || '')) return toast('Os campos código auxiliar, fabricante, grupo e estoque ainda não foram ativados: falta rodar o script contagem_extras_cadastro.sql no Supabase. Deixe-os em branco para aprovar agora.', 'bad');
+      return toast('Erro: ' + error.message, 'bad');
+    }
     delete S.rev.form[x.id];
     if (!data.length) { toast('Nada foi alterado (o item mudou de estado ou você não tem permissão).', 'bad'); return carregarRevItens(); }
     toast(patch.status === 'rejeitado' ? 'Item rejeitado' : 'Aprovado. Falta autorizar o lançamento no sistema de estoque.', 'ok');
