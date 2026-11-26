@@ -1930,7 +1930,13 @@ let devolucoesBloqueio={};
 function saldoTotalOf(obra,code){ return (state.estoque[obra]&&state.estoque[obra][code])||0; }
 function saldoBloqueadoOf(obra,code){ return (devolucoesBloqueio[obra]&&devolucoesBloqueio[obra][code])||0; }
 let rafOsReservas={}; /* reservas abertas (status 'ativa') criadas na O.S. RAF: obra -> code -> quantidade */
+let rafOsReservasReq={}; /* parte dessas reservas já ligada a uma requisição: reqId -> obra -> code -> quantidade */
 function saldoReservadoRafOf(obra,code){ return (rafOsReservas[obra]&&rafOsReservas[obra][String(code)])||0; }
+/* Reserva RAF que bloqueia ESTA requisição: as reservas ligadas a ela mesma não contam contra ela. */
+function saldoReservadoRafOutrasOf(obra,code,reqId){
+  const propria=(rafOsReservasReq[reqId]&&rafOsReservasReq[reqId][obra]&&rafOsReservasReq[reqId][obra][String(code)])||0;
+  return Math.max(saldoReservadoRafOf(obra,code)-propria,0);
+}
 /* Saldo contábil: físico menos o que está bloqueado para devolução ao fornecedor (regra de sempre).
    NÃO desconta a reserva RAF — o material reservado continua na prateleira. Usar em inventário,
    ajuste, custo médio, valorização e no saldo gravado nas movimentações. */
@@ -1940,17 +1946,23 @@ function saldoContabilOf(obra,code){ return Math.max(saldoTotalOf(obra,code)-sal
 function saldoOf(obra,code){ return Math.max(saldoContabilOf(obra,code)-saldoReservadoRafOf(obra,code),0); }
 async function refreshRafOsReservas(){
   try{
-    const {data,error}=await sb.from('raf_os_reservas').select('obra_id,code,quantidade').eq('status','ativa');
+    const {data,error}=await sb.from('raf_os_reservas').select('obra_id,code,quantidade,requisicao_id').eq('status','ativa');
     if(error){
-      if(/raf_os_reservas|does not exist|schema cache|could not find/i.test(error.message||'')){rafOsReservas={};return;}
+      if(/raf_os_reservas|does not exist|schema cache|could not find/i.test(error.message||'')){rafOsReservas={};rafOsReservasReq={};return;}
       console.warn('refreshRafOsReservas',error); return;
     }
-    const novo={};
+    const novo={}, porReq={};
     (data||[]).forEach(r=>{
+      const c=String(r.code), q=Number(r.quantidade)||0;
       if(!novo[r.obra_id])novo[r.obra_id]={};
-      novo[r.obra_id][String(r.code)]=(novo[r.obra_id][String(r.code)]||0)+(Number(r.quantidade)||0);
+      novo[r.obra_id][c]=(novo[r.obra_id][c]||0)+q;
+      if(r.requisicao_id!=null){
+        const k=String(r.requisicao_id);
+        if(!porReq[k])porReq[k]={}; if(!porReq[k][r.obra_id])porReq[k][r.obra_id]={};
+        porReq[k][r.obra_id][c]=(porReq[k][r.obra_id][c]||0)+q;
+      }
     });
-    rafOsReservas=novo;
+    rafOsReservas=novo; rafOsReservasReq=porReq;
   }catch(e){console.warn('refreshRafOsReservas',e);}
 }
 async function refreshDevolucoesBloqueio(){
@@ -4595,7 +4607,7 @@ async function aprovarRequisicao(id){
   const saldoBanco={}; (sd||[]).forEach(x=>{ saldoBanco[x.code]=Number(x.saldo)||0; });
   // Verifica o saldo item a item — não bloqueia mais a aprovação por falta de estoque.
   const itensAvaliados=r.itens.map(i=>{
-    const disponivel=Math.max(Math.min((saldoBanco[String(i.code)]||0)-saldoBloqueadoOf(obraSaldo,i.code)-saldoReservadoRafOf(obraSaldo,i.code), i.qty),0); /* físico - devoluções - reservas RAF abertas */
+    const disponivel=Math.max(Math.min((saldoBanco[String(i.code)]||0)-saldoBloqueadoOf(obraSaldo,i.code)-saldoReservadoRafOutrasOf(obraSaldo,i.code,String(r.id)), i.qty),0); /* físico - devoluções - reservas RAF abertas de outras requisições/O.S. */
     return {code:i.code, desc:i.desc, unit:i.unit||'', qty:i.qty, disponivel, faltante:Math.max(i.qty-disponivel,0)};
   });
   const temFaltante=itensAvaliados.some(i=>i.faltante>0);
