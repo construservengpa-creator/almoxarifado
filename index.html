@@ -1146,6 +1146,7 @@ input[type=checkbox]:focus-visible{outline:2px solid #22A35A;outline-offset:2px}
       <button data-tab="expedicao" data-role="almoxarife"><span class="ic">🚚</span><span>Expedição</span><span class="badge" id="navBadgeExped" style="display:none"></span></button>
       <button data-tab="retiradas" data-role="retiradas_acesso"><span class="ic">🕓</span><span>Aguardando Retirada</span><span class="badge" id="navBadgeRetiradas" style="display:none"></span></button>
       <button data-tab="comprovantes" data-role="retiradas_acesso"><span class="ic">🧾</span><span>Comprovantes de Entrega</span><span class="badge" id="navBadgeComprov" style="display:none"></span></button>
+      <button data-tab="pneus" data-role="pneus_acesso"><span class="ic">🛞</span><span>Aplicação de Pneus</span><span class="badge" id="navBadgePneus" style="display:none"></span></button>
     </div>
 
     <div class="navgrp-hd" data-grp-toggle="pat"><span class="navgrp-hd-l">Patrimônio</span><span class="navgrp-chev">▸</span></div>
@@ -2496,7 +2497,7 @@ function requireSupervisor(title,onOk){
   $('#rsOk').onclick=()=>{ closeModal(); onOk&&onOk(); };
 }
 function papelLabel(p){ return p==='admin'?'Administrador':p==='encarregado'?'Encarregado':'Operador'; }
-function setorLabel(s){ return s==='almoxarifado'?'Almoxarifado':s==='compras'?'Compras':s==='frotas'?'Frotas':''; }
+function setorLabel(s){ return s==='almoxarifado'?'Almoxarifado':s==='compras'?'Compras':s==='frotas'?'Frotas':s==='oficina'?'Oficina':''; }
 
 /* ===== Scanner de câmera (celular / tablet) ===== */
 let camScanner=null;
@@ -2534,6 +2535,7 @@ const titles={ painel:['Painel','Visão por obra'],entrada:['Entrada / Nota Fisc
   separacao:['Separação','Separação física dos itens disponíveis'],
   expedicao:['Expedição','Embalagem, romaneio, nota fiscal, etiquetas de volume e envio'],
   retiradas:['Aguardando Retirada','Material já separado do estoque que ainda não saiu — despacho ou retirada no balcão'],
+  pneus:['Aplicação de Pneus','Nº de fogo, DOT e posição de cada pneu entregue — e o destino do pneu retirado'],
   comprovantes:['Comprovantes de Entrega','Arquivo digital — assinaturas, confirmações por login, canhotos e recebimentos na obra'],
   mutuo:['Mútuo entre Empresas','Controle de valores entre empresas e fechamento por período'],
   devolucao:['Devolução de Materiais','Ao fornecedor (nota de devolução) e de requisição (retorno ao estoque)'],
@@ -2556,7 +2558,7 @@ function go(tab){
 const ABA_KEY='estoque_aba_ativa_v1';
 /* Desenha a tela sem mexer na navegação (usado pelo go() e pela atualização ao vivo) */
 function renderAba(tab){ $('#topActions').innerHTML='';
-  ({painel:renderPainel,entrada:renderEntrada,baixa:renderBaixa,notificacoes:renderNotificacoes,ajuste:renderAjuste,inventario:renderInventario,aprovacoes:renderAprovacoes,separacao:renderSeparacao,expedicao:renderExpedicao,retiradas:renderRetiradaPendente,comprovantes:renderComprovantes,compras:renderCompras,transfer:renderTransfer,mutuo:renderMutuo,devolucao:renderDevolucao,consulta:renderConsulta,obras:renderObras,aplic:renderAplic,tiposetor:renderTipoSetor,produtos:renderProdutos,importar:renderImportar,empresas:renderEmpresas,admin:renderAdmin,relatorios:renderRelatorios,auditoria:renderAuditoria,patrimonio:renderPatrimonio,patlocal:renderPatLocal,patmov:renderPatMov,patdeprec:renderPatDeprec}[tab])();
+  ({painel:renderPainel,entrada:renderEntrada,baixa:renderBaixa,notificacoes:renderNotificacoes,ajuste:renderAjuste,inventario:renderInventario,aprovacoes:renderAprovacoes,separacao:renderSeparacao,expedicao:renderExpedicao,retiradas:renderRetiradaPendente,comprovantes:renderComprovantes,pneus:renderPneus,compras:renderCompras,transfer:renderTransfer,mutuo:renderMutuo,devolucao:renderDevolucao,consulta:renderConsulta,obras:renderObras,aplic:renderAplic,tiposetor:renderTipoSetor,produtos:renderProdutos,importar:renderImportar,empresas:renderEmpresas,admin:renderAdmin,relatorios:renderRelatorios,auditoria:renderAuditoria,patrimonio:renderPatrimonio,patlocal:renderPatLocal,patmov:renderPatMov,patdeprec:renderPatDeprec}[tab])();
 }
 function abaPermitida(t){ if(!t||!titles[t])return false;
   if(isEncAlmox()&&ABAS_BLOQUEADAS_ENCALMOX.includes(t))return false;
@@ -2607,7 +2609,7 @@ function refreshFluxoGroupBadge(){ const ids=['navBadgeAprov','navBadgeSeparacao
 function applyRoleNav(){
   document.querySelectorAll('#nav button[data-role]').forEach(b=>{
     const need=b.dataset.role;
-    const ok=need==='auditoria'?(isEncarregado()&&!isEncAlmox()):need==='sem_encalmox'?!isEncAlmox():need==='admin'?isAdmin():need==='almoxarife'?isAlmoxarife():need==='compras'?isCompras():need==='separacao_acesso'?podeVerCompras():need==='retiradas_acesso'?podeVerRetiradas():need==='notif_acesso'?podeVerNotificacoes():need==='aprovador'?podeAprovar():isEncarregado()&&!(isEncFrotas()&&ABAS_BLOQUEADAS_ENCFROTAS.includes(b.dataset.tab));
+    const ok=need==='auditoria'?(isEncarregado()&&!isEncAlmox()):need==='sem_encalmox'?!isEncAlmox():need==='admin'?isAdmin():need==='almoxarife'?isAlmoxarife():need==='compras'?isCompras():need==='separacao_acesso'?podeVerCompras():need==='retiradas_acesso'?podeVerRetiradas():need==='notif_acesso'?podeVerNotificacoes():need==='pneus_acesso'?podeVerPneus():need==='aprovador'?podeAprovar():isEncarregado()&&!(isEncFrotas()&&ABAS_BLOQUEADAS_ENCFROTAS.includes(b.dataset.tab));
     b.style.display=ok?'':'none';
   });
   $('#uAvatar').textContent=(profile.nome||'?').trim().charAt(0).toUpperCase();
@@ -2664,6 +2666,7 @@ async function refreshGlobalAlerts(){
     const {count:c4}=await sb.from('requisicoes').select('id',{count:'exact',head:true}).eq('solicitante_id',session.user.id).eq('status','aguardando_compra');
     if(c4)alerts.push({tab:'baixa',tone:'err',text:c4===1?'Seu pedido está aguardando compra de material faltante.':'Você tem '+c4+' pedidos aguardando compra de material faltante.'});
   }
+  if(podeVerPneus())alerts.push(...pneuAlertas());
   _gaBaseHTML=alerts.map(a=>`<div class="galert ${a.tone}" onclick="go('${a.tab}')"><span>${esc(a.text)}</span><span class="ga-cta">Ver →</span></div>`).join('');
   renderGlobalAlerts();
 }
@@ -3771,7 +3774,7 @@ function editProductModal(code){ const p=findProduct(code); if(!p)return;
       <div class="field" style="margin:0"><label>Endereço</label><input id="epEndereco" value="${esc(p.endereco||'')}" placeholder="Ex.: Corredor B, Prateleira 3"></div>
     </div>
     <div class="row c2" style="align-items:start;margin-top:14px">
-      <div class="field" style="margin:0"><label style="display:flex;align-items:center;gap:8px;text-transform:none;font-weight:600;margin:0"><input type="checkbox" id="epLote" style="width:auto" ${p.controlaLote?'checked':''}> 🏷 Controla lote e validade</label>
+      <div class="field" style="margin:0"><label style="display:flex;align-items:center;gap:8px;text-transform:none;font-weight:600;margin:0"><input type="checkbox" id="epLote" style="width:auto" ${p.controlaLote?'checked':''}> 🏷 Controla lote e validade</label><label style="display:flex;align-items:center;gap:8px;text-transform:none;font-weight:600;margin:6px 0 0"><input type="checkbox" id="epRecap" style="width:auto" ${p.recapado?'checked':''}> ♻ Pneu recapado (pede o modelo da banda na aplicação)</label>
         <div class="muted" style="font-size:11px;margin-top:3px">A entrada por nota passa a exigir lote/validade; as saídas consomem primeiro o lote que vence primeiro. ${lotesAtivos()?`<a href="#" onclick="closeModal();lotesModal('${esc(code)}');return false">Ver lotes</a>`:''}</div></div>
       <div class="field" style="margin:0"><label>Alertar vencimento com (dias de antecedência)</label><input id="epDiasVenc" type="number" min="0" step="1" value="${p.diasAlertaVenc||''}" placeholder="padrão: ${diasAlertaVenc(null)} dias"></div>
     </div>
@@ -3830,6 +3833,7 @@ function saveEditProduct(code){ const p=findProduct(code); if(!p)return; const d
   p.grupo=($('#epGrupo')?$('#epGrupo').value.trim():''); p.localizacao=($('#epLocal')?$('#epLocal').value.trim():''); p.endereco=($('#epEndereco')?$('#epEndereco').value.trim():'');
   if($('#epNcm'))p.ncm=onlyDigits($('#epNcm').value); if($('#epCst'))p.cst=onlyDigits($('#epCst').value);
   if($('#epLote')){ if($('#epLote').checked)p.controlaLote=true; else delete p.controlaLote; }
+  if($('#epRecap')){ if($('#epRecap').checked)p.recapado=true; else delete p.recapado; }
   if($('#epDiasVenc')){ const d=parseInt($('#epDiasVenc').value,10); if(d>0)p.diasAlertaVenc=d; else delete p.diasAlertaVenc; }
   save(); closeModal(); if($('#sepList'))drawSeparacaoList(); else renderProdutos(); toast('Produto atualizado.','ok'); } /* aberto pela Separação ("cadastrar custo"): continua na Separação */
 function newProductModal(){ const grupos=[...new Set(state.products.map(p=>p.grupo).filter(Boolean))]; const locais=[...new Set(state.products.map(p=>p.localizacao).filter(Boolean))];
@@ -5047,7 +5051,7 @@ function entregaBalcaoHTML(){ const {r,itens,parcialOk}=window._expedCtx;
   }
   return h+hist; }
 function entregaPreencher(tudo){ document.querySelectorAll('#modalRoot input.ep-q').forEach(el=>{ el.value=tudo?el.dataset.max:0; }); }
-function entregaRefreshTelas(){ try{ if(_comprovOk){ refreshComprovBadge(); if(activeTab==='comprovantes')drawComprovantes(); } drawExpedicaoList(); refreshExpedBadge(); refreshRetiradasBadge(); drawSeparacaoList(); refreshSeparacaoBadge(); drawRetiradaPendente(); refreshMinhasBadge(); refreshGlobalAlerts(); }catch(e){ console.warn(e); } }
+function entregaRefreshTelas(){ try{ refreshPneusBadge(); if(_comprovOk){ refreshComprovBadge(); if(activeTab==='comprovantes')drawComprovantes(); } drawExpedicaoList(); refreshExpedBadge(); refreshRetiradasBadge(); drawSeparacaoList(); refreshSeparacaoBadge(); drawRetiradaPendente(); refreshMinhasBadge(); refreshGlobalAlerts(); }catch(e){ console.warn(e); } }
 async function registrarEntregaBalcao(reqId){ if(_entSalvando)return;
   if(!podeOperarRetiradas()){ toast('Sem permissão para registrar entrega.','err'); return; }
   const {r,itens}=window._expedCtx; const lista=[]; let erro='';
@@ -5078,7 +5082,7 @@ async function registrarEntregaBalcao(reqId){ if(_entSalvando)return;
   if(avisoComp)toast('A entrega foi registrada, mas a comprovação NÃO foi gravada: '+esc(avisoComp)+' — colha de novo no histórico da entrega.','err');
   else if(comp&&comp.tipo==='login')toast('Aviso enviado: o retirante confirma o recebimento no usuário dele.','ok');
   await abrirExpedicao(reqId); entregaRefreshTelas(); }
-function estornarEntregaBalcao(retId){ const {r}=window._expedCtx;
+async function estornarEntregaBalcao(retId){ const {r}=window._expedCtx; if(await pneuBloqueiaEstorno(r.id))return;
   requireSupervisor('Desfazer a última entrega no balcão da REQ-'+String(r.id).padStart(5,'0')+' (os itens voltam a aguardar retirada)',async()=>{
     const {error}=await sb.rpc('estornar_entrega_balcao',{p_retirada_id:String(retId)});
     if(error){ toast('Erro ao desfazer a entrega: '+error.message,'err'); return; }
@@ -5352,7 +5356,7 @@ async function confirmarRecebimentoObra(){ const c=window._recCtx; if(!c)return;
   if(error){ toast('Não foi possível confirmar: '+esc(error.message),'err'); if(b){ b.disabled=false; b.textContent='✔ Confirmar recebimento'; } return; }
   try{ await sb.rpc('log_event',{p_acao:data&&data.final?'recebimento_obra_final':'recebimento_obra_parcial',p_entidade:'requisicoes',p_entidade_id:String(c.reqId)}); }catch(e){}
   toast(data&&data.final?'Recebimento confirmado — requisição encerrada como recebida.':'Recebimento parcial registrado — faltam '+(data?data.faltam:'')+' volume(s).','ok');
-  closeModal(); refreshComprovPend(); refreshComprovBadge(); refreshMinhasBadge();
+  closeModal(); refreshComprovPend(); refreshComprovBadge(); refreshMinhasBadge(); refreshPneusBadge();
   if(activeTab==='comprovantes')drawComprovantes(); if(activeTab==='baixa'&&typeof drawMinhasEmAndamento==='function')drawMinhasEmAndamento(); }
 
 /* --- Tela "Comprovantes de Entrega": o arquivo digital (pendências sempre aparecem, o resto por período) --- */
@@ -5677,8 +5681,9 @@ function renderExpedModal(){
   modal(html);
   _epAutoLogin=false; if($('#epSig'))sigPadInit('epSig');
 }
-function voltarEtapa(reqId){
+async function voltarEtapa(reqId){
   const {r,caixas}=window._expedCtx;
+  if((r.status==='retirado'||r.status==='recebido')&&await pneuBloqueiaEstorno(reqId))return;
   const map={romaneio_emitido:'separado',embalado:'romaneio_emitido',faturado:'embalado',embarcado:'faturado',retirado:'faturado',recebido:'embarcado'};
   const prev=map[r.status]; if(!prev)return;
   requireSupervisor('Voltar REQ-'+String(reqId).padStart(5,'0')+' para a etapa anterior ('+reqStatusLabel(prev)+')',async()=>{
@@ -6977,6 +6982,7 @@ async function salvarDevolReq(){
     if(q>it.max+1e-9){ toast('"'+esc(it.desc||it.code)+'": o máximo que pode ser devolvido é '+numf(it.max)+' '+esc(it.unit)+'.','err'); return; }
     sel.push({...it,qty:q,movId:uid()}); }
   if(!sel.length){ toast('Informe a quantidade devolvida de pelo menos um item.','err'); return; }
+  for(const it of sel){ const mx=await pneuMaxDevolvivel(ctx.r.id,it.code,it.max); if(it.qty>mx+1e-9){ toast('"'+esc(it.desc||it.code)+'": há pneu(s) já montado(s) no equipamento — dá para devolver no máximo '+numf(mx)+'. Cancele a aplicação em Aplicação de Pneus se foi informada errada.','err'); return; } }
   if(!motivo){ toast('Selecione o motivo da devolução.','err'); return; }
   if(motivo==='Outro'&&!obs){ toast('Descreva o motivo no campo de observação.','err'); return; }
   if(!quem){ toast('Informe quem devolveu o material.','err'); return; }
@@ -7244,7 +7250,7 @@ async function renderAdmin(){
     return `<tr>
     <td>${esc(u.nome||'—')}<div class="muted" style="font-size:11px">${esc(u.email)}</div></td>
     <td><select id="up_${u.id}" ${u.id===profile.id?'disabled':''} style="width:auto"><option value="operador"${u.papel==='operador'?' selected':''}>Operador</option><option value="encarregado"${u.papel==='encarregado'?' selected':''}>Encarregado</option><option value="admin"${u.papel==='admin'?' selected':''}>Admin</option></select></td>
-    <td><select id="us_${u.id}" style="width:auto"><option value=""${!u.setor?' selected':''}>—</option><option value="almoxarifado"${u.setor==='almoxarifado'?' selected':''}>Almoxarifado</option><option value="compras"${u.setor==='compras'?' selected':''}>Compras</option><option value="frotas"${u.setor==='frotas'?' selected':''}>Frotas</option></select></td>
+    <td><select id="us_${u.id}" style="width:auto"><option value=""${!u.setor?' selected':''}>—</option><option value="almoxarifado"${u.setor==='almoxarifado'?' selected':''}>Almoxarifado</option><option value="compras"${u.setor==='compras'?' selected':''}>Compras</option><option value="frotas"${u.setor==='frotas'?' selected':''}>Frotas</option><option value="oficina"${u.setor==='oficina'?' selected':''}>Oficina</option></select></td>
     <td>${obrasCell}</td>
     <td><label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:500;margin:0" title="${u.papel==='admin'?'Admin sempre aprova':'Marque para permitir que este usuário aprove requisições (no sistema e no app de Aprovações)'}"><input type="checkbox" id="uap_${u.id}" ${aprova||u.papel==='admin'?'checked':''} ${u.papel==='admin'?'disabled':''} style="width:auto"> Aprova</label></td>
     <td class="num"><label style="display:flex;align-items:center;gap:6px;justify-content:flex-end;text-transform:none;font-weight:500;margin:0"><input type="checkbox" id="ua_${u.id}" ${u.ativo?'checked':''} ${u.id===profile.id?'disabled':''} style="width:auto"> Ativo</label></td>
@@ -7584,7 +7590,7 @@ function onAuthReady(){
   const p=(async()=>{
     profile=await loadProfile();
     if(!profile||!profile.ativo){ showPending(); return; }
-    hideGate(); applyRoleNav(); initNavGrps(); const pDev=refreshDevolucoesBloqueio().catch(()=>{}); const pRaf=refreshRafOsReservas().catch(()=>{}); const pLot=loadLotes().catch(e=>console.warn('loadLotes',e)); await load(); applyRoleNav(); /* a marcação "Aprova requisições" vem do documento carregado agora */ await pDev; await pRaf; await pLot; loadPhotos().then(()=>{ refreshTelaAtual(); migrarFotosAntigas(); }); loadFotosExt().then(mudou=>{ if(mudou&&!usuarioInteragindo())refreshTelaAtual(); }); loadReposAbertas().then(()=>refreshTelaAtual()); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); checkEntregaParcial().then(()=>refreshRetiradasBadge()); _comprovOk=null; _comprovPend={confirmar:[],receber:[]}; _comprovUsers=null; _patTermoOk=null; _patTermoPend=[]; _patTermoUsers=null; _patTermos=null; refreshComprovPend().then(()=>{ refreshComprovBadge(); processarLinkRecebimento(); }); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); refreshGlobalAlerts(); updateOfflineBadge();
+    hideGate(); applyRoleNav(); initNavGrps(); const pDev=refreshDevolucoesBloqueio().catch(()=>{}); const pRaf=refreshRafOsReservas().catch(()=>{}); const pLot=loadLotes().catch(e=>console.warn('loadLotes',e)); await load(); applyRoleNav(); /* a marcação "Aprova requisições" vem do documento carregado agora */ await pDev; await pRaf; await pLot; loadPhotos().then(()=>{ refreshTelaAtual(); migrarFotosAntigas(); }); loadFotosExt().then(mudou=>{ if(mudou&&!usuarioInteragindo())refreshTelaAtual(); }); loadReposAbertas().then(()=>refreshTelaAtual()); refreshBadge(); refreshAprovBadge(); refreshSeparacaoBadge(); refreshComprasBadge(); refreshExpedBadge(); checkEntregaParcial().then(()=>refreshRetiradasBadge()); _comprovOk=null; _comprovPend={confirmar:[],receber:[]}; _comprovUsers=null; _patTermoOk=null; _patTermoPend=[]; _patTermoUsers=null; _patTermos=null; refreshComprovPend().then(()=>{ refreshComprovBadge(); processarLinkRecebimento(); }); refreshMinhasBadge(); refreshInvBadge(); refreshDevolucaoBadge(); _pneuOk=null; refreshPneusBadge(); refreshGlobalAlerts(); updateOfflineBadge();
     _bootedUid=uid; go(abaInicial());
     if(!realtimeSubscribed){ realtimeSubscribed=true; subscribeRealtime(); if(isOnline){try{await sb.rpc('log_event',{p_acao:'login'});}catch(e){}} processOfflineQueue(); drenarGravacoes(); recuperarDocPendente(); startVersionWatch(); iniciarBackupAuto(); }
   })();
@@ -8411,6 +8417,334 @@ window.addEventListener('appinstalled',()=>{ _promptInstalar=null; atualizarBota
     window.addEventListener('load',()=>{ navigator.serviceWorker.register('app-sw.js',{scope:'./'}).catch(e=>console.warn('Service worker do app não registrado:',e)); });
   }
 })();
+
+/* ===== APLICAÇÃO DE PNEUS =====
+   Insumos dos grupos marcados na configuração (state.config.pneus.grupos) passam a exigir, depois da entrega da
+   requisição (balcão ou recebimento na obra), que o encarregado da oficina informe para CADA pneu: nº de fogo (AM),
+   DOT, se é recapado (e o modelo da banda), eixo, lado e posição no equipamento da requisição.
+   Montar um pneu numa posição registra o pneu que saiu dela e o destino. Destino "volta ao estoque" fica aguardando
+   a aprovação do encarregado do almoxarifado; aprovado, o saldo entra como ajuste (+1) no estoque escolhido.
+   Banco: tabelas pneus_aplicacoes / pneus_retirados e funções pneu_* (script scripts/pneus_aplicacao.sql).
+   Código de posição: <eixo><lado>[I|E] (ex.: 1E, 2DI, 2DE) e EST<n> para estepe. */
+const PNEU_TIPOS=[['UNICO','Rodado simples'],['INTERNO','Rodado duplo — interno'],['EXTERNO','Rodado duplo — externo'],['ESTEPE','Estepe']];
+const PNEU_DEST={estoque:'Volta ao estoque',recapagem:'Recapagem',sucata:'Sucata / descarte',garantia:'Garantia (fornecedor)',outro:'Outro'};
+const PNEU_RET_ST={registrado:['Registrado','good'],aguardando_aprovacao:['Aguardando aprovação do almoxarifado','high'],reintegrado:['Reintegrado ao estoque','good'],rejeitado:['Reintegração rejeitada','low'],cancelado:['Cancelado','cancelada']};
+const PNEU_AP_ST={ativo:['Montado','good'],substituido:['Retirado','tr'],cancelado:['Cancelado','cancelada']};
+function isEncOficina(){ return !!profile && profile.papel==='encarregado' && profile.setor==='oficina' && profile.ativo; }
+function podeInformarPneu(){ return isAdmin()||isEncAlmox()||isEncOficina(); }
+function podeAprovarReintPneu(){ return isAdminOuEncAlmox(); }
+function podeVerPneus(){ return podeInformarPneu()||isAlmoxarife()||isFrotas()||(!!profile&&profile.ativo&&profile.setor==='oficina'); }
+function pneuCfg(){ const c=(state.config&&state.config.pneus)||{}; return {grupos:Array.isArray(c.grupos)?c.grupos:[],desde:c.desde||''}; }
+const _pneuG=g=>String(g||'').trim().toUpperCase();
+function produtoEhPneu(code){ const g=_pneuG((findProduct(code)||{}).grupo); return !!g&&pneuCfg().grupos.some(x=>_pneuG(x)===g); }
+function codigosPneu(){ const gs=new Set(pneuCfg().grupos.map(_pneuG)); return state.products.filter(p=>gs.has(_pneuG(p.grupo))).map(p=>String(p.code)); }
+function pneuCodPos(eixo,lado,pos){ return pos==='ESTEPE'?'EST'+eixo:String(eixo)+(lado||'')+(pos==='INTERNO'?'I':pos==='EXTERNO'?'E':''); }
+function pneuPosTxt(a){ if(!a)return ''; if(a.posicao==='ESTEPE')return 'Estepe '+a.eixo+' ('+pneuCodPos(a.eixo,null,'ESTEPE')+')';
+  return 'Eixo '+a.eixo+' · '+(a.lado==='E'?'Esquerdo':'Direito')+(a.posicao==='UNICO'?'':' · '+(a.posicao==='INTERNO'?'Interno':'Externo'))+' ('+(a.codigo_posicao||pneuCodPos(a.eixo,a.lado,a.posicao))+')'; }
+function pneuReqN(id){ return 'REQ-'+String(id).padStart(5,'0'); }
+function pneuPill(map,s){ const x=map[s]||[s,'']; return `<span class="pill ${x[1]}">${esc(x[0])}</span>`; }
+function pneuSemTabela(e){ return !!e&&(e.code==='42P01'||e.code==='PGRST205'||e.code==='PGRST202'||(/pneu/.test(e.message||'')&&/(does not exist|find the table|schema cache|could not find)/i.test(e.message||''))); }
+let _pneuOk=null;
+async function checkPneuTabela(){ try{ const {error}=await sb.from('pneus_aplicacoes').select('id').limit(1); _pneuOk=!error; }catch(e){ _pneuOk=false; } return _pneuOk; }
+async function copiarPneuSQL(){ try{ const r=await fetch('scripts/pneus_aplicacao.sql',{cache:'no-store'}); if(!r.ok)throw 0; await navigator.clipboard.writeText(await r.text()); toast('Script copiado — cole no SQL Editor do Supabase (projeto Estoque) e rode.','ok'); }
+  catch(e){ toast('Não foi possível copiar — abra o arquivo scripts/pneus_aplicacao.sql do repositório.','err'); } }
+
+/* Fila de pendências: itens de pneu já entregues (ou recebidos) que ainda não tiveram todas as aplicações informadas.
+   Entregue = quantidade_entregue (balcão, inclusive parcial); requisição encerrada como retirado/recebido conta o separado. */
+async function pneuPendentes(){
+  const cfg=pneuCfg(), codes=codigosPneu(); if(!codes.length)return {lista:[],semCfg:true};
+  const sts=[...ENT_STATUS,'embarcado','retirado','recebido']; let rows=[];
+  for(let i=0;i<codes.length;i+=120){
+    let q=sb.from('requisicao_itens_status').select('requisicao_id,code,descricao,unidade,quantidade_separada,quantidade_entregue,requisicoes!inner(*)').in('code',codes.slice(i,i+120)).in('requisicoes.status',sts);
+    if(cfg.desde)q=q.gte('requisicoes.criado_em',cfg.desde);
+    const {data,error}=await q; if(error)return {lista:[],erro:error}; rows=rows.concat(data||[]); }
+  const lib=x=>{ const st=x.requisicoes.status; const e=Number(x.quantidade_entregue)||0, s=Number(x.quantidade_separada)||0; return st==='retirado'||st==='recebido'?Math.max(e,s):e; };
+  rows=rows.filter(x=>lib(x)>0);
+  const vinc=Array.isArray(profile.obras_vinculadas)?profile.obras_vinculadas:[];
+  if(!isAdminOuEncAlmox()&&isEncOficina()&&vinc.length)rows=rows.filter(x=>vinc.includes(x.requisicoes.obra_id));
+  if(!rows.length)return {lista:[]};
+  const ids=[...new Set(rows.map(x=>x.requisicao_id))]; const usados=new Map(), devol=new Map(); const k=(r,c)=>r+'|'+c;
+  for(let i=0;i<ids.length;i+=150){ const part=ids.slice(i,i+150);
+    const {data:ap,error:e1}=await sb.from('pneus_aplicacoes').select('requisicao_id,item_code').in('requisicao_id',part).neq('status','cancelado');
+    if(e1)return {lista:[],erro:e1}; (ap||[]).forEach(a=>usados.set(k(a.requisicao_id,a.item_code),(usados.get(k(a.requisicao_id,a.item_code))||0)+1));
+    const {data:dv}=await sb.from('devolucoes_requisicao').select('requisicao_id,item_code,quantidade').in('requisicao_id',part);
+    (dv||[]).forEach(d=>devol.set(k(d.requisicao_id,d.item_code),(devol.get(k(d.requisicao_id,d.item_code))||0)+(Number(d.quantidade)||0))); }
+  const lista=rows.map(x=>{ const kk=k(x.requisicao_id,x.code); const l=Math.max(Math.floor(lib(x)-(devol.get(kk)||0)+1e-9),0); const u=usados.get(kk)||0;
+    return {r:x.requisicoes,code:x.code,desc:x.descricao||((findProduct(x.code)||{}).desc)||x.code,unit:x.unidade||'',lib:l,usados:u,pend:Math.max(l-u,0)}; }).filter(x=>x.pend>0);
+  lista.sort((a,b)=>String(a.r.criado_em||'').localeCompare(String(b.r.criado_em||''))||a.r.id-b.r.id);
+  return {lista}; }
+let _pneuCont={pend:0,aprov:0};
+async function refreshPneusBadge(){ const b=$('#navBadgePneus'); if(!b||!profile||!podeVerPneus())return;
+  if(_pneuOk===null)await checkPneuTabela(); if(!_pneuOk){ b.style.display='none'; return; }
+  let pend=0, aprov=0;
+  try{ if(podeInformarPneu()){ const {lista}=await pneuPendentes(); pend=lista.reduce((s,x)=>s+x.pend,0); }
+    if(podeAprovarReintPneu()){ const {count}=await sb.from('pneus_retirados').select('id',{count:'exact',head:true}).eq('status','aguardando_aprovacao'); aprov=count||0; } }catch(e){ console.warn('refreshPneusBadge',e); }
+  const mudou=pend!==_pneuCont.pend||aprov!==_pneuCont.aprov; _pneuCont={pend,aprov};
+  const n=pend+aprov; if(n){ b.textContent=n; b.style.display=''; } else b.style.display='none';
+  if(mudou)refreshGlobalAlerts(); }
+function pneuAlertas(){ const a=[];
+  if(_pneuCont.pend)a.push({tab:'pneus',tone:'warn',text:(_pneuCont.pend===1?'1 pneu entregue':_pneuCont.pend+' pneus entregues')+' aguardando informar a aplicação (DOT, nº de fogo e posição).'});
+  if(_pneuCont.aprov)a.push({tab:'pneus',tone:'warn',text:(_pneuCont.aprov===1?'1 pneu retirado':_pneuCont.aprov+' pneus retirados')+' aguardando sua aprovação para voltar ao estoque.'});
+  return a; }
+/* Proteção: desfazer entrega/recebimento de requisição que já tem pneu informado deixaria aplicação sem saída do estoque */
+async function pneuBloqueiaEstorno(reqId){ if(_pneuOk===null)await checkPneuTabela(); if(!_pneuOk)return false;
+  const {count,error}=await sb.from('pneus_aplicacoes').select('id',{count:'exact',head:true}).eq('requisicao_id',reqId).neq('status','cancelado');
+  if(error||!count)return false;
+  toast(pneuReqN(reqId)+' tem '+count+' pneu(s) com aplicação informada. Cancele essas aplicações em <b>Aplicação de Pneus</b> antes de desfazer a entrega.','err'); return true; }
+/* Devolução de requisição: pneu já montado no equipamento não pode voltar ao estoque por devolução */
+async function pneuMaxDevolvivel(reqId,code,maxAtual){ if(!produtoEhPneu(code))return maxAtual; if(_pneuOk===null)await checkPneuTabela(); if(!_pneuOk)return maxAtual;
+  const {count,error}=await sb.from('pneus_aplicacoes').select('id',{count:'exact',head:true}).eq('requisicao_id',reqId).eq('item_code',code).neq('status','cancelado');
+  if(error)return maxAtual; return Math.max(maxAtual-(count||0),0); }
+
+/* ---- tela ---- */
+let _pneuAba='pendentes', _pneuPend=[], _pneuAplic=[], _pneuRet=[], _pneuRetFiltro='abertos', _pneuEqp='';
+async function renderPneus(){
+  if(!podeVerPneus()){ $('#view').innerHTML='<div class="tbl-wrap"><div class="empty">Acesso restrito à oficina, frotas, almoxarifado e administradores.</div></div>'; return; }
+  await checkPneuTabela();
+  if(!_pneuOk){ $('#view').innerHTML=`<div class="panel" style="border-left:4px solid #c98a1a"><h3>🛞 Aplicação de Pneus — falta atualizar o banco</h3>
+      <p class="desc">As tabelas desta rotina ainda não existem. ${isAdmin()?'Copie o script e rode uma vez no <b>SQL Editor</b> do Supabase (projeto Estoque). Depois reabra esta tela.':'Peça ao administrador para rodar o script <b>pneus_aplicacao.sql</b> no Supabase.'}</p>
+      ${isAdmin()?'<button class="btn primary sm" onclick="copiarPneuSQL()">Copiar script SQL</button>':''}</div>`; return; }
+  const abas=[['pendentes','⏳ Pendentes'],['aplicados','🛞 Aplicados'],['equip','🚚 Por equipamento'],['retirados','↩ Retirados e destino']];
+  if(podeAprovarReintPneu())abas.push(['config','⚙ Configuração']);
+  if(!abas.some(a=>a[0]===_pneuAba))_pneuAba='pendentes';
+  $('#view').innerHTML=`<div class="tabs">${abas.map(([k,t])=>`<button data-pa="${k}" onclick="setPneuAba('${k}')">${t}${k==='retirados'&&_pneuCont.aprov&&podeAprovarReintPneu()?' <span class="pill high">'+_pneuCont.aprov+'</span>':''}${k==='pendentes'&&_pneuCont.pend?' <span class="pill high">'+_pneuCont.pend+'</span>':''}</button>`).join('')}</div><div id="pneuBody"></div>`;
+  await setPneuAba(_pneuAba); }
+async function setPneuAba(a){ _pneuAba=a; document.querySelectorAll('[data-pa]').forEach(b=>b.classList.toggle('on',b.dataset.pa===a));
+  const body=$('#pneuBody'); if(!body)return; body.innerHTML='<div class="tbl-wrap"><div class="empty">Carregando...</div></div>';
+  if(a==='pendentes')return drawPneuPendentes(); if(a==='aplicados')return drawPneuAplicados(); if(a==='equip')return drawPneuEquip();
+  if(a==='retirados')return drawPneuRetirados(); if(a==='config')return drawPneuConfig(); }
+
+async function drawPneuPendentes(){ const body=$('#pneuBody'); if(!body)return;
+  const {lista,semCfg,erro}=await pneuPendentes(); _pneuPend=lista;
+  if(semCfg){ body.innerHTML=`<div class="tbl-wrap"><div class="empty">Nenhum grupo de insumo está marcado para controle de pneu.${podeAprovarReintPneu()?'<br><button class="btn primary sm" onclick="setPneuAba(\'config\')">Configurar grupos</button>':'<br>Peça ao encarregado do almoxarifado para configurar os grupos.'}</div></div>`; return; }
+  if(erro){ body.innerHTML='<div class="tbl-wrap"><div class="empty">Erro: '+esc(erro.message)+'</div></div>'; return; }
+  const cfg=pneuCfg();
+  let h=`<div class="panel" style="margin-bottom:14px"><h3>⏳ Pneus entregues aguardando aplicação</h3><p class="desc">Para cada pneu entregue informe o <b>nº de fogo (AM)</b>, o <b>DOT</b>, se é <b>recapado</b> (com o modelo da banda) e a <b>posição</b> em que foi montado. Se saiu um pneu da posição, informe o destino dele. ${cfg.desde?'Controle a partir das requisições criadas em '+esc(cfg.desde.split('-').reverse().join('/'))+'.':''}</p></div>`;
+  if(!lista.length){ body.innerHTML=h+'<div class="tbl-wrap"><div class="empty"><div class="ico">✓</div>Nenhuma aplicação pendente.</div></div>'; return; }
+  const porReq=new Map(); lista.forEach((x,i)=>{ x.i=i; if(!porReq.has(x.r.id))porReq.set(x.r.id,[]); porReq.get(x.r.id).push(x); });
+  porReq.forEach(itens=>{ const r=itens[0].r; const semEqp=!r.aplicacao_id;
+    h+=`<div class="panel" style="margin-bottom:10px;padding:12px 16px">
+      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center"><b>${pneuReqN(r.id)} · ${esc(r.obra_nome||obraName(r.obra_id))}</b><span class="pill ${esc(r.status)}">${esc(reqStatusLabel(r.status))}</span></div>
+      <div class="muted" style="font-size:12px">${semEqp?'<span style="color:#c0392b">⚠ Requisição sem equipamento (aplicação) — não dá para informar a posição. Corrija a requisição.</span>':'Equipamento: <b>'+esc(r.aplicacao_nome||aplicName(r.aplicacao_id))+'</b>'}${r.ordem_servico?' · O.S. '+esc(r.ordem_servico):''}${r.solicitante_nome?' · solicitante '+esc(r.solicitante_nome):''}${r.criado_em?' · '+fmtTs(r.criado_em):''}</div>
+      <div class="tbl-wrap" style="margin-top:8px"><table><thead><tr><th>Item</th><th class="num">Entregue</th><th class="num">Informado</th><th class="num">Falta</th><th></th></tr></thead><tbody>${itens.map(x=>`<tr><td>${esc(x.desc)}${(findProduct(x.code)||{}).recapado?' <span class="pill tr">recapado</span>':''}<div class="muted mono" style="font-size:10.5px">${esc(x.code)}</div></td><td class="num">${numf(x.lib)}</td><td class="num">${numf(x.usados)}</td><td class="num"><b>${numf(x.pend)}</b></td>
+        <td class="num">${podeInformarPneu()&&!semEqp?`<button class="btn primary sm" onclick="pneuAplicarModal(${x.i})">Informar</button>`:''}</td></tr>`).join('')}</tbody></table></div></div>`; });
+  body.innerHTML=h; }
+
+/* ---- informar aplicação ---- */
+let _pneuCtx=null, _pneuSalvando=false, _pneuUltimo=null;
+function pneuProdOpts(){ return state.products.filter(p=>produtoEhPneu(p.code)).map(p=>`<option value="${esc(p.code)}">${esc(p.desc)}</option>`).join(''); }
+function pneuObraOpts(sel){ return state.obras.map(o=>`<option value="${esc(o.id)}"${o.id===sel?' selected':''}>${esc(o.nome)}</option>`).join(''); }
+function pneuDestinoHTML(px,d,obraDef,codeDef){ d=d||{};
+  return `<div class="row c2"><div class="field"><label>Destino do pneu retirado</label><select id="${px}Dest" onchange="pneuDestChange('${px}')">${Object.entries(PNEU_DEST).map(([k,t])=>`<option value="${k}"${(d.destino||'recapagem')===k?' selected':''}>${t}</option>`).join('')}</select></div>
+    <div class="field"><label>Observação do retirado</label><input id="${px}Obs" value="${esc(d.observacao||'')}" placeholder="Ex.: desgaste irregular, corte lateral..."></div></div>
+    <div id="${px}Reint" style="display:none" class="panel" ><p class="desc" style="margin:0 0 8px">O pneu só entra no saldo depois da <b>aprovação do encarregado do almoxarifado</b>.</p>
+      <div class="row c2"><div class="field"><label>Produto a dar entrada</label><select id="${px}RCode"><option value="">— escolha —</option>${pneuProdOpts()}</select></div>
+      <div class="field"><label>Estoque (obra) de destino</label><select id="${px}RObra">${pneuObraOpts(d.reint_obra_id||obraDef)}</select></div></div></div>`; }
+function pneuDestInit(px,code){ const s=$('#'+px+'RCode'); if(s&&code)s.value=code; pneuDestChange(px); }
+function pneuDestChange(px){ const v=$('#'+px+'Dest')&&$('#'+px+'Dest').value; const b=$('#'+px+'Reint'); if(b)b.style.display=v==='estoque'?'':'none'; }
+function pneuDestLer(px){ const destino=$('#'+px+'Dest').value, observacao=$('#'+px+'Obs').value.trim();
+  if(destino==='outro'&&!observacao){ toast('Destino "outro": descreva na observação do retirado.','err'); return null; }
+  const o={destino,observacao};
+  if(destino==='estoque'){ const c=$('#'+px+'RCode').value, ob=$('#'+px+'RObra').value; if(!c||!ob){ toast('Volta ao estoque: escolha o produto e o estoque de destino.','err'); return null; }
+    o.reint_code=c; o.reint_descricao=(findProduct(c)||{}).desc||''; o.reint_obra_id=ob; o.reint_obra_nome=obraName(ob); }
+  return o; }
+function pneuAplicarModal(i){ const x=_pneuPend[i]; if(!x)return; if(!podeInformarPneu()){ toast('Sem permissão para informar aplicação.','err'); return; }
+  const p=findProduct(x.code)||{}; const u=(_pneuUltimo&&_pneuUltimo.key===x.r.id+'|'+x.code)?_pneuUltimo:null;
+  _pneuCtx={x,ant:null,seq:0};
+  modal(`<h3>🛞 Aplicação de pneu — ${pneuReqN(x.r.id)}</h3>
+    <p class="mp" style="font-size:12.5px"><b>${esc(x.desc)}</b> · pneu ${x.usados+1} de ${x.lib}<br>Equipamento: <b>${esc(x.r.aplicacao_nome||aplicName(x.r.aplicacao_id))}</b>${x.r.ordem_servico?' · O.S. '+esc(x.r.ordem_servico):''}</p>
+    <div class="row c2"><div class="field"><label>Nº de fogo (AM) *</label><input id="pnFogo" autocomplete="off" style="text-transform:uppercase" placeholder="Marcação do pneu"></div>
+      <div class="field"><label>DOT * (semana + ano)</label><input id="pnDot" inputmode="numeric" maxlength="4" value="${esc(u?u.dot:'')}" placeholder="Ex.: 2324 = semana 23/2024"></div></div>
+    <div class="row c2"><div class="field" style="margin:0"><label style="display:flex;align-items:center;gap:8px;text-transform:none;font-weight:600;margin:0"><input type="checkbox" id="pnRecap" style="width:auto" ${(u?u.recapado:p.recapado)?'checked':''} onchange="pneuRecapChange()"> ♻ Pneu recapado</label></div>
+      <div class="field" id="pnModeloBox"><label>Modelo da banda (recapagem) *</label><input id="pnModelo" value="${esc(u?u.modelo:'')}" placeholder="Ex.: BDR-HG, BTL..."></div></div>
+    <div class="sechead" style="margin-top:6px"><h3 style="font-size:13px">Posição no equipamento</h3></div>
+    <div class="row c3"><div class="field"><label>Tipo</label><select id="pnPos" onchange="pneuPosChange()">${PNEU_TIPOS.map(([k,t])=>`<option value="${k}">${t}</option>`).join('')}</select></div>
+      <div class="field"><label id="pnEixoLbl">Eixo (1 = dianteiro)</label><input id="pnEixo" type="number" min="1" max="20" step="1" value="1" oninput="pneuPosChange()"></div>
+      <div class="field" id="pnLadoBox"><label>Lado</label><select id="pnLado" onchange="pneuPosChange()"><option value="E">Esquerdo (motorista)</option><option value="D">Direito</option></select></div></div>
+    <p class="mp" style="font-size:12.5px;margin:0 0 8px">Código da posição: <b class="mono" id="pnCod">1E</b></p>
+    <div class="field"><label>Observação</label><input id="pnObs" placeholder="Opcional"></div>
+    <div class="sechead" style="margin-top:6px"><h3 style="font-size:13px">↩ Pneu retirado desta posição</h3></div>
+    <div id="pnAntBox" class="mp" style="font-size:12.5px">Verificando...</div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" id="pnOk" onclick="salvarAplicacaoPneu()">Salvar aplicação</button></div>`);
+  pneuRecapChange(); pneuPosChange(); setTimeout(()=>{ const f=$('#pnFogo'); if(f)f.focus(); },50); }
+function pneuRecapChange(){ const b=$('#pnModeloBox'); if(b)b.style.visibility=$('#pnRecap').checked?'visible':'hidden'; }
+function pneuPosLer(){ const pos=$('#pnPos').value, eixo=parseInt($('#pnEixo').value,10); const lado=pos==='ESTEPE'?null:$('#pnLado').value; return {pos,eixo,lado}; }
+let _pneuPosT=null;
+function pneuPosChange(){ const {pos,eixo,lado}=pneuPosLer();
+  $('#pnLadoBox').style.visibility=pos==='ESTEPE'?'hidden':'visible'; $('#pnEixoLbl').textContent=pos==='ESTEPE'?'Nº do estepe':'Eixo (1 = dianteiro)';
+  $('#pnCod').textContent=eixo>0?pneuCodPos(eixo,lado,pos):'—';
+  clearTimeout(_pneuPosT); _pneuPosT=setTimeout(pneuBuscarAnterior,250); }
+async function pneuBuscarAnterior(){ const c=_pneuCtx; if(!c||!$('#pnAntBox'))return; const {pos,eixo,lado}=pneuPosLer(); const seq=++c.seq;
+  if(!(eixo>=1&&eixo<=20)){ $('#pnAntBox').innerHTML='<span class="muted">Informe o eixo.</span>'; return; }
+  let q=sb.from('pneus_aplicacoes').select('*').eq('aplicacao_id',c.x.r.aplicacao_id).eq('eixo',eixo).eq('posicao',pos).eq('status','ativo');
+  q=lado?q.eq('lado',lado):q.is('lado',null);
+  const {data,error}=await q.limit(1); if(seq!==c.seq||!$('#pnAntBox'))return;
+  if(error){ $('#pnAntBox').innerHTML='<span style="color:#c0392b">Erro ao consultar a posição: '+esc(error.message)+'</span>'; return; }
+  const a=(data||[])[0]||null; c.ant=a; const obraDef=obraEstoqueParaRequisicao(c.x.r);
+  if(a){ $('#pnAntBox').innerHTML=`<div class="panel" style="padding:10px 12px;margin-bottom:8px">Está montado nesta posição: <b>nº de fogo ${esc(a.numero_fogo)}</b> · DOT ${esc(a.dot)}${a.recapado?' · recapado '+esc(a.modelo_recapagem||''):''}<div class="muted" style="font-size:11.5px">${esc(a.descricao||a.item_code)} · aplicado em ${fmtTs(a.aplicado_em)} (${pneuReqN(a.requisicao_id)})</div></div>${pneuDestinoHTML('pr',null,obraDef)}`;
+    pneuDestInit('pr',a.item_code); return; }
+  $('#pnAntBox').innerHTML=`<div class="field"><select id="pnAntTipo" onchange="pneuAntTipoChange()"><option value="vazia">A posição estava vazia (nenhum pneu saiu)</option><option value="sem">Saiu um pneu que não está cadastrado no sistema</option></select></div>
+    <div id="pnAntSem" style="display:none"><div class="row c2"><div class="field"><label>Nº de fogo do retirado</label><input id="prFogo" style="text-transform:uppercase" placeholder="Se tiver"></div><div class="field"><label>DOT do retirado</label><input id="prDot" inputmode="numeric" maxlength="4" placeholder="Se legível"></div></div>${pneuDestinoHTML('pr',null,obraDef)}</div>`;
+  pneuDestInit('pr',c.x.code); }
+function pneuAntTipoChange(){ const b=$('#pnAntSem'); if(b)b.style.display=$('#pnAntTipo').value==='sem'?'':'none'; }
+function pneuDotOk(d){ if(!/^\d{4}$/.test(d))return false; const s=+d.slice(0,2), a=2000+ +d.slice(2); return s>=1&&s<=53&&a<=new Date().getFullYear(); }
+async function salvarAplicacaoPneu(){ if(_pneuSalvando)return; const c=_pneuCtx; if(!c)return; const x=c.x;
+  const fogo=$('#pnFogo').value.trim().toUpperCase(), dot=$('#pnDot').value.trim(), recap=$('#pnRecap').checked, modelo=$('#pnModelo').value.trim();
+  const {pos,eixo,lado}=pneuPosLer();
+  if(!fogo){ toast('Informe o nº de fogo (AM).','err'); $('#pnFogo').focus(); return; }
+  if(!pneuDotOk(dot)){ toast('DOT inválido: 4 dígitos, semana (01 a 53) + ano, sem ano futuro. Ex.: 2324.','err'); $('#pnDot').focus(); return; }
+  if(recap&&!modelo){ toast('Pneu recapado: informe o modelo da banda.','err'); $('#pnModelo').focus(); return; }
+  if(!(eixo>=1&&eixo<=20)){ toast('Informe o eixo (1 a 20).','err'); return; }
+  let ret=null;
+  if(c.ant){ ret=pneuDestLer('pr'); if(!ret)return; }
+  else if($('#pnAntTipo')&&$('#pnAntTipo').value==='sem'){ ret=pneuDestLer('pr'); if(!ret)return;
+    const rd=$('#prDot').value.trim(); if(rd&&!/^\d{4}$/.test(rd)){ toast('DOT do retirado: 4 dígitos ou deixe em branco.','err'); return; }
+    ret.numero_fogo=$('#prFogo').value.trim().toUpperCase(); ret.dot=rd; }
+  const p={requisicao_id:x.r.id,item_code:x.code,descricao:x.desc,obra_id:x.r.obra_id,obra_nome:x.r.obra_nome||obraName(x.r.obra_id),aplicacao_id:x.r.aplicacao_id,aplicacao_nome:x.r.aplicacao_nome||aplicName(x.r.aplicacao_id),ordem_servico:x.r.ordem_servico||null,
+    numero_fogo:fogo,dot,recapado:recap,modelo_recapagem:recap?modelo:null,eixo,lado,posicao:pos,observacao:$('#pnObs').value.trim()||null,retirado:ret};
+  _pneuSalvando=true; const b=$('#pnOk'); if(b){ b.disabled=true; b.textContent='Salvando...'; }
+  try{
+    const {data,error}=await sb.rpc('pneu_registrar_aplicacao',{p});
+    if(error){ const m=/fogo_ativo/.test(error.message)?'O nº de fogo '+fogo+' já está montado em outro equipamento/posição. Confira o número ou cancele a aplicação anterior.':/posicao_ativa/.test(error.message)?'Outra pessoa acabou de informar um pneu nesta posição — reabra e confira.':error.message; toast('Não foi salvo: '+esc(m),'err'); return; }
+    try{ await sb.rpc('log_event',{p_acao:'pneu_aplicado',p_entidade:'pneus_aplicacoes',p_entidade_id:String(data&&data.id),p_detalhes:{requisicao:x.r.id,code:x.code,numero_fogo:fogo,dot,posicao:pneuCodPos(eixo,lado,pos),aplicacao:x.r.aplicacao_id,retirado:ret?ret.destino:null}}); }catch(e){}
+    _pneuUltimo={key:x.r.id+'|'+x.code,dot,recapado:recap,modelo};
+    toast('Aplicação salva: nº de fogo '+esc(fogo)+' em '+esc(pneuCodPos(eixo,lado,pos))+'.'+(ret&&ret.destino==='estoque'?' O retirado aguarda aprovação do almoxarifado para voltar ao estoque.':''),'ok');
+    closeModal(); await drawPneuPendentes(); refreshPneusBadge();
+    const prox=_pneuPend.findIndex(y=>y.r.id===x.r.id&&y.code===x.code); if(prox>=0)pneuAplicarModal(prox); /* próximo pneu do mesmo item já abre, com DOT/recapagem do anterior */
+  } finally { _pneuSalvando=false; const b2=$('#pnOk'); if(b2){ b2.disabled=false; b2.textContent='Salvar aplicação'; } } }
+
+/* ---- aplicados ---- */
+async function drawPneuAplicados(){ const body=$('#pneuBody'); if(!body)return;
+  const {data,error}=await sb.from('pneus_aplicacoes').select('*').order('aplicado_em',{ascending:false}).order('id',{ascending:false}).limit(1000);
+  if(error){ body.innerHTML='<div class="tbl-wrap"><div class="empty">Erro: '+esc(error.message)+'</div></div>'; return; }
+  _pneuAplic=data||[];
+  body.innerHTML=`<div class="panel" style="margin-bottom:12px"><div class="search" style="max-width:none"><span class="si">⌕</span><input id="pnBusca" placeholder="Nº de fogo, DOT, equipamento, REQ, O.S., posição, modelo, produto..." autocomplete="off" oninput="drawPneuAplicadosLista()"></div></div><div class="tbl-wrap" id="pnLista"></div>`;
+  drawPneuAplicadosLista(); }
+function drawPneuAplicadosLista(){ const box=$('#pnLista'); if(!box)return; const q=($('#pnBusca')&&$('#pnBusca').value||'').trim().toLowerCase();
+  const lst=_pneuAplic.filter(a=>!q||[a.numero_fogo,a.dot,a.aplicacao_nome,pneuReqN(a.requisicao_id),a.ordem_servico,a.codigo_posicao,a.modelo_recapagem,a.descricao,a.obra_nome,a.informado_por_nome].join(' ').toLowerCase().includes(q));
+  if(!lst.length){ box.innerHTML='<div class="empty">Nenhum pneu encontrado.</div>'; return; }
+  box.innerHTML=`<table><thead><tr><th>Data</th><th>Equipamento</th><th>Posição</th><th>Nº de fogo</th><th>DOT</th><th>Recapado</th><th>Produto</th><th>REQ / O.S.</th><th>Situação</th><th></th></tr></thead><tbody>${lst.slice(0,500).map(a=>`<tr>
+    <td style="white-space:nowrap">${fmtTs(a.aplicado_em)}<div class="muted" style="font-size:10.5px">${esc(a.informado_por_nome||'')}</div></td><td>${esc(a.aplicacao_nome||aplicName(a.aplicacao_id))}</td>
+    <td class="mono"><b>${esc(a.codigo_posicao||'')}</b></td><td class="mono"><b>${esc(a.numero_fogo)}</b></td><td class="mono">${esc(a.dot)}</td><td>${a.recapado?esc(a.modelo_recapagem||'sim'):'<span class="muted">não</span>'}</td>
+    <td style="font-size:12px">${esc(a.descricao||a.item_code)}</td><td style="white-space:nowrap;font-size:12px">${pneuReqN(a.requisicao_id)}${a.ordem_servico?'<div class="muted">O.S. '+esc(a.ordem_servico)+'</div>':''}</td>
+    <td>${pneuPill(PNEU_AP_ST,a.status)}${a.status==='cancelado'&&a.motivo_cancelamento?'<div class="muted" style="font-size:10.5px">'+esc(a.motivo_cancelamento)+'</div>':''}${a.removido_em?'<div class="muted" style="font-size:10.5px">em '+fmtTs(a.removido_em)+'</div>':''}</td>
+    <td class="num">${a.status==='ativo'&&podeInformarPneu()?`<button class="btn danger sm" title="Informado errado: cancela e devolve à posição o pneu que estava antes" onclick="pneuCancelarModal(${a.id})">Cancelar</button>`:''}</td></tr>`).join('')}</tbody></table>${lst.length>500?'<div class="muted" style="padding:8px 12px;font-size:12px">Mostrando 500 de '+lst.length+' — refine a busca.</div>':''}`; }
+function pneuCancelarModal(id){ const a=_pneuAplic.find(y=>y.id===id); if(!a)return;
+  modal(`<h3>Cancelar aplicação</h3><p class="mp">Nº de fogo <b>${esc(a.numero_fogo)}</b> em <b>${esc(a.aplicacao_nome||'')}</b> · ${esc(a.codigo_posicao||'')}. O pneu volta a contar como pendente na ${pneuReqN(a.requisicao_id)}; se esta troca tinha retirado outro pneu, ele volta para a posição e o registro do retirado é cancelado.</p>
+    <div class="field"><label>Motivo *</label><input id="pcMot" placeholder="Ex.: nº de fogo digitado errado"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Voltar</button><button class="btn danger" onclick="pneuCancelar(${id})">Cancelar aplicação</button></div>`); }
+async function pneuCancelar(id){ const mot=$('#pcMot').value.trim(); if(!mot){ toast('Informe o motivo.','err'); return; }
+  const {error}=await sb.rpc('pneu_cancelar_aplicacao',{p_id:id,p_motivo:mot}); if(error){ toast('Não foi cancelado: '+esc(error.message),'err'); return; }
+  try{ await sb.rpc('log_event',{p_acao:'pneu_aplicacao_cancelada',p_entidade:'pneus_aplicacoes',p_entidade_id:String(id),p_detalhes:{motivo:mot}}); }catch(e){}
+  toast('Aplicação cancelada.','warn'); closeModal(); refreshPneusBadge(); drawPneuAplicados(); }
+
+/* ---- por equipamento: mapa das posições com o pneu montado em cada uma ---- */
+async function drawPneuEquip(){ const body=$('#pneuBody'); if(!body)return;
+  const eq=state.aplicacoes.filter(a=>!aplicUsaSetor(a.tipo)).slice().sort((a,b)=>String(a.nome).localeCompare(String(b.nome)));
+  body.innerHTML=`<div class="panel" style="margin-bottom:12px"><div class="field" style="margin:0;max-width:520px"><label>Equipamento / veículo</label><select id="pnEqp" onchange="_pneuEqp=this.value;drawPneuEquipMapa()"><option value="">— escolha —</option>${eq.map(a=>`<option value="${esc(a.id)}"${a.id===_pneuEqp?' selected':''}>${esc(a.nome)}${a.tag?' ('+esc(a.tag)+')':''}</option>`).join('')}</select></div></div><div id="pnMapa"></div>`;
+  if(_pneuEqp)drawPneuEquipMapa(); }
+async function drawPneuEquipMapa(){ const box=$('#pnMapa'); if(!box)return; if(!_pneuEqp){ box.innerHTML=''; return; }
+  box.innerHTML='<div class="tbl-wrap"><div class="empty">Carregando...</div></div>';
+  const {data,error}=await sb.from('pneus_aplicacoes').select('*').eq('aplicacao_id',_pneuEqp).neq('status','cancelado').order('aplicado_em',{ascending:false});
+  if(error){ box.innerHTML='<div class="tbl-wrap"><div class="empty">Erro: '+esc(error.message)+'</div></div>'; return; }
+  const rows=data||[], at=rows.filter(a=>a.status==='ativo');
+  if(!rows.length){ box.innerHTML='<div class="tbl-wrap"><div class="empty">Nenhum pneu informado neste equipamento ainda.</div></div>'; return; }
+  const cel=(a,rot)=>a?`<div style="border:2px solid #1c7a52;border-radius:8px;padding:6px 8px;min-width:96px;background:#f4fbf7"><div class="mono" style="font-size:11px;color:#8a8377">${esc(a.codigo_posicao)}</div><b class="mono">${esc(a.numero_fogo)}</b><div style="font-size:11px">DOT ${esc(a.dot)}${a.recapado?' · ♻':''}</div></div>`
+    :`<div style="border:2px dashed #ccc;border-radius:8px;padding:6px 8px;min-width:96px;color:#aaa"><div class="mono" style="font-size:11px">${esc(rot)}</div>—</div>`;
+  const get=(e,l,p)=>at.find(a=>a.eixo===e&&a.lado===l&&a.posicao===p);
+  const eixos=[...new Set(at.filter(a=>a.posicao!=='ESTEPE').map(a=>a.eixo))].sort((a,b)=>a-b);
+  let h='<div class="panel"><h3>Mapa de pneus montados</h3><p class="desc">Vista de cima, frente do equipamento no alto. E = esquerdo (motorista), D = direito, I = interno, E = externo.</p>';
+  eixos.forEach(e=>{ const duplo=at.some(a=>a.eixo===e&&a.posicao!=='UNICO');
+    const esq=duplo?[cel(get(e,'E','EXTERNO'),e+'EE'),cel(get(e,'E','INTERNO'),e+'EI')]:[cel(get(e,'E','UNICO'),e+'E')];
+    const dir=duplo?[cel(get(e,'D','INTERNO'),e+'DI'),cel(get(e,'D','EXTERNO'),e+'DE')]:[cel(get(e,'D','UNICO'),e+'D')];
+    h+=`<div style="display:flex;align-items:center;gap:8px;margin:8px 0;flex-wrap:wrap"><div style="display:flex;gap:4px">${esq.join('')}</div><div style="flex:1;min-width:60px;text-align:center;border-top:4px solid #555;padding-top:2px;font-size:11px;color:#8a8377">Eixo ${e}</div><div style="display:flex;gap:4px">${dir.join('')}</div></div>`; });
+  const est=at.filter(a=>a.posicao==='ESTEPE').sort((a,b)=>a.eixo-b.eixo);
+  if(est.length)h+=`<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap"><span class="muted" style="align-self:center;font-size:12px">Estepe:</span>${est.map(a=>cel(a)).join('')}</div>`;
+  h+='</div><div class="sechead" style="margin-top:14px"><h3 style="font-size:13px">Histórico do equipamento</h3></div>';
+  h+=`<div class="tbl-wrap"><table><thead><tr><th>Aplicado em</th><th>Posição</th><th>Nº de fogo</th><th>DOT</th><th>Recapado</th><th>REQ</th><th>Situação</th></tr></thead><tbody>${rows.map(a=>`<tr><td>${fmtTs(a.aplicado_em)}</td><td class="mono">${esc(a.codigo_posicao)}</td><td class="mono"><b>${esc(a.numero_fogo)}</b></td><td class="mono">${esc(a.dot)}</td><td>${a.recapado?esc(a.modelo_recapagem||'sim'):'não'}</td><td>${pneuReqN(a.requisicao_id)}</td><td>${pneuPill(PNEU_AP_ST,a.status)}${a.removido_em?' <span class="muted" style="font-size:11px">'+fmtTs(a.removido_em)+'</span>':''}</td></tr>`).join('')}</tbody></table></div>`;
+  box.innerHTML=h; }
+
+/* ---- retirados: destino e aprovação da volta ao estoque ---- */
+async function drawPneuRetirados(){ const body=$('#pneuBody'); if(!body)return;
+  const {data,error}=await sb.from('pneus_retirados').select('*').order('registrado_em',{ascending:false}).order('id',{ascending:false}).limit(1000);
+  if(error){ body.innerHTML='<div class="tbl-wrap"><div class="empty">Erro: '+esc(error.message)+'</div></div>'; return; }
+  _pneuRet=data||[];
+  const f=[['abertos','Aguardando aprovação / rejeitados'],['todos','Todos'],['reintegrado','Reintegrados']];
+  body.innerHTML=`<div class="panel" style="margin-bottom:12px"><h3>↩ Pneus retirados dos equipamentos</h3><p class="desc">Destino de cada pneu que saiu de uma posição. <b>Volta ao estoque</b> só entra no saldo depois da aprovação do encarregado do almoxarifado.</p>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">${f.map(([k,t])=>`<button class="btn ${_pneuRetFiltro===k?'dark':'ghost'} sm" onclick="_pneuRetFiltro='${k}';drawPneuRetirados()">${t}</button>`).join('')}</div></div><div class="tbl-wrap" id="prLista"></div>`;
+  const lst=_pneuRet.filter(r=>_pneuRetFiltro==='todos'?true:_pneuRetFiltro==='reintegrado'?r.status==='reintegrado':['aguardando_aprovacao','rejeitado'].includes(r.status));
+  const box=$('#prLista');
+  if(!lst.length){ box.innerHTML='<div class="empty">Nada por aqui.</div>'; return; }
+  box.innerHTML=`<table><thead><tr><th>Retirado em</th><th>Equipamento / posição</th><th>Nº de fogo / DOT</th><th>Produto</th><th>Destino</th><th>Situação</th><th></th></tr></thead><tbody>${lst.map(r=>`<tr>
+    <td style="white-space:nowrap">${fmtTs(r.registrado_em)}<div class="muted" style="font-size:10.5px">${esc(r.registrado_por_nome||'')}${r.requisicao_id?' · '+pneuReqN(r.requisicao_id):''}</div></td>
+    <td>${esc(r.aplicacao_nome||'')}<div class="mono" style="font-size:11.5px">${esc(r.codigo_posicao||'')}</div></td>
+    <td class="mono">${esc(r.numero_fogo||'—')}<div style="font-size:11px">DOT ${esc(r.dot||'—')}</div></td><td style="font-size:12px">${esc(r.descricao||r.item_code||'(não cadastrado)')}</td>
+    <td>${esc(PNEU_DEST[r.destino]||r.destino)}${r.destino==='estoque'&&r.reint_obra_nome?'<div class="muted" style="font-size:11px">→ '+esc(r.reint_descricao||r.reint_code||'')+' · '+esc(r.reint_obra_nome)+'</div>':''}${r.observacao?'<div class="muted" style="font-size:11px">'+esc(r.observacao)+'</div>':''}</td>
+    <td>${pneuPill(PNEU_RET_ST,r.status)}${r.decidido_por_nome?'<div class="muted" style="font-size:10.5px">'+esc(r.decidido_por_nome)+' · '+fmtTs(r.decidido_em)+'</div>':''}${r.motivo_rejeicao?'<div style="font-size:11px;color:#c0392b">'+esc(r.motivo_rejeicao)+'</div>':''}</td>
+    <td class="num" style="white-space:nowrap">${r.status==='aguardando_aprovacao'&&podeAprovarReintPneu()?`<button class="btn primary sm" onclick="pneuAprovarModal(${r.id})">Aprovar</button> <button class="btn danger sm" onclick="pneuRejeitarModal(${r.id})">Rejeitar</button>`:''}${['registrado','rejeitado'].includes(r.status)&&podeInformarPneu()?`<button class="btn ghost sm" onclick="pneuDestinoModal(${r.id})">Mudar destino</button>`:''}</td></tr>`).join('')}</tbody></table>`; }
+function pneuDestinoModal(id){ const r=_pneuRet.find(y=>y.id===id); if(!r)return;
+  modal(`<h3>Destino do pneu retirado</h3><p class="mp">Nº de fogo <b>${esc(r.numero_fogo||'—')}</b> · ${esc(r.aplicacao_nome||'')} ${esc(r.codigo_posicao||'')}</p>${pneuDestinoHTML('pd',r,r.obra_id)}
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px"><button class="btn ghost" onclick="closeModal()">Voltar</button><button class="btn primary" onclick="pneuSalvarDestino(${id})">Salvar destino</button></div>`);
+  pneuDestInit('pd',r.reint_code||r.item_code); }
+async function pneuSalvarDestino(id){ const d=pneuDestLer('pd'); if(!d)return;
+  const {error}=await sb.rpc('pneu_definir_destino',{p_id:id,p:d}); if(error){ toast('Não foi salvo: '+esc(error.message),'err'); return; }
+  try{ await sb.rpc('log_event',{p_acao:'pneu_retirado_destino',p_entidade:'pneus_retirados',p_entidade_id:String(id),p_detalhes:d}); }catch(e){}
+  toast(d.destino==='estoque'?'Destino salvo — aguardando aprovação do almoxarifado.':'Destino salvo.','ok'); closeModal(); refreshPneusBadge(); drawPneuRetirados(); }
+function pneuAprovarModal(id){ const r=_pneuRet.find(y=>y.id===id); if(!r)return; if(!podeAprovarReintPneu()){ toast('Só o encarregado do almoxarifado aprova.','err'); return; }
+  const p=findProduct(r.reint_code)||{};
+  modal(`<h3>✔ Aprovar volta ao estoque</h3><p class="mp">Pneu nº de fogo <b>${esc(r.numero_fogo||'—')}</b> (DOT ${esc(r.dot||'—')}) retirado de <b>${esc(r.aplicacao_nome||'')}</b> · ${esc(r.codigo_posicao||'')}${r.observacao?'<br>Obs.: '+esc(r.observacao):''}</p>
+    <div class="row c2"><div class="field"><label>Produto que entra no saldo</label><select id="paCode" onchange="pneuAprovCusto()"><option value="">— escolha —</option>${pneuProdOpts()}</select></div>
+      <div class="field"><label>Estoque (obra)</label><select id="paObra">${pneuObraOpts(r.reint_obra_id||r.obra_id)}</select></div></div>
+    <div class="field"><label>Valor unitário do pneu usado (R$)</label><input id="paValor" type="number" step="any" min="0" value="${Number(p.custo)||''}"><div class="muted" style="font-size:11px;margin-top:3px">Entra 1 unidade como <b>ajuste de saldo</b> e recalcula o custo médio do produto. Para pneu usado, use um produto próprio (ex.: "PNEU USADO / CARCAÇA") se não quiser misturar com o custo do novo.</div></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px"><button class="btn ghost" onclick="closeModal()">Voltar</button><button class="btn primary" id="paOk" onclick="pneuAprovar(${id})">Aprovar e dar entrada</button></div>`);
+  if(r.reint_code&&$('#paCode'))$('#paCode').value=r.reint_code; }
+function pneuAprovCusto(){ const p=findProduct($('#paCode').value); if(p&&$('#paValor'))$('#paValor').value=Number(p.custo)||''; }
+let _pneuAprovando=false;
+async function pneuAprovar(id){ if(_pneuAprovando)return; const r=_pneuRet.find(y=>y.id===id); if(!r)return;
+  if(!isOnline){ toast('Sem conexão — a aprovação precisa ser feita online.','err'); return; }
+  const code=$('#paCode').value, obra=$('#paObra').value, valor=parseFloat(String($('#paValor').value).replace(',','.')); const p=findProduct(code);
+  if(!p||!obra){ toast('Escolha o produto e o estoque.','err'); return; }
+  if(!(valor>0)){ toast('Informe o valor unitário (maior que zero).','err'); return; }
+  _pneuAprovando=true; const b=$('#paOk'); if(b){ b.disabled=true; b.textContent='Aprovando...'; }
+  try{
+    const movId=uid();
+    /* 1º o banco marca como reintegrado (barra aprovação em dobro); só depois mexe no saldo, com o mesmo id de movimento */
+    const {error}=await sb.rpc('pneu_decidir_reintegracao',{p_id:id,p_aprovar:true,p_motivo:null,p_code:p.code,p_descricao:p.desc,p_obra_id:obra,p_obra_nome:obraName(obra),p_valor_unit:valor,p_movimento_id:movId});
+    if(error){ toast('Não foi aprovado: '+esc(error.message),'err'); return; }
+    const custoFinal=custoMedioEntrada(p,1,valor).custoMedio; const lt=addSaldo(obra,p.code,1); p.custo=custoFinal;
+    pushMov({id:movId,ts:Date.now(),tipo:'ajuste',obra,code:p.code,desc:p.desc,qty:1,valorUnit:custoFinal,valorTotal:custoFinal,
+      doc:'Reintegração de pneu retirado: nº de fogo '+(r.numero_fogo||'—')+' · '+(r.aplicacao_nome||'')+' '+(r.codigo_posicao||'')+(r.requisicao_id?' · '+pneuReqN(r.requisicao_id):''),
+      obs:'Aprovado por '+(profile.nome||profile.email)+(r.observacao?' · '+r.observacao:''),saldo:saldoContabilOf(obra,p.code),lotes:lt||undefined});
+    await aguardarMovs();
+    await save('Reintegração de pneu retirado: '+p.desc+' em '+obraName(obra)+' (+1) · nº de fogo '+(r.numero_fogo||'—'));
+    try{ await sb.rpc('log_event',{p_acao:'pneu_reintegrado',p_entidade:'pneus_retirados',p_entidade_id:String(id),p_detalhes:{code:p.code,obra,valor,movimento:movId}}); }catch(e){}
+    toast('Aprovado — pneu entrou no saldo de '+esc(obraName(obra))+'.','ok'); closeModal(); refreshPneusBadge(); drawPneuRetirados();
+  } finally { _pneuAprovando=false; const b2=$('#paOk'); if(b2){ b2.disabled=false; b2.textContent='Aprovar e dar entrada'; } } }
+function pneuRejeitarModal(id){ modal(`<h3>Rejeitar volta ao estoque</h3><p class="mp">O pneu não entra no saldo. A oficina pode definir outro destino (recapagem, sucata...).</p>
+    <div class="field"><label>Motivo *</label><input id="prjMot" placeholder="Ex.: carcaça sem condição de reuso"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Voltar</button><button class="btn danger" onclick="pneuRejeitar(${id})">Rejeitar</button></div>`); }
+async function pneuRejeitar(id){ const mot=$('#prjMot').value.trim(); if(!mot){ toast('Informe o motivo.','err'); return; }
+  const {error}=await sb.rpc('pneu_decidir_reintegracao',{p_id:id,p_aprovar:false,p_motivo:mot}); if(error){ toast('Erro: '+esc(error.message),'err'); return; }
+  try{ await sb.rpc('log_event',{p_acao:'pneu_reintegracao_rejeitada',p_entidade:'pneus_retirados',p_entidade_id:String(id),p_detalhes:{motivo:mot}}); }catch(e){}
+  toast('Reintegração rejeitada.','warn'); closeModal(); refreshPneusBadge(); drawPneuRetirados(); }
+
+/* ---- configuração: grupos de insumo com controle de aplicação ---- */
+function drawPneuConfig(){ const body=$('#pneuBody'); if(!body)return; if(!podeAprovarReintPneu()){ body.innerHTML='<div class="tbl-wrap"><div class="empty">Só o encarregado do almoxarifado ou o administrador altera a configuração.</div></div>'; return; }
+  const cfg=pneuCfg(), sel=new Set(cfg.grupos.map(_pneuG)); const cont=new Map();
+  state.products.forEach(p=>{ const g=String(p.grupo||'').trim(); if(g)cont.set(_pneuG(g),{nome:(cont.get(_pneuG(g))||{}).nome||g,n:((cont.get(_pneuG(g))||{}).n||0)+1}); });
+  const grupos=[...cont.entries()].sort((a,b)=>a[1].nome.localeCompare(b[1].nome));
+  const prods=state.products.filter(p=>sel.has(_pneuG(p.grupo)));
+  body.innerHTML=`<div class="panel"><h3>⚙ Grupos com controle de aplicação de pneu</h3><p class="desc">Os insumos dos grupos marcados passam a exigir, depois da entrega da requisição, que a oficina informe nº de fogo, DOT, recapagem e posição de cada unidade. O grupo vem do cadastro do produto (campo <b>Grupo do insumo</b>).</p>
+    ${grupos.length?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:6px;margin-bottom:12px">${grupos.map(([k,v])=>`<label style="display:flex;align-items:center;gap:8px;text-transform:none;font-weight:500;margin:0;padding:6px 8px;border:1px solid #e5e0d6;border-radius:8px"><input type="checkbox" class="pgChk" value="${esc(v.nome)}" style="width:auto" ${sel.has(k)?'checked':''}> ${esc(v.nome)} <span class="muted" style="font-size:11px">(${v.n})</span></label>`).join('')}</div>`:'<p class="mp">Nenhum produto tem grupo cadastrado. Preencha o grupo em Produtos & Etiquetas.</p>'}
+    <div class="field" style="max-width:320px"><label>Controlar requisições criadas a partir de</label><input id="pgDesde" type="date" value="${esc(cfg.desde)}"><div class="muted" style="font-size:11px;margin-top:3px">Evita que requisições antigas entrem na fila. Em branco = todas.</div></div>
+    <button class="btn primary sm" onclick="pneuSalvarConfig()">Salvar configuração</button></div>
+    <div class="sechead" style="margin-top:16px"><h3 style="font-size:13px">Produtos controlados (${prods.length})</h3></div>
+    <div class="tbl-wrap">${prods.length?`<table><thead><tr><th>Código</th><th>Produto</th><th>Grupo</th><th>Unidade</th><th>Recapado</th></tr></thead><tbody>${prods.map(p=>`<tr><td class="mono">${esc(p.code)}</td><td>${esc(p.desc)}</td><td>${esc(p.grupo)}</td><td>${esc(p.unit||'')}${String(p.unit||'').toUpperCase()!=='UN'?' <span class="pill high">use UN</span>':''}</td><td>${p.recapado?'♻ sim':'<span class="muted">não</span>'} <button class="btn ghost sm" onclick="editProductModal('${esc(p.code)}')">✎</button></td></tr>`).join('')}</tbody></table>`:'<div class="empty">Nenhum grupo marcado.</div>'}</div>`; }
+async function pneuSalvarConfig(){ if(!podeAprovarReintPneu())return;
+  const grupos=[...document.querySelectorAll('.pgChk')].filter(c=>c.checked).map(c=>c.value); const desde=$('#pgDesde').value||'';
+  if(!state.config)state.config={}; state.config.pneus={grupos,desde};
+  await save('Configuração de grupos com controle de pneu: '+(grupos.join(', ')||'nenhum')+(desde?' · desde '+desde:''));
+  toast('Configuração salva.','ok'); refreshPneusBadge(); drawPneuConfig(); }
 
 /* ===== PATRIMÔNIO (controle patrimonial, depreciação e localização dos equipamentos nas obras) =====
    Tudo fica no documento compartilhado (mesma gravação/mescla item a item por id das demais listas):
