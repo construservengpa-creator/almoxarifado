@@ -8420,7 +8420,7 @@ window.addEventListener('appinstalled',()=>{ _promptInstalar=null; atualizarBota
 
 /* ===== APLICAÇÃO DE PNEUS =====
    Insumos dos grupos marcados na configuração (state.config.pneus.grupos) passam a exigir, depois da entrega da
-   requisição (balcão ou recebimento na obra), que o encarregado da oficina informe para CADA pneu: nº de fogo (AM),
+   requisição (balcão ou recebimento na obra), que frotas/oficina informe para CADA pneu: nº de fogo (AM),
    DOT, se é recapado (e o modelo da banda), eixo, lado e posição no equipamento da requisição.
    Montar um pneu numa posição registra o pneu que saiu dela e o destino. Destino "volta ao estoque" fica aguardando
    a aprovação do encarregado do almoxarifado; aprovado, o saldo entra como ajuste (+1) no estoque escolhido.
@@ -8430,8 +8430,8 @@ const PNEU_TIPOS=[['UNICO','Rodado simples'],['INTERNO','Rodado duplo — intern
 const PNEU_DEST={estoque:'Volta ao estoque',recapagem:'Recapagem',sucata:'Sucata / descarte',garantia:'Garantia (fornecedor)',outro:'Outro'};
 const PNEU_RET_ST={registrado:['Registrado','good'],aguardando_aprovacao:['Aguardando aprovação do almoxarifado','high'],reintegrado:['Reintegrado ao estoque','good'],rejeitado:['Reintegração rejeitada','low'],cancelado:['Cancelado','cancelada']};
 const PNEU_AP_ST={ativo:['Montado','good'],substituido:['Retirado','tr'],cancelado:['Cancelado','cancelada']};
-function isEncOficina(){ return !!profile && profile.papel==='encarregado' && profile.setor==='oficina' && profile.ativo; }
-function podeInformarPneu(){ return isAdmin()||isEncAlmox()||isEncOficina(); }
+/* Quem informa: setor Frotas ou Oficina (qualquer papel, inclusive operador), encarregado do almoxarifado e admin */
+function podeInformarPneu(){ return isAdmin()||isEncAlmox()||(!!profile&&profile.ativo&&(profile.setor==='frotas'||profile.setor==='oficina')); }
 function podeAprovarReintPneu(){ return isAdminOuEncAlmox(); }
 function podeVerPneus(){ return podeInformarPneu()||isAlmoxarife()||isFrotas()||(!!profile&&profile.ativo&&profile.setor==='oficina'); }
 function pneuCfg(){ const c=(state.config&&state.config.pneus)||{}; return {grupos:Array.isArray(c.grupos)?c.grupos:[],desde:c.desde||''}; }
@@ -8461,7 +8461,7 @@ async function pneuPendentes(){
   const lib=x=>{ const st=x.requisicoes.status; const e=Number(x.quantidade_entregue)||0, s=Number(x.quantidade_separada)||0; return st==='retirado'||st==='recebido'?Math.max(e,s):e; };
   rows=rows.filter(x=>lib(x)>0);
   const vinc=Array.isArray(profile.obras_vinculadas)?profile.obras_vinculadas:[];
-  if(!isAdminOuEncAlmox()&&isEncOficina()&&vinc.length)rows=rows.filter(x=>vinc.includes(x.requisicoes.obra_id));
+  if(!isAdminOuEncAlmox()&&vinc.length)rows=rows.filter(x=>vinc.includes(x.requisicoes.obra_id));
   if(!rows.length)return {lista:[]};
   const ids=[...new Set(rows.map(x=>x.requisicao_id))]; const usados=new Map(), devol=new Map(); const k=(r,c)=>r+'|'+c;
   for(let i=0;i<ids.length;i+=150){ const part=ids.slice(i,i+150);
@@ -8720,7 +8720,7 @@ async function pneuAprovar(id){ if(_pneuAprovando)return; const r=_pneuRet.find(
     try{ await sb.rpc('log_event',{p_acao:'pneu_reintegrado',p_entidade:'pneus_retirados',p_entidade_id:String(id),p_detalhes:{code:p.code,obra,valor,movimento:movId}}); }catch(e){}
     toast('Aprovado — pneu entrou no saldo de '+esc(obraName(obra))+'.','ok'); closeModal(); refreshPneusBadge(); drawPneuRetirados();
   } finally { _pneuAprovando=false; const b2=$('#paOk'); if(b2){ b2.disabled=false; b2.textContent='Aprovar e dar entrada'; } } }
-function pneuRejeitarModal(id){ modal(`<h3>Rejeitar volta ao estoque</h3><p class="mp">O pneu não entra no saldo. A oficina pode definir outro destino (recapagem, sucata...).</p>
+function pneuRejeitarModal(id){ modal(`<h3>Rejeitar volta ao estoque</h3><p class="mp">O pneu não entra no saldo. Frotas/oficina pode definir outro destino (recapagem, sucata...).</p>
     <div class="field"><label>Motivo *</label><input id="prjMot" placeholder="Ex.: carcaça sem condição de reuso"></div>
     <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Voltar</button><button class="btn danger" onclick="pneuRejeitar(${id})">Rejeitar</button></div>`); }
 async function pneuRejeitar(id){ const mot=$('#prjMot').value.trim(); if(!mot){ toast('Informe o motivo.','err'); return; }
@@ -8734,7 +8734,7 @@ function drawPneuConfig(){ const body=$('#pneuBody'); if(!body)return; if(!podeA
   state.products.forEach(p=>{ const g=String(p.grupo||'').trim(); if(g)cont.set(_pneuG(g),{nome:(cont.get(_pneuG(g))||{}).nome||g,n:((cont.get(_pneuG(g))||{}).n||0)+1}); });
   const grupos=[...cont.entries()].sort((a,b)=>a[1].nome.localeCompare(b[1].nome));
   const prods=state.products.filter(p=>sel.has(_pneuG(p.grupo)));
-  body.innerHTML=`<div class="panel"><h3>⚙ Grupos com controle de aplicação de pneu</h3><p class="desc">Os insumos dos grupos marcados passam a exigir, depois da entrega da requisição, que a oficina informe nº de fogo, DOT, recapagem e posição de cada unidade. O grupo vem do cadastro do produto (campo <b>Grupo do insumo</b>).</p>
+  body.innerHTML=`<div class="panel"><h3>⚙ Grupos com controle de aplicação de pneu</h3><p class="desc">Os insumos dos grupos marcados passam a exigir, depois da entrega da requisição, que frotas/oficina informe nº de fogo, DOT, recapagem e posição de cada unidade. O grupo vem do cadastro do produto (campo <b>Grupo do insumo</b>).</p>
     ${grupos.length?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:6px;margin-bottom:12px">${grupos.map(([k,v])=>`<label style="display:flex;align-items:center;gap:8px;text-transform:none;font-weight:500;margin:0;padding:6px 8px;border:1px solid #e5e0d6;border-radius:8px"><input type="checkbox" class="pgChk" value="${esc(v.nome)}" style="width:auto" ${sel.has(k)?'checked':''}> ${esc(v.nome)} <span class="muted" style="font-size:11px">(${v.n})</span></label>`).join('')}</div>`:'<p class="mp">Nenhum produto tem grupo cadastrado. Preencha o grupo em Produtos & Etiquetas.</p>'}
     <div class="field" style="max-width:320px"><label>Controlar requisições criadas a partir de</label><input id="pgDesde" type="date" value="${esc(cfg.desde)}"><div class="muted" style="font-size:11px;margin-top:3px">Evita que requisições antigas entrem na fila. Em branco = todas.</div></div>
     <button class="btn primary sm" onclick="pneuSalvarConfig()">Salvar configuração</button></div>

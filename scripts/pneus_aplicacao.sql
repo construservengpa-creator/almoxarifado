@@ -1,6 +1,6 @@
 -- Controle de aplicação de pneus (insumos dos grupos marcados como "controle de pneu" na configuração do Estoque).
 --
--- Depois que a requisição é entregue (balcão: entrega registrada; despacho: recebida na obra), o encarregado da
+-- Depois que a requisição é entregue (balcão: entrega registrada; despacho: recebida na obra), frotas ou
 -- oficina informa, para CADA pneu entregue: nº de fogo, DOT, se é recapado (e o modelo da banda), eixo, lado e
 -- posição em que foi montado no equipamento da requisição.
 --
@@ -124,12 +124,13 @@ create policy "pneus_retirados: leitura" on public.pneus_retirados for select to
   using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.ativo));
 -- Sem INSERT/UPDATE/DELETE direto: só pelas funções abaixo.
 
--- Quem informa aplicação: administrador, encarregado da oficina ou encarregado do almoxarifado.
+-- Quem informa aplicação: administrador, encarregado do almoxarifado ou qualquer usuário ativo do setor
+-- Frotas ou Oficina (inclusive operador).
 create or replace function public.pneu_pode_informar()
 returns text language sql stable security definer set search_path = public as $$
   select coalesce(p.nome, p.email) from public.profiles p
    where p.id = auth.uid() and p.ativo
-     and (p.papel = 'admin' or (p.papel = 'encarregado' and p.setor in ('oficina','almoxarifado')));
+     and (p.papel = 'admin' or (p.papel = 'encarregado' and p.setor = 'almoxarifado') or p.setor in ('frotas','oficina'));
 $$;
 -- Quem aprova a reintegração ao estoque: administrador ou encarregado do almoxarifado.
 create or replace function public.pneu_pode_aprovar()
