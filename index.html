@@ -8505,7 +8505,7 @@ async function renderPneus(){
       <p class="desc">As tabelas desta rotina ainda não existem. ${isAdmin()?'Copie o script e rode uma vez no <b>SQL Editor</b> do Supabase (projeto Estoque). Depois reabra esta tela.':'Peça ao administrador para rodar o script <b>pneus_aplicacao.sql</b> no Supabase.'}</p>
       ${isAdmin()?'<button class="btn primary sm" onclick="copiarPneuSQL()">Copiar script SQL</button>':''}</div>`; return; }
   const abas=[['pendentes','⏳ Pendentes'],['aplicados','🛞 Aplicados'],['equip','🚚 Por equipamento'],['retirados','↩ Retirados e destino']];
-  if(podeAprovarReintPneu())abas.push(['config','⚙ Configuração']);
+  if(isAdmin())abas.push(['config','⚙ Configuração']); /* configuração: só administrador */
   if(!abas.some(a=>a[0]===_pneuAba))_pneuAba='pendentes';
   $('#view').innerHTML=`<div class="tabs">${abas.map(([k,t])=>`<button data-pa="${k}" onclick="setPneuAba('${k}')">${t}${k==='retirados'&&_pneuCont.aprov&&podeAprovarReintPneu()?' <span class="pill high">'+_pneuCont.aprov+'</span>':''}${k==='pendentes'&&_pneuCont.pend?' <span class="pill high">'+_pneuCont.pend+'</span>':''}</button>`).join('')}</div><div id="pneuBody"></div>`;
   await setPneuAba(_pneuAba); }
@@ -8516,7 +8516,7 @@ async function setPneuAba(a){ _pneuAba=a; document.querySelectorAll('[data-pa]')
 
 async function drawPneuPendentes(){ const body=$('#pneuBody'); if(!body)return;
   const {lista,semCfg,erro}=await pneuPendentes(); _pneuPend=lista;
-  if(semCfg){ body.innerHTML=`<div class="tbl-wrap"><div class="empty">Nenhum grupo de insumo está marcado para controle de pneu.${podeAprovarReintPneu()?'<br><button class="btn primary sm" onclick="setPneuAba(\'config\')">Configurar grupos</button>':'<br>Peça ao encarregado do almoxarifado para configurar os grupos.'}</div></div>`; return; }
+  if(semCfg){ body.innerHTML=`<div class="tbl-wrap"><div class="empty">Nenhum grupo de insumo está marcado para controle de pneu.${isAdmin()?'<br><button class="btn primary sm" onclick="setPneuAba(\'config\')">Configurar grupos</button>':'<br>Peça ao administrador para configurar os grupos.'}</div></div>`; return; }
   if(erro){ body.innerHTML='<div class="tbl-wrap"><div class="empty">Erro: '+esc(erro.message)+'</div></div>'; return; }
   const cfg=pneuCfg();
   let h=`<div class="panel" style="margin-bottom:14px"><h3>⏳ Pneus entregues aguardando aplicação</h3><p class="desc">Para cada pneu entregue informe o <b>nº de fogo (AM)</b>, o <b>DOT</b>, se é <b>recapado</b> (com o modelo da banda) e a <b>posição</b> em que foi montado. Se saiu um pneu da posição, informe o destino dele. ${cfg.desde?'Controle a partir das requisições criadas em '+esc(cfg.desde.split('-').reverse().join('/'))+'.':''}</p></div>`;
@@ -8729,7 +8729,7 @@ async function pneuRejeitar(id){ const mot=$('#prjMot').value.trim(); if(!mot){ 
   toast('Reintegração rejeitada.','warn'); closeModal(); refreshPneusBadge(); drawPneuRetirados(); }
 
 /* ---- configuração: grupos de insumo com controle de aplicação ---- */
-function drawPneuConfig(){ const body=$('#pneuBody'); if(!body)return; if(!podeAprovarReintPneu()){ body.innerHTML='<div class="tbl-wrap"><div class="empty">Só o encarregado do almoxarifado ou o administrador altera a configuração.</div></div>'; return; }
+function drawPneuConfig(){ const body=$('#pneuBody'); if(!body)return; if(!isAdmin()){ body.innerHTML='<div class="tbl-wrap"><div class="empty">Só o administrador altera a configuração.</div></div>'; return; }
   const cfg=pneuCfg(), sel=new Set(cfg.grupos.map(_pneuG)); const cont=new Map();
   state.products.forEach(p=>{ const g=String(p.grupo||'').trim(); if(g)cont.set(_pneuG(g),{nome:(cont.get(_pneuG(g))||{}).nome||g,n:((cont.get(_pneuG(g))||{}).n||0)+1}); });
   const grupos=[...cont.entries()].sort((a,b)=>a[1].nome.localeCompare(b[1].nome));
@@ -8740,7 +8740,7 @@ function drawPneuConfig(){ const body=$('#pneuBody'); if(!body)return; if(!podeA
     <button class="btn primary sm" onclick="pneuSalvarConfig()">Salvar configuração</button></div>
     <div class="sechead" style="margin-top:16px"><h3 style="font-size:13px">Produtos controlados (${prods.length})</h3></div>
     <div class="tbl-wrap">${prods.length?`<table><thead><tr><th>Código</th><th>Produto</th><th>Grupo</th><th>Unidade</th><th>Recapado</th></tr></thead><tbody>${prods.map(p=>`<tr><td class="mono">${esc(p.code)}</td><td>${esc(p.desc)}</td><td>${esc(p.grupo)}</td><td>${esc(p.unit||'')}${String(p.unit||'').toUpperCase()!=='UN'?' <span class="pill high">use UN</span>':''}</td><td>${p.recapado?'♻ sim':'<span class="muted">não</span>'} <button class="btn ghost sm" onclick="editProductModal('${esc(p.code)}')">✎</button></td></tr>`).join('')}</tbody></table>`:'<div class="empty">Nenhum grupo marcado.</div>'}</div>`; }
-async function pneuSalvarConfig(){ if(!podeAprovarReintPneu())return;
+async function pneuSalvarConfig(){ if(!isAdmin()){ toast('Só o administrador altera a configuração.','err'); return; }
   const grupos=[...document.querySelectorAll('.pgChk')].filter(c=>c.checked).map(c=>c.value); const desde=$('#pgDesde').value||'';
   if(!state.config)state.config={}; state.config.pneus={grupos,desde};
   await save('Configuração de grupos com controle de pneu: '+(grupos.join(', ')||'nenhum')+(desde?' · desde '+desde:''));
